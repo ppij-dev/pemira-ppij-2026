@@ -3,8 +3,13 @@ import { Hono } from "hono";
 import { getRuntimeKey } from "hono/adapter";
 import { actions, i18n, middleware, pages, sessions } from "astro/hono";
 import { app as api, type Bindings } from "./server/app";
+import { noindex } from "./server/middleware/noindex";
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+// Mesin pencari tidak boleh mengindeks situs ini: header di semua respons
+// (halaman dan /api), dilengkapi /robots.txt dan meta robots di layout dasar.
+app.use("*", noindex);
 
 // Cloudflare setup first so bindings and locals exist for everything below.
 // cf() needs a Cloudflare ExecutionContext, which `astro dev` (Node) does not
