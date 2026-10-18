@@ -60,7 +60,7 @@ is needed for groups 5 and 8 against real data; until then tests use a recorded 
 
 - [ ] 9.1 Pengaturan sections with masked secrets, stage rules, Uji Koneksi for One Login and Domain during voting; verify tests for each rule
 - [ ] 9.2 Identitas: logo crop and two sizes, name, checkbox, organisation website, live email preview, Kirim Email Tes; verify size limits and preview in Playwright
-- [ ] 9.3 Email providers (ZeptoMail, Resend, Mailgun, SMTP 465/587) and the four templates in one layout under 20 KB; verify tests with a mock transport and a size check per template (copy via `copywriting`)
+- [x] 9.3 Email providers (ZeptoMail, Resend, Mailgun, SMTP 465/587) and the four templates in one layout under 20 KB; verify tests with a mock transport and a size check per template (copy via `copywriting`)
 
 ## 10. Audit page
 
