@@ -43,14 +43,16 @@ window is 60 minutes from `first_boot_at`; recovery is
   residual risk is low because `workers.dev`/`pages.dev` names are covered by wildcard certificates and
   do not appear in certificate logs.
 
-### 3. Eligibility from the token, the Pemilih list from the Service API
-Voting reads only the session: `auth_time` within 600 s and `affiliation` under the scope path. The
-Service API feeds `voters` (member_id, name, nickname, komsat_path, status, synced_at) and
-`membership_changes` (type, source, actor, from/to, at) through `changed_since` syncs; units and map
-points come from `organisasi`. Contacts are fetched per click with `on_behalf_of = <Admin Voting member_id>`
-and never written to D1.
-- *Alternative:* a frozen roll exported at opening. Rejected by the committee: members approved during
-  voting must be able to vote.
+### 3. Eligibility from the token and the frozen Pemilih roll
+Voting accepts a member only when their `member_id` is on the frozen Pemilih roll **and** the session
+passes the token checks: `auth_time` within 600 s and `affiliation` under the scope path. The Service API
+feeds `voters` (member_id, name, nickname, komsat_path, status, synced_at) through `changed_since` syncs;
+"sync" runs only in Draf, and "Kunci & Jadwalkan" performs one final sync and freezes the roll as the
+snapshot of ACTIVE members in scope at that moment. After the lock there is no sync in any stage.
+Units and map points come from `organisasi`. Contacts are fetched per click with
+`on_behalf_of = <Admin Voting member_id>` and never written to D1.
+- *Alternative:* a live roll kept in sync during voting. Rejected: the committee wants a fixed electorate,
+  so the roll is frozen at Kunci instead and members who become ACTIVE later cannot vote this election.
 
 ### 4. Stage computed from the clock
 `elections(status_lock: draft|locked|published, opens_at, closes_at, closed_early_at NULL)`. Stage =
@@ -100,21 +102,25 @@ throttle: `reminders(member_id, channel, sent_at)` with one email per 24 h.
 
 - [Live tally plus the who-voted list can reveal a single vote when votes are sparse] → Accepted as a
   committee-trust issue; every tally view is audit-logged so comparisons leave a trail.
-- [An Admin Portal can create members during voting who then vote] → Visible in the membership-change
-  panel with the acting Admin Portal named; the identity side can tighten this later.
-- [An Admin Portal can suspend or move members to keep them from voting, or slow renewals] → Visible in the
-  same panel; no prevention in the MVP.
+- [An Admin Portal can create members between the last sync and the lock] → Kunci runs a final sync before
+  freezing, so everyone ACTIVE at lock is on the roll; anyone added after the lock cannot vote this
+  election, and no panel tracks them in v1.0.
+- [An Admin Portal can suspend or move members to keep them from voting, or slow renewals] → A member
+  suspended during voting still cannot vote: the frozen roll alone grants nothing, and the affiliation
+  check refuses them. There is no membership-change panel in v1.0.
 - [The Cloudflare account owner can edit D1 directly] → The count check and the audit chain detect edits;
   the final chain hash is published at close.
 - [A stranger reaches a fresh `.dev` URL first] → 60-minute window, single-browser claim, and the last step
   requires an in-scope One Login account.
-- [Service API not granted yet] → Signing in and voting still work; only the Pemilih list, map, reminders
-  and membership-change panel are empty.
+- [Service API not granted yet] → Kunci cannot run the final sync and freeze the roll, so the election
+  cannot be locked; setup, Draf preparation and sign-in still work, and the readiness check names the
+  missing grant.
 - [Phone number not on WhatsApp] → WhatsApp shows its own error; the email icon is used when no phone exists.
 
 ## Migration Plan
 
 1. Chapter asks the PPIJ Portal admin for a One Login client (redirect URI from setup) and a Service API grant.
 2. Deploy with the button, open `/setup` within 60 minutes, configure and sign in as the first Admin Voting.
-3. Prepare candidates, run Uji Coba, sync the Pemilih list, then Kunci & Jadwalkan.
+3. Prepare candidates, run Uji Coba, sync the Pemilih list in Draf, then Kunci & Jadwalkan, whose final
+   sync freezes the roll.
 Rollback: before Kunci, delete and redeploy; after Kunci, close early and publish nothing.

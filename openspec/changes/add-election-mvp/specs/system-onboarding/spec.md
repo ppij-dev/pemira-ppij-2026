@@ -53,7 +53,7 @@ The wizard SHALL collect One Login issuer, client ID and secret; the scope (nati
 
 #### Scenario: Service API not granted yet
 - **WHEN** the Service API answers `no_grant`
-- **THEN** setup may continue, and the step warns that the Pemilih list, map and reminders stay empty until the Portal admin grants access
+- **THEN** setup may continue, and the step warns that "Kunci & Jadwalkan" cannot freeze the Pemilih list until the Portal admin grants access
 
 ### Requirement: Final step binds the first Admin Voting
 The last step SHALL ask the installer to sign in with One Login. If the signed-in person is an ACTIVE member inside the configured scope, they SHALL become the first Admin Voting, labelled Technical Admin, and the site SHALL be marked initialized.

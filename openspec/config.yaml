@@ -14,12 +14,13 @@ context: |
     - Admin Voting: the election committee, all with equal rights, each an ACTIVE member inside the site's scope;
       the installer is labelled Technical Admin (no extra rights). A candidate can never be Admin Voting.
     - Admin Portal: admins of the membership portal (ppij-identity); never an admin of this site.
-    - Pemilih (voter): eligible when a fresh One Login sign-in (<= 10 min) shows them ACTIVE inside the scope.
-      No frozen roll, no cutoff. Confirms by typing the candidate's nickname; one atomic secret ballot;
-      receipt code checked at /surat-suara#<code>.
-  Data: Pemilih list, membership changes and per-click contacts come from the ppij-identity Service API
-  (add-service-api, Phase 1.3). Phones are never stored. One election per site. No polling, no WebSockets,
-  no bulk email, no background jobs; Dasbor refreshes by button. Whole site is noindex.
+    - Pemilih (voter): eligible when on the Pemilih roll frozen at Kunci & Jadwalkan and a fresh One
+      Login sign-in (<= 10 min) shows them ACTIVE inside the scope. Confirms by typing the candidate's
+      nickname; one atomic secret ballot; receipt code checked at /surat-suara#<code>.
+  Data: The Pemilih roll and per-click contacts come from the ppij-identity Service API
+  (add-service-api, Phase 1.3). Sync runs in Draf and once more as the final sync that freezes the roll
+  at Kunci; after the lock there is no sync. Phones are never stored. One election per site. No polling,
+  no WebSockets, no bulk email, no background jobs; Dasbor refreshes by button. Whole site is noindex.
   User-facing copy: Bahasa Indonesia first, friendly/helpful/secure voice, JST timestamps, Tabler icons only.
 
 rules:

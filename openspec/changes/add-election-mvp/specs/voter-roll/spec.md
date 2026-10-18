@@ -2,28 +2,44 @@
 
 ## Purpose
 
-Keeps a Pemilih list of the members inside the site's scope, synced from the ppij-identity Service API,
-so the committee can see who has voted, follow membership changes during voting and send personal reminders.
+Keeps the Pemilih roll of the members inside the site's scope, synced from the ppij-identity Service API
+and frozen at Kunci & Jadwalkan, so the committee can see who has voted and send personal reminders
+against a fixed electorate.
 
 ## ADDED Requirements
 
 ### Requirement: Pemilih list synced from the Service API
-The system SHALL keep a list of members in scope (member_id, name, nickname, komsat path, status, map point of the komsat) synced from the Service API (`anggota.dasar`, `organisasi`) with `changed_since`, when an Admin Voting presses "Sinkronkan Data Pemilih", in every stage except Diumumkan.
+The system SHALL keep a list of members in scope (member_id, name, nickname, komsat path, status, map point of the komsat) synced from the Service API (`anggota.dasar`, `organisasi`) with `changed_since`, when an Admin Voting presses "Sinkronkan Data Pemilih". The button SHALL be available only in stage Draf.
 
 #### Scenario: Sync adds new members
-- **WHEN** three members became ACTIVE in scope since the last sync and an Admin Voting presses "Sinkronkan Data Pemilih"
+- **WHEN** three members became ACTIVE in scope since the last sync and an Admin Voting presses "Sinkronkan Data Pemilih" in Draf
 - **THEN** the list gains three members, the last-sync time is shown in JST and an audit entry records "+3 baru"
+
+#### Scenario: Sync only in Draf
+- **WHEN** an Admin Voting opens the Pemilih page while the election is Dibuka
+- **THEN** "Sinkronkan Data Pemilih" is not offered and the page says the roll was frozen at Kunci
 
 #### Scenario: Service API not granted
 - **WHEN** the Service API answers `no_grant`
-- **THEN** the Pemilih page explains that the Portal admin has not granted data access yet, and voting itself keeps working
+- **THEN** the Pemilih page explains that the Portal admin has not granted data access yet, and sign-in itself keeps working
 
-### Requirement: Pemilih list never decides eligibility
-The Pemilih list SHALL only be used for counts, the map, reminders and the membership-change panel. Voting eligibility SHALL come only from the sign-in rule in `auth-and-eligibility`.
+### Requirement: Frozen roll at Kunci & Jadwalkan
+"Kunci & Jadwalkan" SHALL run one final sync of the Pemilih list and freeze the roll as the snapshot of the ACTIVE members in scope at that moment. After the lock the system SHALL NOT sync the Pemilih list again in any stage. Hak pilih SHALL be exactly the size of the frozen roll for the rest of the election.
 
-#### Scenario: Member missing from the list
-- **WHEN** Dewi became ACTIVE an hour ago, no sync has happened since, and she signs in to vote
-- **THEN** Dewi can vote, and she appears in the list after the next sync
+#### Scenario: Final sync freezes the roll
+- **WHEN** an Admin Voting presses "Kunci & Jadwalkan" with a reachable Service API
+- **THEN** the final sync runs first, the roll is frozen with its member count recorded in the audit log, and the last-sync time is shown in JST
+
+#### Scenario: Failed final sync blocks locking
+- **WHEN** the final sync fails or answers `no_grant` at "Kunci & Jadwalkan"
+- **THEN** nothing is locked and the page shows the failing check so the committee can retry
+
+### Requirement: Eligibility needs the frozen roll and a fresh sign-in
+The frozen roll SHALL never grant a vote by itself: voting eligibility SHALL require both membership of the frozen roll and the sign-in rule in `auth-and-eligibility`. A member who becomes ACTIVE after the lock is not on the frozen roll and SHALL NOT vote this election.
+
+#### Scenario: Member who joined after the lock
+- **WHEN** Dewi becomes ACTIVE in PPI Okayama on day 3 of voting and signs in to the PPI Okayama site
+- **THEN** she cannot vote, and Pilih Suara explains in a friendly message that the daftar pemilih was frozen when the election was locked
 
 ### Requirement: Pemilih page
 Admin Voting SHALL see the list with search by name, filter by komsat and voting state (sudah memilih, belum memilih), and for those who voted the time in JST. The page SHALL never show what anyone chose.
@@ -31,17 +47,6 @@ Admin Voting SHALL see the list with search by name, filter by komsat and voting
 #### Scenario: Who has not voted in PPI Okayama
 - **WHEN** an Admin Voting filters komsat PPI Okayama and "Belum memilih"
 - **THEN** only Okayama members without a participation record are listed
-
-### Requirement: Membership changes during voting
-With `anggota.riwayat`, Dasbor SHALL show changes since voting opened: new members by source (daftar sendiri, didaftarkan Admin Portal, impor) and how many of them voted, suspensions, komsat moves and expiries, per komsat, with a detail list naming each person and the Admin Portal who acted.
-
-#### Scenario: Members added by an Admin Portal
-- **WHEN** an Admin Portal of PPI X registered 12 people during voting and 10 of them voted
-- **THEN** the panel shows PPI X with "Didaftarkan Admin Portal 12 (10 sudah memilih)" and the detail list names each person and the Admin Portal
-
-#### Scenario: Names stay internal
-- **WHEN** a visitor opens the public receipt board after close
-- **THEN** it shows per-komsat totals of membership changes and no names
 
 ### Requirement: WhatsApp reminder per voter
 For a voter who has not voted, the Pemilih page SHALL show a WhatsApp icon. Clicking it SHALL fetch that voter's phone from the Service API (`anggota.kontak`, on behalf of the clicking Admin Voting) and open `wa.me` with a prefilled message, without storing the number.
@@ -69,7 +74,7 @@ Dasbor SHALL offer "Salin Teks Pengumuman", copying a ready message with the ele
 - **THEN** the clipboard holds the title, "Ditutup 7 Des 2026, 20.00 JST (2 hari lagi)" and the link
 
 ### Requirement: Data kept while the site exists
-The Pemilih list SHALL be kept as long as the site exists. Phone numbers and email addresses fetched for reminders SHALL NOT be stored.
+The frozen Pemilih roll SHALL be kept as long as the site exists. Phone numbers and email addresses fetched for reminders SHALL NOT be stored.
 
 #### Scenario: After results
 - **WHEN** results were published 60 days ago

@@ -43,11 +43,11 @@ Dasbor SHALL show candidate chips (number, nickname, color) and a bar chart of v
 - **THEN** she sees the current tally and the audit log gains "Rina Putri membuka perolehan suara, 02.40 JST"
 
 ### Requirement: Voter statistics
-Dasbor SHALL show Hak pilih (eligible count from the Pemilih list, split into the count at opening plus new members), Sudah digunakan, Belum digunakan and turnout percentage.
+Dasbor SHALL show Hak pilih fixed at the size of the frozen Pemilih roll, Sudah digunakan, Belum digunakan and turnout percentage.
 
-#### Scenario: New members during voting
-- **WHEN** 1.240 members were eligible at opening, 35 became ACTIVE since, and 710 voted
-- **THEN** Dasbor shows "Hak pilih 1.275 (1.240 saat dibuka + 35 anggota baru)", "Sudah digunakan 710", "Belum digunakan 565"
+#### Scenario: Statistics against the frozen roll
+- **WHEN** the frozen roll holds 1.240 members and 710 of them have voted
+- **THEN** Dasbor shows "Hak pilih 1.240", "Sudah digunakan 710", "Belum digunakan 530"
 
 ### Requirement: Count check
 Dasbor SHALL compare "Surat Suara Terkirim" (participation rows) with "Jumlah Suara di Kotak" (ballot rows) and show "Sesuai" in green when equal or "Tidak sesuai" in red otherwise.

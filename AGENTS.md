@@ -1,5 +1,23 @@
 # AGENTS.md — ppij-election-system
 
+<!-- kot-optimize:begin -->
+## Verification tiers
+- Worker: build, vet or typecheck, and the focused tests for the code you changed (the narrowest test command for the code you changed, 120s max). Do not run the full suite, E2E or image builds.
+- Gate (parent or one verifier, serialized): `scripts/gate.sh`. It holds a lock, applies per-stage timeouts, and runs cheap checks first.
+- Run a one-second syntax or type check before any slow command.
+- Every long command has an explicit timeout. On timeout, report and stop; do not raise the limit.
+- Containers: use a unique compose project name and ports per worktree. Never reuse shared container names.
+- Commit after each green step so another worker can resume from git.
+
+## Delegation
+- One worker = one verifiable unit (one task id, one layer). Backend and UI are separate workers.
+- A brief carries file paths with line ranges, the decision already made, acceptance, and "no redesign".
+- After delegating a slice the parent does not edit or test it; it reviews the diff or sends a fix to the worker.
+- Reviewers get the diff plus 3 to 5 specific questions and a turn cap.
+
+These tiers override any definition-of-done line elsewhere in this file for subagent workers.
+<!-- kot-optimize:end -->
+
 Standalone, forkable, self-installable e-voting product (`git@github.com:ppij-dev/ppij-election-system.git`).
 Any organization in the PPIJ ecosystem (PPIJ Pusat, a Korda, or a Komsat) can fork and self-host its own instance on Cloudflare.
 
@@ -7,7 +25,7 @@ Any organization in the PPIJ ecosystem (PPIJ Pusat, a Korda, or a Komsat) can fo
 - **Runtime & Hosting**: Cloudflare Pages / Workers, Cloudflare D1 (SQLite), Cloudflare R2 (media storage for candidate profiles & CKEditor uploads).
 - **Backend API & Auth BFF**: **Hono** running on Cloudflare Workers (`/api/*`).
 - **Frontend UI**: **Astro** + templui/shadcn-inspired CSS theme + `@tabler/icons`, mobile-first layout with fixed bottom navigation.
-- **Identity & Eligibility**: Connects to **PPIJ OneLogin** (`sso.ppijepang.app`, realm `ppij`) via OIDC; eligibility comes from the `affiliation` claim (present only while membership is ACTIVE). The Pemilih list, membership changes and per-click contacts come from the ppij-identity Service API (`api.ppijepang.app/v1/service`, change `add-service-api`).
+- **Identity & Eligibility**: Connects to **PPIJ OneLogin** (`sso.ppijepang.app`, realm `ppij`) via OIDC; eligibility needs the Pemilih roll frozen at Kunci & Jadwalkan plus the `affiliation` claim (present only while membership is ACTIVE). The Pemilih roll and per-click contacts come from the ppij-identity Service API (`api.ppijepang.app/v1/service`, change `add-service-api`).
 
 ## Workflow
 - Spec-driven with OpenSpec. No feature code without an approved change in `openspec/changes/`.
@@ -21,7 +39,7 @@ Any organization in the PPIJ ecosystem (PPIJ Pusat, a Korda, or a Komsat) can fo
 
 ## Hard rules
 1. **One-time setup**: Deploy to Cloudflare button, then `/setup` on the `.dev` address within 60 minutes of the first visit, claimed by the first browser. The last step binds the first Admin Voting through One Login. Afterwards `/setup` returns 404 forever; changes go through Pengaturan.
-2. **Eligibility at the moment of voting**: a vote is accepted only when the session comes from a One Login sign-in at most 10 minutes old whose `affiliation` lies inside the site's scope. The Pemilih list never decides eligibility.
+2. **Eligibility at the moment of voting**: a vote is accepted only when the member is on the Pemilih roll frozen at Kunci & Jadwalkan and the session comes from a One Login sign-in at most 10 minutes old whose `affiliation` lies inside the site's scope.
 3. **Ballot secrecy**: `participation` (who, when) and `ballots` (candidate, komsat path, receipt hash; random ID, no timestamp, `WITHOUT ROWID`) are written in one D1 batch with nothing linking them. Only the SHA-256 of the receipt code is stored.
 4. **One vote per member**: `PRIMARY KEY(election_id, member_id)` on `participation`, plus nickname typing in the UI and on the server.
 5. **Never log** ballot choices, receipt codes, secrets or phone numbers. Phones from the Service API are used per click and never stored.

@@ -73,7 +73,7 @@ The Bukti Suara tab SHALL show when the voter voted (from participation), the re
 - **THEN** he sees "Anda sudah memilih pada 2 Des 2026, 14.05 JST", no code, and "Kode ada di email Bukti Suara Anda"
 
 ### Requirement: Public receipt board after close
-From Ditutup onward, a public page SHALL list every receipt code of the election in random order without candidates, with the count check (participation count and ballot count), the final audit-chain hash and per-komsat membership-change totals.
+From Ditutup onward, a public page SHALL list every receipt code of the election in random order without candidates, with the count check (participation count and ballot count) and the final audit-chain hash.
 
 #### Scenario: Voter checks the board
 - **WHEN** Budi searches his code on the board after close

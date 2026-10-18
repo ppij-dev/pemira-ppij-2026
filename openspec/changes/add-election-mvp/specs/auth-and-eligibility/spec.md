@@ -15,11 +15,19 @@ The system SHALL sign everyone in through One Login (authorization code flow wit
 - **THEN** the system stores a session for Budi's `member_id` with his `affiliation` and `auth_time`, and returns him to the page he came from
 
 ### Requirement: Eligibility at the moment of voting
-A person SHALL be eligible to vote if and only if, when the vote is submitted, their session comes from a sign-in at most 10 minutes old and its `affiliation` claim lies inside the site's scope (national `/ppij/*`, korda `/ppij/<korda>/*`, komsat `/ppij/<korda>/<komsat>`).
+A person SHALL be eligible to vote if and only if, when the vote is submitted, their `member_id` is on the frozen Pemilih roll and their session comes from a sign-in at most 10 minutes old whose `affiliation` claim lies inside the site's scope (national `/ppij/*`, korda `/ppij/<korda>/*`, komsat `/ppij/<korda>/<komsat>`). Neither the frozen roll alone nor the fresh sign-in alone SHALL grant a vote.
 
-#### Scenario: Member who joined during voting
-- **WHEN** Dewi becomes ACTIVE in PPI Okayama on day 3 of voting and signs in to the PPI Okayama site
-- **THEN** Dewi may vote
+#### Scenario: Member on the roll with a fresh sign-in
+- **WHEN** Budi is on the frozen roll, signs in and submits a confirmed vote while voting is open
+- **THEN** his vote is accepted like any member's
+
+#### Scenario: Member who joined after the lock
+- **WHEN** Dewi becomes ACTIVE in PPI Okayama on day 3 of voting, after the roll was frozen at Kunci & Jadwalkan, and signs in to the PPI Okayama site
+- **THEN** she cannot vote, and Pilih Suara shows a friendly message that the daftar pemilih was frozen when the election was locked
+
+#### Scenario: Member suspended during voting
+- **WHEN** Rio is on the frozen roll but his membership is suspended during voting and he signs in
+- **THEN** his token has no `affiliation` and any vote request is rejected with HTTP 403
 
 #### Scenario: Member outside the scope
 - **WHEN** a member of PPI Kyodai signs in to a PPI Okayama site

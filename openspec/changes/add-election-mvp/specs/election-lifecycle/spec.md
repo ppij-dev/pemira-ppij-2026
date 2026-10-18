@@ -29,7 +29,11 @@ The election SHALL be in stage Draf until locked, Terjadwal after Kunci & Jadwal
 - **THEN** nothing is locked and the check "Minimal 2 kandidat" is shown as failing
 
 ### Requirement: Locking freezes the election
-On "Kunci & Jadwalkan" the system SHALL delete all Uji Coba data, draw a random color for each candidate from the palette, and freeze candidates, title, description, opening time and the setting "Admin Voting boleh ikut memilih".
+On "Kunci & Jadwalkan" the system SHALL first run a final sync of the Pemilih list from the Service API and freeze the roll; if the final sync fails or the Service API is not granted, nothing SHALL be locked. The system SHALL then delete all Uji Coba data, draw a random color for each candidate from the palette, and freeze candidates, title, description, opening time and the setting "Admin Voting boleh ikut memilih".
+
+#### Scenario: Pemilih roll frozen at lock
+- **WHEN** an Admin Voting presses "Kunci & Jadwalkan" and the final sync succeeds
+- **THEN** the roll is frozen with the members ACTIVE in scope at that moment, and members who become ACTIVE afterwards are not added
 
 #### Scenario: Test votes removed
 - **WHEN** 4 test votes exist and the election is locked
