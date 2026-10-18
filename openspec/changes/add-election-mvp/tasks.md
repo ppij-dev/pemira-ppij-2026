@@ -19,7 +19,7 @@ is needed for groups 5 and 8 against real data; until then tests use a recorded 
 
 ## 3. Sign-in, eligibility and Admin Voting
 
-- [ ] 3.1 One Login BFF routes (login with PKCE and optional `max_age`, callback, logout, `/api/me`) keyed on `member_id`; verify session tests
+- [x] 3.1 One Login BFF routes (login with PKCE and optional `max_age`, callback, logout, `/api/me`) keyed on `member_id`; verify session tests
 - [ ] 3.2 Eligibility check (`auth_time` ≤ 600 s, affiliation under scope, setting for Admin Voting) and fresh-login redirect for Pilih Suara; verify tests for new member, out of scope, inactive, stale sign-in during confirmation
 - [ ] 3.3 Admin Voting access check on every sign-in, equal rights, invitation (pick from Pemilih list, 72 h single-use, bound to `member_id`, copy link), removal with last-one guard, candidate block, Admin Portal label; verify tests for every scenario in `auth-and-eligibility`
 - [ ] 3.4 Recovery Wrangler command and help page; verify the command creates a working invitation in a Miniflare test
