@@ -12,7 +12,7 @@ is needed for groups 5 and 8 against real data; until then tests use a recorded 
 
 ## 2. Setup
 
-- [ ] 2.1 `/setup` guard: not-installed page (503), first-visit claim cookie, 60-minute window (423 with recovery command), second-browser block, 404 after completion; verify integration tests for each scenario in `system-onboarding`
+- [x] 2.1 `/setup` guard: not-installed page (503), first-visit claim cookie, 60-minute window (423 with recovery command), second-browser block, 404 after completion; verify integration tests for each scenario in `system-onboarding`
 - [ ] 2.2 Steps for One Login (discovery check, callback URL), scope picker, Service API check (member count, `no_grant` warning), base URL and email test; verify API tests for valid and unreachable issuer and Service API states
 - [ ] 2.3 Final step: One Login sign-in, in-scope check, first Admin Voting with Technical Admin label, initialized flag; custom-domain redirect; verify tests for in-scope and out-of-scope installers and the redirect
 - [ ] 2.4 Setup wizard UI in Bahasa Indonesia (copy via `copywriting`); verify the full flow in a Playwright test
