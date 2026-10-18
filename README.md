@@ -6,6 +6,24 @@ Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare W
 > **Penting — Konfigurasi SSO OneLogin:**
 > **Kontak PPIJ Portal admin untuk meminta realm config untuk service** (`client_id`, `client_secret`, dan scope Korda/Komsat untuk pemilihan Anda).
 
+## Mulai cepat
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ppij-dev/ppij-election-system)
+
+Tombol di atas menyalin repositori ini ke akun Cloudflare Anda, membuat database D1 dan bucket R2 dari `wrangler.jsonc`, menerapkan migrasi D1, lalu men-deploy Worker. Saat mengisi form deploy, masukkan rahasia `APP_MASTER_KEY` (32 byte acak, misalnya hasil `openssl rand -base64 32`). Rincian: [docs/deploy-button.md](docs/deploy-button.md).
+
+Pengembangan lokal (Node.js 22.12+):
+
+```bash
+npm install
+npm run dev      # server pengembangan
+npm run check    # astro check + tsc --noEmit
+npm test         # Vitest di dalam Miniflare (workerd)
+npm run e2e      # Playwright; jalankan `npx playwright install` lebih dulu
+npm run deploy   # migrasi D1 + wrangler deploy
+```
+
+
 ## Fitur Utama
 
 - **Pasang sekali, tanpa perintah terminal**: tekan tombol *Deploy to Cloudflare*, lalu buka `/setup` di alamat `.pages.dev` / `.workers.dev` dalam 60 menit. Atur koneksi PPIJ One Login, cakupan (nasional, korda, atau komsat), Service API, domain, dan email. Langkah terakhir: masuk dengan akun anggota aktif dari cakupan tersebut. Setelah selesai, `/setup` hilang.

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ppij-election-system",
+  // The adapter's unified entrypoint handles astro dev and production deploys.
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // Placeholder values: the Deploy to Cloudflare button provisions the D1
+  // database and R2 bucket and rewrites the IDs in the cloned repository.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ppij-election",
+      "database_id": "placeholder-provisioned-by-deploy-button",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "ppij-election-media"
+    }
+  ]
+}

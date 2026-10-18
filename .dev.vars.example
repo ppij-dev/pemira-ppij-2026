@@ -1,0 +1,4 @@
+# Kunci master AES-256-GCM untuk rahasia yang disimpan di D1 (32 byte acak).
+# Contoh: openssl rand -base64 32
+# Deploy to Cloudflare button meminta nilai ini saat deploy (lihat docs/deploy-button.md).
+APP_MASTER_KEY=
