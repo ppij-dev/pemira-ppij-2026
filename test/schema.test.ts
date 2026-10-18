@@ -14,7 +14,6 @@ const TABLES = [
   "elections",
   "candidates",
   "voters",
-  "membership_changes",
   "participation",
   "ballots",
   "reminders",

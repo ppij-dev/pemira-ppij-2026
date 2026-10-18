@@ -56,21 +56,6 @@ CREATE TABLE voters (
 );
 CREATE INDEX idx_voters_komsat_path ON voters(komsat_path);
 
-CREATE TABLE membership_changes (
-  id INTEGER PRIMARY KEY,
-  member_id TEXT NOT NULL,
-  member_name TEXT NOT NULL DEFAULT '',
-  type TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT '',
-  actor_member_id TEXT,
-  actor_name TEXT,
-  value_from TEXT,
-  value_to TEXT,
-  changed_at TEXT NOT NULL
-);
-CREATE INDEX idx_membership_changes_member_id ON membership_changes(member_id);
-CREATE INDEX idx_membership_changes_changed_at ON membership_changes(changed_at);
-
 CREATE TABLE participation (
   election_id INTEGER NOT NULL REFERENCES elections(id),
   member_id TEXT NOT NULL,
