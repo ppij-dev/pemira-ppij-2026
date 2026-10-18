@@ -6,7 +6,7 @@ is needed for groups 5 and 8 against real data; until then tests use a recorded 
 ## 1. Scaffolding, data model and shared pieces
 
 - [x] 1.1 Astro + Hono Worker project (`wrangler.jsonc` with D1 and R2 bindings, Tailwind theme, `@tabler/icons`, Vitest + Miniflare, Playwright) and a Deploy to Cloudflare button; verify `npm run build` and that the button provisions D1 and R2 on a test account, and record whether it can set `APP_MASTER_KEY` (button secret support verified against docs in `docs/deploy-button.md`; test-account provisioning still open)
-- [ ] 1.2 D1 migration with `system_config`, `admin_voting`, `invitations`, `elections`, `candidates`, `voters`, `membership_changes`, `participation`, `ballots` (WITHOUT ROWID), `reminders`, `audit_log`; verify schema tests including the unique participation constraint and absence of member columns in `ballots`
+- [x] 1.2 D1 migration with `system_config`, `admin_voting`, `invitations`, `elections`, `candidates`, `voters`, `membership_changes`, `participation`, `ballots` (WITHOUT ROWID), `reminders`, `audit_log`; verify schema tests including the unique participation constraint and absence of member columns in `ballots`
 - [x] 1.3 AES-256-GCM secret helpers, `stage(now)` function and audit-chain writer; verify unit tests for round-trip encryption, every stage transition and chain breakage detection
 - [x] 1.4 robots.txt, `X-Robots-Tag` middleware and meta tag in the base layout; verify tests for both headers and robots.txt
 
