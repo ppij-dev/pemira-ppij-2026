@@ -6,8 +6,10 @@ export async function assertSyncAllowed(db: D1Database): Promise<void> {
   const election = await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
   if (election && election.status_lock !== "draft") { const error = new Error("Sync hanya diizinkan saat pemilihan berstatus draft") as Error & { status: number }; error.status = 409; throw error; }
 }
-export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Date, fetchImpl: typeof fetch = fetch): Promise<{ added: number; removed: number; total: number }> {
-  const client = new ServiceApiClient({ ...cfg, fetchImpl });
+export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Date, fetchImpl?: typeof fetch): Promise<{ added: number; removed: number; total: number }> {
+  // fetchImpl dari cfg (dipakai stub pengujian) menang atas parameter opsional
+  // agar injeksi lewat konfigurasi tidak tertimpa default global fetch.
+  const client = new ServiceApiClient({ ...cfg, ...(fetchImpl ? { fetchImpl } : {}) });
   const units = await client.getUnits();
   const lastSync = await db.prepare("SELECT value FROM system_config WHERE key = 'pemilih_last_sync'").first<{ value: string }>();
   const members = await client.getMembers(lastSync?.value);
