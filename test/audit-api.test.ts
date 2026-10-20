@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
-import { buildAuditInsert, type AuditEntry } from "../src/server/lib/audit";
 import { sealSession } from "../src/server/auth/session";
+import { buildAuditInsert, type AuditEntry } from "../src/server/lib/audit";
 import { auditRoutes } from "../src/server/audit/routes";
 
+async function appendMany(count: number) { for (let i = 0; i < count; i++) await append(`bulk-${i}`); }
 declare module "*.sql?raw" { const sql: string; export default sql; }
 const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: key };
@@ -50,6 +51,22 @@ describe("audit API", () => {
     await append("a"); await append("b"); await append("c");
     await env.DB.prepare("DELETE FROM audit_log WHERE seq=2").run();
     expect(await (await request("/api/audit/integrity")).json()).toMatchObject({intact:false,broken_at:3,entries:2});
+  });
+  it("masks nested secret values recursively", async () => {
+    await append("nested", { outer: { api_key: "x" }, list: ["token-y"] });
+    const body = await (await request("/api/audit")).json() as { results: Array<{ detail_json: unknown }> };
+    expect(body.results[0].detail_json).toEqual({ outer: { api_key: "••••••••" }, list: ["token-y"] });
+  });
+  it("verifies an intact chain across batches and detects second-batch tampering", async () => {
+    await appendMany(601);
+    expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: true, broken_at: null, entries: 601 });
+    await env.DB.prepare("UPDATE audit_log SET detail_json='{}' WHERE seq=600").run();
+    expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: false, broken_at: 600 });
+  });
+  it("detects a deleted row in the second batch", async () => {
+    await appendMany(601);
+    await env.DB.prepare("DELETE FROM audit_log WHERE seq=550").run();
+    expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: false, broken_at: 551 });
   });
   it("returns closing snapshot values", async () => {
     expect(await (await request("/api/audit/snapshot")).json()).toEqual({closing_snapshot_hash:null,closing_snapshot_at:null});

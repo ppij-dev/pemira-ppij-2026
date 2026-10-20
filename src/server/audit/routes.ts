@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { requireAdmin } from "../admin/routes";
-import type { AuditRow } from "../lib/audit";
+import { AUDIT_GENESIS_HASH, type AuditRow } from "../lib/audit";
 import { formatJst, maskSecrets, verifyAuditRows } from "./audit";
 
 type Env = { Bindings: Bindings };
@@ -17,10 +17,13 @@ auditRoutes.get("/audit/integrity", async (c) => {
   let cursor = 0;
   let checked = 0;
   let broken: number | null = null;
+  let expectedPrev = AUDIT_GENESIS_HASH;
   while (broken === null) {
     const batch = await c.env.DB.prepare("SELECT seq,at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash FROM audit_log WHERE seq > ? ORDER BY seq ASC LIMIT 500").bind(cursor).all<AuditRow>();
     if (!batch.results.length) break;
-    broken = await verifyAuditRows(batch.results);
+    const verified = await verifyAuditRows(batch.results, expectedPrev);
+    broken = verified.brokenAt;
+    expectedPrev = verified.expectedPrev;
     checked += batch.results.length;
     cursor = batch.results[batch.results.length - 1].seq;
   }
