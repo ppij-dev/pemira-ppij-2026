@@ -36,6 +36,14 @@ describe("operator bootstrap", () => {
     expect(JSON.stringify(await env.DB.prepare("SELECT * FROM system_config").all())).not.toContain("master-key");
   });
 
+
+  it("recovers a partial bootstrap that already has an election row", async () => {
+    await env.DB.prepare("INSERT INTO elections (title, status_lock) VALUES ('Partial', 'draft')").run();
+    expect(await bootstrapSite(env.DB, validConfig, "member-123")).toBe(true);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM elections").first()).toMatchObject({ n: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_voting").first()).toMatchObject({ n: 1 });
+    expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='initialized'").first()).toMatchObject({ value: "1" });
+  });
   it("leaves missing-config databases uninitialized", async () => {
     expect(await bootstrapSite(env.DB, null, "member-123")).toBe(false);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM elections").first()).toMatchObject({n: 0});

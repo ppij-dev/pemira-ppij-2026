@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro sync && astro check && tsc --noEmit",
+    "test": "vitest run",
     "bootstrap": "node scripts/bootstrap.mjs",
     "provision:oidc-test": "node scripts/provision-election-test.mjs",
     "e2e": "playwright test",

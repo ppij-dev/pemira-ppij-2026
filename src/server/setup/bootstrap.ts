@@ -35,13 +35,12 @@ export async function bootstrapSite(db: D1Database, config: RuntimeConfig | null
   if (initialized?.value === "1") return true;
   const hasConfig = loadRuntimeConfig({ ...config });
   if (!hasConfig) return false;
-  const existing = await db.prepare("SELECT id FROM elections LIMIT 1").first();
-  if (existing) return false;
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare("INSERT INTO elections (title, status_lock) VALUES (?, 'draft')").bind(hasConfig.SITE_NAME),
-    db.prepare("INSERT INTO admin_voting (member_id, name, is_technical, created_at) VALUES (?, 'Technical Admin', 1, ?)").bind(memberId.trim(), now),
-    db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?), ('initialized', '1')").bind(hasConfig.SITE_SCOPE, hasConfig.SITE_BASE_URL, hasConfig.SITE_NAME, hasConfig.SITE_LOGO_PATH),
+    db.prepare("INSERT INTO elections (title, status_lock) SELECT ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM elections)").bind(hasConfig.SITE_NAME),
+    db.prepare("INSERT OR IGNORE INTO admin_voting (member_id, name, is_technical, created_at) VALUES (?, 'Technical Admin', 1, ?)").bind(memberId.trim(), now),
+    db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(hasConfig.SITE_SCOPE, hasConfig.SITE_BASE_URL, hasConfig.SITE_NAME, hasConfig.SITE_LOGO_PATH),
+    db.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1') ON CONFLICT(key) DO UPDATE SET value='1'"),
   ]);
   return true;
 }
