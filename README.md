@@ -82,9 +82,9 @@ Pemilik akun Cloudflare dapat membuat tautan undangan satu-kali (berlaku 72 jam)
 
 ```bash
   npm run recovery-invite -- <member_id>
-
-  npm run recovery-invite -- <member_id> --remote
 ```
+
+> Catatan 1.0: mode `--remote` belum didukung (satu-satunya jalur resmi saat ini adalah lokal; dukungan jarak jauh menyusul bersama fase 2).
 
 Anggota harus masih ACTIVE, berada di dalam cakupan situs, dan bukan kandidat. Perintah tidak mengirim email. Bagikan tautan yang dicetak hanya kepada anggota tersebut: undangan terikat ke `member_id` dan ditolak bila diteruskan.
 
