@@ -19,13 +19,16 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
       if (!existing) added++;
       upserts.push(db.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at) VALUES (?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET name=excluded.name,nickname=excluded.nickname,komsat_path=excluded.komsat_path,status=excluded.status,synced_at=excluded.synced_at").bind(member.member_id, member.full_name, member.nickname, member.komsat_path, member.status, now.toISOString()));
     } else {
-      const deletion = await db.prepare("DELETE FROM voters WHERE member_id=?").bind(member.member_id).run();
-      removed += deletion.meta.changes;
+      const existing = await db.prepare("SELECT 1 FROM voters WHERE member_id=?").bind(member.member_id).first();
+      if (existing) {
+        removed++;
+        upserts.push(db.prepare("DELETE FROM voters WHERE member_id=?").bind(member.member_id));
+      }
     }
   }
   const totalRow = await db.prepare("SELECT COUNT(*) AS total FROM voters").first<{ total: number }>();
   const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_sync", target: null, komsat_path: null, detail_json: JSON.stringify({ summary: `+${added} baru / -${removed} keluar`, added, removed }) });
   upserts.push(db.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(now.toISOString()), audit);
   await db.batch(upserts);
-  return { added, removed, total: (totalRow?.total ?? 0) + added };
+  return { added, removed, total: (totalRow?.total ?? 0) + added - removed };
 }

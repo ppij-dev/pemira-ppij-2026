@@ -19,6 +19,23 @@ describe("Service API voter sync", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM units").first<{n:number}>()).toEqual({ n: 8 });
     expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-03T00:00:00Z"))).toEqual({ added: 3, removed: 1, total: 10 });
   });
+  it("leaves voters, sync time, and audit untouched when the batch fails", async () => {
+    const fixture = createServiceApiStub();
+    const testCfg = cfg(fixture);
+    await syncPemilih(env.DB, testCfg, new Date("2026-01-01T00:00:00Z"));
+    const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{ n: number }>();
+    const failingDb = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "batch") return () => { throw new Error("batch failed"); };
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await expect(syncPemilih(failingDb, testCfg, new Date("2026-01-03T00:00:00Z"))).rejects.toThrow("batch failed");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{ n: number }>()).toEqual(before);
+    expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first()).toEqual({ value: "2026-01-01T00:00:00.000Z" });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>()).toEqual({ n: 1 });
+  });
   it("surfaces no_grant without mutating voters", async () => {
     const fixture = createServiceApiStub({ mode: "no_grant" });
     await expect(syncPemilih(env.DB, cfg(fixture), new Date())).rejects.toMatchObject({ code: "no_grant" });
