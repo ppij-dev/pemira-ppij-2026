@@ -1,17 +1,67 @@
 ---
+import { IconArrowRight, IconLock, IconLogout, IconUserCircle } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
+import { getCookie } from "hono/cookie";
+import { SESSION_COOKIE, openSession } from "../server/auth/session";
+import type { SessionData } from "../server/auth/session";
+
+const locals = Astro.locals as typeof Astro.locals & {
+  runtime?: { env?: { APP_MASTER_KEY?: string; DB?: D1Database } };
+};
+const rawCookie = getCookie(Astro.request.headers, SESSION_COOKIE);
+const masterKey = locals.runtime?.env?.APP_MASTER_KEY;
+const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
+let isTechnical = false;
+if (session && locals.runtime?.env?.DB) {
+  const admin = await locals.runtime.env.DB.prepare("SELECT is_technical FROM admin_voting WHERE member_id = ?")
+    .bind(session.member_id)
+    .first<{ is_technical: number }>();
+  isTechnical = admin?.is_technical === 1;
+}
+const affiliation = session?.affiliation;
+const affiliationLabel = Array.isArray(affiliation) ? affiliation.join(", ") : affiliation;
 ---
 
 <Base title="PPIJ Pemilu">
-  <section>
-    <h1 class="text-3xl font-bold tracking-tight">Selamat datang di PPIJ Pemilu</h1>
-    <p class="mt-4 max-w-prose text-slate-600">
-      Situs pemilihan untuk PPIJ Pusat, Korda, dan Komsat. Setiap anggota aktif memberikan satu suara
-      secara rahasia, dan panitia dapat memverifikasi hasilnya.
-    </p>
-    <p class="mt-4 max-w-prose text-slate-600">
-      Belum ada pemilihan yang dipublikasikan. Halaman ini akan menampilkan daftar pemilihan begitu
-      situs disiapkan oleh Admin Voting.
-    </p>
-  </section>
+  {session ? (
+    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <div class="flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+        <IconUserCircle size={28} aria-hidden="true" />
+      </div>
+      <h1 class="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">Selamat datang, {session.name}</h1>
+      <p class="mt-2 text-slate-600">Anda sudah masuk ke portal pemilihan PPIJ.</p>
+      <div class="mt-5 flex flex-wrap items-center gap-2">
+        <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700">{session.name}{affiliationLabel ? ` · ${affiliationLabel}` : ""}</span>
+        <span class="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">{isTechnical ? "Admin Voting" : "Pemilih"}</span>
+        {isTechnical && <span class="text-sm text-slate-500">Technical Admin</span>}
+        {session.portal_admin_unit && <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800">Admin Portal {session.portal_admin_unit}</span>}
+      </div>
+      <form class="mt-8" action="/api/auth/logout" method="post" onsubmit="return logout(event)">
+        <button class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600" type="submit">
+          <IconLogout size={18} aria-hidden="true" /> Keluar
+        </button>
+      </form>
+      <script is:inline>
+        async function logout(event) {
+          event.preventDefault();
+          await fetch("/api/auth/logout", { method: "POST" });
+          window.location.assign("/");
+          return false;
+        }
+      </script>
+    </section>
+  ) : (
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div class="bg-gradient-to-br from-brand-900 via-brand-700 to-brand-600 px-6 py-10 text-white sm:px-10 sm:py-12">
+        <span class="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-sm font-medium"><IconLock size={17} aria-hidden="true" /> Aman dan rahasia</span>
+        <h1 class="mt-6 max-w-xl text-3xl font-bold leading-tight tracking-tight sm:text-4xl">Pemilihan rahasia, satu suara per anggota</h1>
+        <p class="mt-4 max-w-prose text-base leading-7 text-blue-50">Setiap anggota aktif memberikan satu suara secara rahasia — dan bisa memverifikasi sendiri.</p>
+      </div>
+      <div class="px-6 py-6 sm:px-10 sm:py-8">
+        <a href="/api/auth/login" class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand-700 px-5 py-3 font-semibold text-white transition hover:bg-brand-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700 sm:w-auto">
+          Masuk dengan PPIJ One Login <IconArrowRight size={19} aria-hidden="true" />
+        </a>
+      </div>
+    </section>
+  )}
 </Base>
