@@ -40,7 +40,7 @@ export interface IdTokenClaims {
   nonce?: string;
   name?: string;
   preferred_username?: string;
-  affiliation?: string;
+  affiliation?: string | string[];
   [claim: string]: unknown;
 }
 

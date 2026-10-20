@@ -4,6 +4,7 @@
  * `loadRuntime` (nilai aslinya dibaca dari system_config oleh tugas 2.2);
  * hingga itu terpasang semua rute menjawab 503. Token tidak pernah dicatat.
  */
+import { createAdminRoutes } from "../admin/routes";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -184,7 +185,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
       session = {
         member_id: claims.sub,
         name: claims.name ?? claims.preferred_username ?? "",
-        affiliation: typeof claims.affiliation === "string" ? claims.affiliation : null,
+        affiliation: typeof claims.affiliation === "string" || Array.isArray(claims.affiliation) ? claims.affiliation as string | string[] : null,
         auth_time: typeof claims.auth_time === "number" ? claims.auth_time : claims.iat,
       };
     } catch {
@@ -224,5 +225,6 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
     });
   });
 
+  routes.route("/", createAdminRoutes());
   return routes;
 }

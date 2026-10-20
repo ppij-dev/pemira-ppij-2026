@@ -12,6 +12,7 @@
     "check": "astro sync && astro check && tsc --noEmit",
     "test": "vitest run",
     "bootstrap": "node scripts/bootstrap.mjs",
+    "recover:admin": "node scripts/recover-admin.mjs",
     "provision:oidc-test": "node scripts/provision-election-test.mjs",
     "e2e": "playwright test",
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"

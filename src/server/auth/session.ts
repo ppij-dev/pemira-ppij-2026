@@ -10,7 +10,7 @@ export interface SessionData {
   /** Klaim `sub` dari id_token; satu-satunya pengenal orang yang dipakai. */
   member_id: string;
   name: string;
-  affiliation: string | null;
+  affiliation: string | string[] | null;
   /** Epoch detik saat anggota masuk lewat One Login (klaim `auth_time`). */
   auth_time: number;
 }
@@ -50,7 +50,7 @@ function isSessionData(value: unknown): value is SessionData {
     typeof value.member_id === "string" &&
     value.member_id !== "" &&
     typeof value.name === "string" &&
-    (value.affiliation === null || typeof value.affiliation === "string") &&
+    (value.affiliation === null || typeof value.affiliation === "string" || (Array.isArray(value.affiliation) && value.affiliation.every((item) => typeof item === "string"))) &&
     typeof value.auth_time === "number" &&
     Number.isFinite(value.auth_time)
   );

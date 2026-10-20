@@ -78,7 +78,19 @@ Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup`
 
 ## Jika semua Admin Voting kehilangan akses
 
-Pemilik akun Cloudflare dapat membuat tautan undangan Admin Voting baru dengan satu perintah Wrangler (perintah pemulihan di dokumentasikan pada tugas 2.3; lihat halaman bantuan di situs setelah tugas itu selesai).
+Pemilik akun Cloudflare dapat membuat tautan undangan satu-kali (berlaku 72 jam) untuk `member_id` anggota aktif dan dalam cakupan:
+
+```bash
+npm run recover:admin -- <member_id>
+```
+
+Pilih target D1 lokal secara default atau gunakan Cloudflare remote:
+
+```bash
+npm run recover:admin -- <member_id> --remote
+```
+
+Anggota harus masih ACTIVE, berada di dalam cakupan situs, dan bukan kandidat. Perintah tidak mengirim email. Bagikan tautan yang dicetak hanya kepada anggota tersebut: undangan terikat ke `member_id` dan ditolak bila diteruskan.
 
 ## Dokumentasi & Spesifikasi
 
