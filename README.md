@@ -3,6 +3,8 @@
 Self-installable, publicly verifiable e-voting system for PPI Jepang (PPIJ Pusat, Korda, and Komsat).
 Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare Workers / Pages, D1, and R2**.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ppij-dev/ppij-election-system)
+
 > **Penting — Konfigurasi SSO OneLogin:**
 > **Kontak PPIJ Portal admin untuk meminta realm config untuk service** (`client_id`, `client_secret`, dan scope Korda/Komsat untuk pemilihan Anda).
 
@@ -14,10 +16,51 @@ hasil tingkat korda, dan jejak audit berantai. **Belum ada** push Wrangler, emai
 `/setup`, unggah logo/foto, peta wilayah, atau editor kandidat kaya — semuanya direncanakan untuk
 perubahan 1.1 berikutnya.
 
+## Pemasangan ke Cloudflare (untuk Korda / Komsat)
+
+Terdapat dua jalur pemasangan ke Cloudflare:
+
+### Jalur A: Tombol Deploy to Cloudflare (disarankan untuk repo baru)
+
+Klik tombol **Deploy to Cloudflare** di bagian atas README ini. Alur resmi Cloudflare:
+1. Mengkloning repositori ini ke akun GitHub/GitLab pengguna.
+2. Meminta input 3 rahasia (`ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) yang diambil dari `.dev.vars.example` dalam keadaan terselubung (masked).
+3. Menampilkan variabel non-rahasia dari blok `vars` di `wrangler.jsonc` untuk diatur nilainya.
+4. Membuat dan menghubungkan resource D1 (`DB`) dan R2 (`MEDIA`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori.
+5. Membangun dan merilis worker via Cloudflare Workers Builds. Skrip `deploy` di `package.json` otomatis menjalankan `wrangler d1 migrations apply DB --remote` sebelum deploy worker.
+
+*(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku rendering visual formulir prompt di antarmuka dasbor Cloudflare dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*
+
+### Jalur B: Fork manual lalu "Import repository" di dasbor Cloudflare (Workers Builds)
+
+Jika Anda melakukan fork manual di GitHub lalu memilih **Import a repository** di dasbor Cloudflare (Workers & Pages > Create application > Workers Builds):
+1. Dasbor Cloudflare **tidak** menampilkan prompt rahasia dari `.dev.vars.example` dan **tidak** membuat resource D1/R2 baru secara otomatis.
+2. Anda harus membuat basis data D1 dan bucket R2 secara manual melalui dasbor Cloudflare atau CLI (`npx wrangler d1 create <nama_db>` dan `npx wrangler r2 bucket create <nama_bucket>`).
+3. Sesuaikan `wrangler.jsonc` di fork Anda: isi `database_id`, `database_name`, dan nama bucket R2 dengan resource yang telah Anda buat, serta sesuaikan nilai `vars` (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, dll.). Commit dan push ke fork Anda.
+4. Masukkan 3 rahasia secara manual di dasbor Cloudflare (**Settings > Variables and Secrets**) atau melalui terminal menggunakan `npx wrangler secret put <NAMA_SECRET>`.
+
+### Checklist wajib setelah deploy (kedua jalur)
+
+Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** melakukan langkah-langkah berikut sebelum sistem dapat dipakai:
+
+1. **Pastikan migrasi basis data telah berjalan**:
+   Skrip `deploy` di `package.json` (`wrangler d1 migrations apply DB --remote && wrangler deploy`) secara bawaan menerapkan migrasi skema D1 saat rilis pertama. Jika migrasi gagal atau menggunakan alur deploy manual, terapkan migrasi secara mandiri:
+   ```bash
+   npx wrangler d1 migrations apply DB --remote
+   ```
+2. **Sesuaikan variabel cabang di `wrangler.jsonc`**:
+   Buka berkas `wrangler.jsonc` pada fork repositori Anda dan pastikan nilai `vars` sesuai dengan identitas cabang pemilihan (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, `SITE_LOGO_PATH`, `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`). Berkas `wrangler.jsonc` adalah *source of truth*; pengubahan nilai variabel melalui dasbor Cloudflare akan tertimpa saat build/deploy berikutnya. Commit dan push perubahan ini ke repositori Anda.
+3. **Jalankan bootstrap operator jarak jauh untuk Admin Voting pertama**:
+   Situs baru berada dalam status uninitialized (halaman publik dan API menjawab status HTTP 503; `/setup` selalu 404). Tidak ada pengguna yang dapat masuk sebagai admin sebelum bootstrap selesai. Operator wajib menjalankan satu kali perintah bootstrap remote dari terminal lokal:
+   ```bash
+   npm run bootstrap -- --remote --database <nama_d1_atau_binding_DB> <member_id>
+   ```
+   Gunakan flag `--dry-run` terlebih dahulu untuk memverifikasi pernyataan SQL dan nilai konfigurasi yang akan disimpan ke tabel `system_config`.
+
 ## Mulai cepat (operator, 1.0)
 
-> Tombol *Deploy to Cloudflare* dan wizard `/setup` adalah fase 2 (1.1). Pada 1.0, pemasangan
-> dilakukan operator lewat konfigurasi dan perintah bootstrap.
+> Wizard peramban `/setup` adalah fitur 1.1. Pada 1.0, pemasangan dilakukan lewat tombol
+> *Deploy to Cloudflare* (atau fork manual) dan inisialisasi dilakukan operator melalui konfigurasi dan perintah bootstrap.
 
 1. Pasang dependensi dan siapkan basis data lokal:
 
@@ -109,10 +152,30 @@ Pengujian identitas lokal memakai Keycloak hang milik `ppij-identity` di `127.0.
 realm/klien uji terpisah — jangan menyalakan/mematikan stack bersama itu, dan jangan mengubah realm
 `ppij`. Data Pemilih lokal memakai fixture HTTP Service API deterministik.
 
+## Memperbarui dari main
+
+Ketika repositori hulu (`upstream`) merilis perbaikan atau fitur baru, cabang dapat memperbarui repositorinya dengan panduan berikut:
+
+1. **Jalur fork GitHub asli**:
+   Jika Anda membuat repositori melalui fitur Fork di GitHub, Anda dapat menggunakan tombol **Sync fork** pada antarmuka web GitHub, atau melalui terminal:
+   ```bash
+   git remote add upstream https://github.com/ppij-dev/ppij-election-system.git
+   git fetch upstream
+   git merge upstream/main
+   ```
+2. **Klon dari tombol Deploy to Cloudflare**:
+   Berdasarkan dokumentasi Cloudflare, tombol deploy mengkloning repositori ke akun Git pengguna. Apakah kloning tersebut mempertahankan relasi fork GitHub atau berupa repositori mandiri berstatus *unverified* (belum diverifikasi di akun nyata). Oleh karena itu, tambahkan remote `upstream` manual seperti pada perintah di atas untuk menarik pembaruan dari repositori utama.
+3. **Resolusi konflik pada `wrangler.jsonc`**:
+   Berkas `wrangler.jsonc` adalah berkas yang diubah oleh setiap cabang (memuat ID dan nama D1/R2 serta nilai `vars` spesifik cabang). Saat melakukan merge dari `upstream/main`, konflik pada berkas ini sangat wajar terjadi. Selesaikan konflik dengan tetap mempertahankan nilai konfigurasi dan resource milik cabang Anda.
+4. **Penerapan migrasi skema baru**:
+   Migrasi D1 baru akan diterapkan secara otomatis saat kode hasil penggabungan di-push ke branch utama repositori Anda, karena skrip `deploy` di `package.json` secara otomatis mengeksekusi `wrangler d1 migrations apply DB --remote` sebelum menjalankan `wrangler deploy`.
+5. **Aturan pembekuan (Freeze Rule)**:
+   **Dilarang keras melakukan merge atau men-deploy perubahan hulu antara tahapan *Kunci & Jadwalkan* hingga hasil pemilihan dipublikasikan (*Diumumkan*).** Mengubah kode atau skema saat pemungutan suara atau perhitungan suara sedang berlangsung berisiko merusak integritas pemilihan atau audit. Pembaruan hanya boleh dilakukan setelah seluruh proses pemilihan tuntas. Pengelola pusat disarankan menandai rilis dengan tag Git (misalnya `v1.0.0`), dan cabang disarankan memperbarui kode berdasarkan tag rilis tersebut daripada commit branch utama sembarangan.
+
 
 ## Fitur Utama (1.0)
 
-- **Bootstrap operator sekali jalan**: migrasi D1 + konfigurasi/rahasia + perintah bootstrap aman diulang dengan `member_id` Admin Voting pertama. Sebelum itu, halaman publik menjawab 503; `/setup` 404. (Wizard peramban dan tombol Deploy menyusul di 1.1.)
+- **Bootstrap operator sekali jalan**: migrasi D1 + konfigurasi/rahasia + perintah bootstrap aman diulang dengan `member_id` Admin Voting pertama. Sebelum itu, halaman publik menjawab 503; `/setup` 404. (Wizard peramban `/setup` menyusul di 1.1.)
 - **Peran**:
   - **Admin Voting**: panitia pemilihan. Semua Admin Voting punya hak yang sama; admin pertama hasil bootstrap diberi label *Technical Admin*.
   - **Pemilih**: anggota yang tercantum pada daftar pemilih yang dibekukan saat *Kunci & Jadwalkan* **dan** saat memilih masuk lewat One Login paling lama 10 menit dengan keanggotaan aktif di cakupan situs. Anggota yang baru aktif setelah penguncian tidak bisa memilih pada pemilihan ini.
@@ -122,7 +185,7 @@ realm/klien uji terpisah — jangan menyalakan/mematikan stack bersama itu, dan 
 - **Dasbor panitia**: hitung mundur, perolehan suara keseluruhan, tabel hasil tingkat korda (korda dengan kurang dari 10 suara tidak dirinci), statistik pemilih berbasis daftar beku, dan cek kecocokan jumlah suara. Data diperbarui dengan tombol *Muat Ulang Data*.
 - **Audit berantai hash**: setiap aksi Admin Voting, pemilih, dan sistem tercatat append-only; integritas rantai bisa diperiksa, dan hash audit saat penutupan ditampilkan di papan bukti.
 
-Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup` + tombol Deploy, editor kandidat kaya (CKEditor/foto/video), peta wilayah + rincian komsat, unggah/krop logo, filter & ekspor CSV audit.
+Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup`, editor kandidat kaya (CKEditor/foto/video), peta wilayah + rincian komsat, unggah/krop logo, filter & ekspor CSV audit.
 
 ## Jika semua Admin Voting kehilangan akses
 

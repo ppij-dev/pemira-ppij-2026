@@ -1,6 +1,6 @@
 # Deploy to Cloudflare button, environment variables, and `APP_MASTER_KEY`
 
-Research from task 1.1 (2026-10-18) and task 5.7 (2026-10-21).
+Research from task 1.1 (2026-10-18), task 5.7 (2026-10-21), and task 5.9 (2026-10-21).
 Sources:
 - Cloudflare Workers documentation: <https://developers.cloudflare.com/workers/platform/deploy-buttons/> (last updated 2026-10-12).
 - Cloudflare Developer Platform Changelog: 2025-07-29 ("Deploy to Cloudflare buttons now support Worker environment variables, secrets, and Secrets Store secrets", <https://developers.cloudflare.com/changelog/post/2025-07-01-workers-deploy-button-supports-environment-variables-and-secrets/>).
@@ -8,6 +8,14 @@ Sources:
 ## Verified (documented by Cloudflare)
 
 - **Repository cloning and provisioning**: The button clones this repo into the deployer's GitHub/GitLab account, builds via Workers Builds, and deploys. Resources declared in `wrangler.jsonc` are provisioned automatically and their IDs are rewritten in the cloned copy. D1 and R2 are both supported, so `DB` (D1) and `MEDIA` (R2) need no manual creation prior to deployment.
+- **Deploy button badge snippet**:
+  ```markdown
+  [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ppij-dev/ppij-election-system)
+  ```
+  Image source `https://deploy.workers.cloudflare.com/button`, link target `https://deploy.workers.cloudflare.com/?url=<repo_url>`.
+- **Two installation paths (Deploy Button vs Dashboard Import)**:
+  - **Path A: Deploy to Cloudflare Button (`https://deploy.workers.cloudflare.com/?url=...`)**: Cloudflare launches the deploy-button wizard. Per official documentation, it clones the repository to the user's Git account, automatically provisions required storage resources (D1 `DB` and R2 `MEDIA`) with newly generated IDs, prompts the user for secrets parsed from `.dev.vars.example` (`ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) as masked inputs, displays `vars` from `wrangler.jsonc`, and initiates Workers Builds. The `deploy` script in `package.json` executes migrations (`wrangler d1 migrations apply DB --remote && wrangler deploy`).
+  - **Path B: Dashboard "Import a repository" (Workers Builds)**: If an operator instead forks the repo manually on GitHub and imports the repository through the Cloudflare Dashboard (Workers & Pages > Create application > Import a repository), the interactive deploy-button onboarding wizard is bypassed. Cloudflare does **not** prompt for secrets from `.dev.vars.example` and does **not** provision new D1 or R2 instances automatically. The operator must create D1 and R2 resources manually, manually set the 3 secrets via Settings > Variables and Secrets (or `wrangler secret put`), and manually edit `wrangler.jsonc` in the fork to supply the created resource names and IDs before triggering a build.
 - **Worker secrets vs environment variables mechanism**:
   - **Worker secrets (`secrets`)**: Defined in `.dev.vars.example` (or `.env.example`) in dotenv format. The Cloudflare Deploy button dashboard treats keys listed here as Worker secrets, prompting the user and masking values (dots/password input). When all settings were previously listed in `.dev.vars.example`, all settings were masked.
   - **Worker environment variables (`vars`)**: Defined in `wrangler.jsonc` under top-level `"vars": { ... }`. As documented in the 2025-07-29 changelog, environment variables and secrets are both presented in the dashboard during deployment so users can configure each value. Because `vars` are plain environment variables, they are not masked as secrets.
@@ -32,3 +40,4 @@ The fallback "generate `APP_MASTER_KEY` on first boot and store it in `system_co
 - Unverified: Whether an empty value in `.dev.vars.example` (`KEY=`) properly renders an empty input field in the dashboard form or whether a non-empty placeholder value is required (docs show `COOKIE_SIGNING_KEY=my-secret`).
 - Unverified: Whether inline markdown links in `package.json` `cloudflare.bindings.<NAME>.description` render as clickable links in the dashboard modal.
 - Unverified on a live account: Automatic provisioning of D1 and R2 with ID rewriting during the automated build.
+- Unverified: Whether the repository cloned by the Deploy to Cloudflare button retains an active GitHub fork relationship (showing "forked from ppij-dev/ppij-election-system" with the GitHub "Sync fork" UI button enabled) or creates a standalone/detached repository copy in the user's account. Because this is unverified, documentation recommends chapters add a manual `upstream` remote (`git remote add upstream https://github.com/ppij-dev/ppij-election-system.git`) when syncing updates.
