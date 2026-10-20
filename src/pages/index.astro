@@ -1,21 +1,22 @@
 ---
 import { IconArrowRight, IconLock, IconLogout, IconUserCircle } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
-import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE, openSession } from "../server/auth/session";
 import type { SessionData } from "../server/auth/session";
 
 const locals = Astro.locals as typeof Astro.locals & {
   runtime?: { env?: { APP_MASTER_KEY?: string; DB?: D1Database } };
 };
-const rawCookie = getCookie(Astro.request.headers, SESSION_COOKIE);
+const rawCookie = Astro.cookies.get(SESSION_COOKIE)?.value;
 const masterKey = locals.runtime?.env?.APP_MASTER_KEY;
 const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
+let isAdmin = false;
 let isTechnical = false;
 if (session && locals.runtime?.env?.DB) {
   const admin = await locals.runtime.env.DB.prepare("SELECT is_technical FROM admin_voting WHERE member_id = ?")
     .bind(session.member_id)
     .first<{ is_technical: number }>();
+  isAdmin = Boolean(admin);
   isTechnical = admin?.is_technical === 1;
 }
 const affiliation = session?.affiliation;
@@ -32,7 +33,7 @@ const affiliationLabel = Array.isArray(affiliation) ? affiliation.join(", ") : a
       <p class="mt-2 text-slate-600">Anda sudah masuk ke portal pemilihan PPIJ.</p>
       <div class="mt-5 flex flex-wrap items-center gap-2">
         <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700">{session.name}{affiliationLabel ? ` · ${affiliationLabel}` : ""}</span>
-        <span class="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">{isTechnical ? "Admin Voting" : "Pemilih"}</span>
+        <span class="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">{isAdmin ? "Admin Voting" : "Pemilih"}</span>
         {isTechnical && <span class="text-sm text-slate-500">Technical Admin</span>}
         {session.portal_admin_unit && <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800">Admin Portal {session.portal_admin_unit}</span>}
       </div>
