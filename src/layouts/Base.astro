@@ -2,17 +2,35 @@
 import "../styles/global.css";
 import { IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
+import { getSiteLogo } from "../server/lib/logo";
 
 interface Props {
   title: string;
   description?: string;
   siteName?: string;
+  siteLogoPath?: string;
   showHasil?: boolean;
 }
 
-const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi.", siteName = "PPIJ Pemilu", showHasil } =
-  Astro.props;
+const {
+  title,
+  description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi.",
+  siteName = "PPIJ Pemilu",
+  siteLogoPath,
+  showHasil,
+} = Astro.props;
 const db = (env as unknown as { DB?: D1Database }).DB;
+
+let rawLogoPath: string | null | undefined = siteLogoPath;
+if (rawLogoPath === undefined && db) {
+  try {
+    const row = await db.prepare("SELECT value FROM system_config WHERE key = 'site_logo_path'").first<{ value: string }>();
+    rawLogoPath = row?.value;
+  } catch {
+    rawLogoPath = null;
+  }
+}
+const logo = getSiteLogo(rawLogoPath);
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
 ---
@@ -25,12 +43,12 @@ const showResultsTab = showHasil ?? election?.status_lock === "published";
     <title>{title}</title>
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content={description} />
-    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href={logo.src} type={logo.faviconType} />
   </head>
   <body class="min-h-dvh bg-slate-50 text-slate-900 antialiased">
     <header class="border-b border-slate-200 bg-white">
       <div class="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-4">
-        <img src="/logo.svg" alt="" class="size-10 rounded-full" />
+        <img src={logo.src} alt="" class="size-10 rounded-full" />
         <span class="text-lg font-semibold tracking-tight">{siteName}</span>
       </div>
     </header>

@@ -48,6 +48,15 @@ perubahan 1.1 berikutnya.
      `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/logo.svg`).
      - `SITE_SCOPE`: wajib berupa format jalur grup diawali `/` tanpa spasi (contoh: `/ppij/okayama` atau `/ppij`),
        sesuai dengan klaim `affiliation` pada token OneLogin.
+     - `SITE_LOGO_PATH`: jalur logo publik di aset statis lokal (default `/logo.svg`). Untuk deployment cabang Okayama,
+       atur `SITE_LOGO_PATH=/ppi-okayama-logo.webp`. Jalur wajib berupa path absolut satu-asal (diawali `/`, bukan `//`,
+       tanpa skema, tanpa spasi, ekstensi `.svg`, `.png`, `.webp`, `.jpg`, atau `.jpeg`). Tipe favicon diturunkan otomatis
+       dari ekstensi. Seperti `SITE_BASE_URL` dan `SITE_SCOPE`, `system_config` di D1 adalah sumber kebenaran saat runtime.
+       Jika logo diubah setelah bootstrap, perbarui tabel `system_config` di D1:
+       ```bash
+       npx wrangler d1 execute DB --local --command "UPDATE system_config SET value = '/ppi-okayama-logo.webp' WHERE key = 'site_logo_path';"
+       ```
+       (gunakan `--remote --database <nama_d1>` untuk lingkungan Cloudflare produksi).
      - `SERVICE_API_URL`: hanya origin tanpa path (contoh: `https://service-api.example`), karena klien internal
        menggunakan path absolut `/v1/service`.
    - Kunci master dibuat dengan `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
