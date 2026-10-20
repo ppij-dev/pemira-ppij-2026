@@ -5,11 +5,11 @@ import { createCandidate, deleteCandidate, ElectionError, listCandidates, update
 import { castTestVote, clearSchedule, closeEarly, extendClosing, getReadiness, lockElection, publishResults, setSchedule } from "./lifecycle";
 import type { ServiceApiConfig } from "../serviceapi/client";
 
-type Env={Bindings:Bindings & Partial<ServiceApiConfig>;Variables:{adminAuth?:{admin:{member_id:string}}}};
+type Env={Bindings:Bindings & { ONELOGIN_ISSUER?: string; ONELOGIN_CLIENT_ID?: string; ONELOGIN_CLIENT_SECRET?: string; SERVICE_API_URL?: string };Variables:{adminAuth?:{admin:{member_id:string}}}};
 export const electionRoutes=new Hono<Env>();
 function now(_context?:unknown) { return new Date(); }
 function fail(c:any,error:unknown) { if(error instanceof ElectionError) return c.json({error:error.message,...(error.checks?{checks:error.checks}:{})},error.status as 400|403|404|409|503); return c.json({error:"Terjadi kesalahan"},500); }
-function serviceConfig(env:Env["Bindings"]):ServiceApiConfig { return {issuer:env.issuer??"",clientId:env.clientId??"",clientSecret:env.clientSecret??"",serviceApiUrl:env.serviceApiUrl??""}; }
+function serviceConfig(env:Env["Bindings"]):ServiceApiConfig { return {issuer:env.ONELOGIN_ISSUER??"",clientId:env.ONELOGIN_CLIENT_ID??"",clientSecret:env.ONELOGIN_CLIENT_SECRET??"",serviceApiUrl:env.SERVICE_API_URL??""}; }
 electionRoutes.get("/election/candidates",async c=>c.json({results:await listCandidates(c.env.DB)}));
 electionRoutes.post("/election/candidates",async c=>{try{return c.json(await createCandidate(c.env.DB,now(),await c.req.json()),201);}catch(e){return fail(c,e);}});
 electionRoutes.put("/election/candidates/:id",async c=>{try{return c.json(await updateCandidate(c.env.DB,now(),Number(c.req.param("id")),await c.req.json()));}catch(e){return fail(c,e);}});

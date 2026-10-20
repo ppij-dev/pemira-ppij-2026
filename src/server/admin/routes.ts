@@ -22,27 +22,28 @@ export function affiliationInScope(claim: AffiliationClaim, scope: string): bool
 function jsonError(c: Context<Env>, error: string, status: 400 | 401 | 403 | 404 | 409 | 503) {
   return c.json({ error }, status);
 }
+const authenticate = async (c: Context<Env>) => {
+  const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
+  const cookie = getCookie(c, SESSION_COOKIE);
+  if (!key || !cookie) return null;
+  const session = await openSession(cookie, key);
+  if (!session) return null;
+  const admin = await c.env.DB.prepare("SELECT member_id, name, is_technical FROM admin_voting WHERE member_id = ?").bind(session.member_id).first<{member_id:string;name:string;is_technical:number}>();
+  if (!admin) return null;
+  const config = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{value:string}>();
+  if (!config || !affiliationInScope(session.affiliation, config.value)) return null;
+  return { session, admin };
+};
+/** Dipakai juga oleh parent untuk memasang rute election/sync di bawah guard yang sama. */
+export const requireAdmin = async (c: Context<Env>, next: () => Promise<void>) => {
+  if (/\/admin\/invitations\/[^/]+\/accept$/.test(c.req.path)) return next();
+  const auth = await authenticate(c);
+  if (!auth) return jsonError(c, "admin_voting_tidak_aktif_atau_tidak_dalam_cakupan", 403);
+  c.set("adminAuth", auth);
+  await next();
+};
 export function createAdminRoutes() {
   const routes = new Hono<Env>();
-  const authenticate = async (c: Context<Env>) => {
-    const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
-    const cookie = getCookie(c, SESSION_COOKIE);
-    if (!key || !cookie) return null;
-    const session = await openSession(cookie, key);
-    if (!session) return null;
-    const admin = await c.env.DB.prepare("SELECT member_id, name, is_technical FROM admin_voting WHERE member_id = ?").bind(session.member_id).first<{member_id:string;name:string;is_technical:number}>();
-    if (!admin) return null;
-    const config = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{value:string}>();
-    if (!config || !affiliationInScope(session.affiliation, config.value)) return null;
-    return { session, admin };
-  };
-  const requireAdmin = async (c: Context<Env>, next: () => Promise<void>) => {
-    if (/\/admin\/invitations\/[^/]+\/accept$/.test(c.req.path)) return next();
-    const auth = await authenticate(c);
-    if (!auth) return jsonError(c, "admin_voting_tidak_aktif_atau_tidak_dalam_cakupan", 403);
-    c.set("adminAuth", auth);
-    await next();
-  };
   routes.use("*", async (c, next) => {
     const initialized = await c.env.DB.prepare("SELECT value FROM system_config WHERE key='initialized'").first<{value:string}>();
     if (initialized?.value !== "1") return jsonError(c, "situs_belum_dikonfigurasi", 503);
