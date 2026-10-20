@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import { IconShieldCheck, IconUsers, IconSpeakerphone, IconRosetteDiscountCheck } from "@tabler/icons-astro";
+import { env } from "cloudflare:workers";
 
 interface Props {
   title: string;
@@ -9,8 +9,11 @@ interface Props {
   showHasil?: boolean;
 }
 
-const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi.", siteName = "PPIJ Pemilu", showHasil = false } =
+const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi.", siteName = "PPIJ Pemilu", showHasil } =
   Astro.props;
+const db = (env as unknown as { DB?: D1Database }).DB;
+const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
+const showResultsTab = showHasil ?? election?.status_lock === "published";
 ---
 
 <!doctype html>
@@ -18,6 +21,7 @@ const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara p
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content={description} />
     <link rel="icon" href="/logo.svg" type="image/svg+xml" />
@@ -33,7 +37,7 @@ const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara p
       <slot />
     </main>
     <nav aria-label="Navigasi pemilih" class="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
-      <div class={`mx-auto grid w-full max-w-3xl ${showHasil ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div class={`mx-auto grid w-full max-w-3xl ${showResultsTab ? "grid-cols-4" : "grid-cols-3"}`}>
         <a href="/kandidat" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600">
           <IconUsers size={21} stroke={1.8} aria-hidden="true" /><span>Kandidat</span>
         </a>
@@ -43,7 +47,7 @@ const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara p
         <a href="/surat-suara" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600">
           <IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Bukti Suara</span>
         </a>
-        {showHasil && <a href="/hasil" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600"><IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Hasil</span></a>}
+        {showResultsTab && <a href="/hasil" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600"><IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Hasil</span></a>}
       </div>
     </nav>
   </body>
