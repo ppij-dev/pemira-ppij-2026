@@ -3,21 +3,23 @@ import { IconArrowRight, IconLock, IconLogout, IconUserCircle } from "@tabler/ic
 import Base from "../layouts/Base.astro";
 import { SESSION_COOKIE, openSession } from "../server/auth/session";
 import type { SessionData } from "../server/auth/session";
+import { env } from "cloudflare:workers";
+import type { Bindings } from "../server/app";
+import { affiliationInScope } from "../server/admin/routes";
 
-const locals = Astro.locals as typeof Astro.locals & {
-  runtime?: { env?: { APP_MASTER_KEY?: string; DB?: D1Database } };
-};
+const bindings = env as unknown as Bindings;
 const rawCookie = Astro.cookies.get(SESSION_COOKIE)?.value;
-const masterKey = locals.runtime?.env?.APP_MASTER_KEY;
+const masterKey = bindings.APP_MASTER_KEY;
 const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
 let isAdmin = false;
 let isTechnical = false;
-if (session && locals.runtime?.env?.DB) {
-  const admin = await locals.runtime.env.DB.prepare("SELECT is_technical FROM admin_voting WHERE member_id = ?")
+if (session && bindings.DB) {
+  const admin = await bindings.DB.prepare("SELECT is_technical FROM admin_voting WHERE member_id = ?")
     .bind(session.member_id)
     .first<{ is_technical: number }>();
-  isAdmin = Boolean(admin);
-  isTechnical = admin?.is_technical === 1;
+  const scope = await bindings.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
+  isAdmin = Boolean(admin && scope && affiliationInScope(session.affiliation, scope.value));
+  isTechnical = isAdmin && admin?.is_technical === 1;
 }
 const affiliation = session?.affiliation;
 const affiliationLabel = Array.isArray(affiliation) ? affiliation.join(", ") : affiliation;
@@ -37,6 +39,7 @@ const affiliationLabel = Array.isArray(affiliation) ? affiliation.join(", ") : a
         {isTechnical && <span class="text-sm text-slate-500">Technical Admin</span>}
         {session.portal_admin_unit && <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800">Admin Portal {session.portal_admin_unit}</span>}
       </div>
+      {isAdmin && <a href="/admin" class="mt-6 inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-4 py-2 font-semibold text-white">Mode Admin</a>}
       <form class="mt-8" action="/api/auth/logout" method="post" onsubmit="return logout(event)">
         <button class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600" type="submit">
           <IconLogout size={18} aria-hidden="true" /> Keluar

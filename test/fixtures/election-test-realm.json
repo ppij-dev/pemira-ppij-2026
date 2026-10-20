@@ -13,7 +13,7 @@
       "secret": "${APP_CLIENT_SECRET}",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:4321/api/auth/callback", "http://127.0.0.1:*/api/auth/callback"],
+      "redirectUris": ["http://localhost:4321/api/auth/callback", "http://127.0.0.1:4321/api/auth/callback", "http://127.0.0.1:4399/api/auth/callback"],
       "defaultClientScopes": ["profile", "ppij-member", "ppij-affiliation"]
     },
     {

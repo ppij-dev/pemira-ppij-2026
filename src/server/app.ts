@@ -5,6 +5,7 @@ import { createAuthRoutes } from "./auth/routes";
 import { electionRoutes } from "./election/routes";
 import { serviceApiRoutes } from "./serviceapi/routes";
 import { requireAdmin } from "./admin/routes";
+import { loadRuntimeConfig } from "./setup/bootstrap";
 export type Bindings = {
   /** D1: election data, audit log, encrypted secrets. */
   DB: D1Database;
@@ -19,7 +20,20 @@ const app = new Hono<{ Bindings: Bindings }>().basePath("/api");
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/setup", setupRoutes);
-app.route("/", createAuthRoutes());
+app.route("/", createAuthRoutes({
+  loadRuntime: (c) => {
+    const config = loadRuntimeConfig(c.env);
+    return config ? {
+      masterKey: config.APP_MASTER_KEY,
+      config: {
+        issuer: config.ONELOGIN_ISSUER,
+        clientId: config.ONELOGIN_CLIENT_ID,
+        clientSecret: config.ONELOGIN_CLIENT_SECRET,
+        redirectUri: new URL("/api/auth/callback", config.SITE_BASE_URL).href,
+      },
+    } : null;
+  },
+}));
 
 // Rute admin terintegrasi (parent): election + sync dijalankan di bawah guard
 // requireAdmin yang sama dengan rute panitia (adminAuth disetel untuk test-vote).

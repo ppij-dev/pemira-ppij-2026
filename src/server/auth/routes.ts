@@ -182,9 +182,12 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         expectedNonce: tx.nonce,
         now,
       });
+      if (typeof claims.member_id !== "string" || !claims.member_id.trim()) {
+        throw new OidcError("member_id_tidak_ada");
+      }
       session = {
-        member_id: claims.sub,
-        name: claims.name ?? claims.preferred_username ?? "",
+        member_id: claims.member_id,
+        name: claims.name ?? claims.preferred_username ?? claims.member_id,
         affiliation: typeof claims.affiliation === "string" || Array.isArray(claims.affiliation) ? claims.affiliation as string | string[] : null,
         portal_admin_unit: typeof claims.portal_admin_unit === "string" ? claims.portal_admin_unit : undefined,
         auth_time: typeof claims.auth_time === "number" ? claims.auth_time : claims.iat,

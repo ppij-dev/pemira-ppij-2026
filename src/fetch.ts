@@ -1,6 +1,5 @@
-import { cf } from "@astrojs/cloudflare/hono";
+import { env } from "cloudflare:workers";
 import { Hono } from "hono";
-import { getRuntimeKey } from "hono/adapter";
 import { actions, i18n, middleware, pages, sessions } from "astro/hono";
 import { app as api, type Bindings } from "./server/app";
 import { setupGuard } from "./server/setup/guard";
@@ -12,12 +11,6 @@ const app = new Hono<{ Bindings: Bindings }>();
 // (halaman dan /api), dilengkapi /robots.txt dan meta robots di layout dasar.
 app.use("*", noindex);
 
-// Cloudflare setup first so bindings and locals exist for everything below.
-// cf() needs a Cloudflare ExecutionContext, which `astro dev` (Node) does not
-// provide; there the adapter's dev handler covers Cloudflare-specific setup.
-if (getRuntimeKey() === "workerd") {
-  app.use(cf());
-}
 // Block reserved setup URLs and fail closed until operator bootstrap completes.
 app.use("*", setupGuard());
 
@@ -30,4 +23,7 @@ app.use(sessions());
 app.use(i18n());
 app.use(pages());
 
-export default app;
+// Astro's adapter owns the ExecutionContext and supplies render state on request.
+export default {
+  fetch: (request: Request) => app.fetch(request, env as unknown as Bindings),
+};

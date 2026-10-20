@@ -144,7 +144,8 @@ async function createOneLoginStub(): Promise<OneLoginStub> {
       const idToken = await mintIdToken(state.signWithSecondKey ? secondKey : primaryKey, {
         iss: ISSUER,
         aud: CLIENT_ID,
-        sub: "member-001",
+        sub: "oidc-subject-not-member-id",
+        member_id: "member-001",
         name: "Budi Santoso",
         affiliation: "/ppij/ppi-okayama",
         iat: now - state.iatOffset,

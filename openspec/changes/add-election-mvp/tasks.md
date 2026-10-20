@@ -29,14 +29,14 @@ the shared `ppij` realm or creating another container.
 
 ## 2. Bootstrap and local identity — first runnable slice
 
-- [ ] 2.1 Backend: replace the browser setup path with documented repeat-safe operator bootstrap and runtime config loader for Wrangler/local secrets, scope, base URL, name/logo, first Technical Admin and one draft election; uninitialized 503, `/setup` 404, no public init route. Update old guard tests and prove a second bootstrap cannot duplicate or expose a partial site.
+- [x] 2.1 Backend: replace the browser setup path with documented repeat-safe operator bootstrap and runtime config loader for Wrangler/local secrets, scope, base URL, name/logo, first Technical Admin and one draft election; uninitialized 503, `/setup` 404, no public init route. Update old guard tests and prove a second bootstrap cannot duplicate or expose a partial site.
 - [ ] 2.2 Test harness: reuse the warm Keycloak through an isolated election realm/client with ACTIVE, suspended and out-of-scope personas; no compose up/down. Focused OIDC integration checks cover callback and stale/fresh `auth_time` with explicit per-process settings; the integration owner drives the browser journey.
-- [ ] 2.3 Backend: Admin Voting middleware, equal rights, candidate exclusion, copy-link single-use 72 h invitation, removal/last-one guard and operator recovery command. Test in-scope/expired access, forwarded link, candidate conflict, recovery and audit without email.
+- [x] 2.3 Backend: Admin Voting middleware, equal rights, candidate exclusion, copy-link single-use 72 h invitation, removal/last-one guard and operator recovery command. Test in-scope/expired access, forwarded link, candidate conflict, recovery and audit without email.
 - [ ] 2.4 UI: templui-based responsive shell and Tabler navigation, sign-in, uninitialized page and Admin Voting switch. Integrate against 2.1–2.3; focused UI check, with parent-owned Playwright sign-in journey. Invitation picking UI follows the roll in 3.3.
 
 ## 3. Frozen electorate and election preparation
 
-- [ ] 3.1 Backend: deterministic local Service API HTTP fixture plus actual client-credentials client and paged `changed_since` sync; in-scope ACTIVE roll, status removals, unit paths, `no_grant` and failed-page behavior. Test Draf-only manual sync and final sync; a failed final sync must leave Kunci uncommitted.
+- [x] 3.1 Backend: deterministic local Service API HTTP fixture plus actual client-credentials client and paged `changed_since` sync; in-scope ACTIVE roll, status removals, unit paths, `no_grant` and failed-page behavior. Test Draf-only manual sync and final sync; a failed final sync must leave Kunci uncommitted.
 - [ ] 3.2 Backend: basic candidate CRUD from the roll (number/nickname uniqueness, admin block, escaped plain description, Draf-only edits, 2–10 readiness), election schedule/Uji Coba, final roll freeze, delete test votes, distinct colors, extension/early close/publication and locked Hak pilih. Test state transitions, races, invariants and audit.
 - [ ] 3.3 UI: Pemilih list/search and manual sync, admin invitation picking, candidate editor, Pemilihan readiness/actions and structured public sample page with a downloaded local placeholder. Use templui and Tabler, no rich HTML or remote image fetch; parent-owned Playwright exercises prepare and lock on phone viewport after 3.1–3.2.
 
