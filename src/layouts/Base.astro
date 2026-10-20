@@ -5,9 +5,11 @@ import { IconShieldCheck, IconUsers, IconSpeakerphone, IconRosetteDiscountCheck 
 interface Props {
   title: string;
   description?: string;
+  siteName?: string;
+  showHasil?: boolean;
 }
 
-const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi." } =
+const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara per anggota, dan bisa diverifikasi.", siteName = "PPIJ Pemilu", showHasil = false } =
   Astro.props;
 ---
 
@@ -18,22 +20,20 @@ const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara p
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content={description} />
-    <title>{title}</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
   </head>
   <body class="min-h-dvh bg-slate-50 text-slate-900 antialiased">
     <header class="border-b border-slate-200 bg-white">
       <div class="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-4">
-        <span class="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-          <IconShieldCheck size={24} aria-hidden="true" />
-        </span>
-        <span class="text-lg font-semibold tracking-tight">PPIJ Pemilu</span>
+        <img src="/logo.svg" alt="" class="size-10 rounded-full" />
+        <span class="text-lg font-semibold tracking-tight">{siteName}</span>
       </div>
     </header>
     <main class="mx-auto w-full max-w-3xl px-4 py-8 pb-28 sm:py-10 sm:pb-32">
       <slot />
     </main>
     <nav aria-label="Navigasi pemilih" class="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
-      <div class="mx-auto grid w-full max-w-3xl grid-cols-3">
+      <div class={`mx-auto grid w-full max-w-3xl ${showHasil ? "grid-cols-4" : "grid-cols-3"}`}>
         <a href="/kandidat" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600">
           <IconUsers size={21} stroke={1.8} aria-hidden="true" /><span>Kandidat</span>
         </a>
@@ -43,6 +43,7 @@ const { title, description = "Portal pemilihan PPI Jepang: rahasia, satu suara p
         <a href="/surat-suara" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600">
           <IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Bukti Suara</span>
         </a>
+        {showHasil && <a href="/hasil" class="flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-brand-700 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600"><IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Hasil</span></a>}
       </div>
     </nav>
   </body>
