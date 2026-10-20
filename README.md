@@ -40,12 +40,12 @@ perubahan 1.1 berikutnya.
    npm run bootstrap -- <member_id>
    ```
 
-   Untuk lokal perintah memakai `.dev.vars` dan D1 lokal; gunakan lingkungan Wrangler target
-   yang sesuai bila menginisialisasi remote. Perintah aman diulang: hanya satu pemilihan Draf
-   dibuat dan admin pertama tidak diganti. Konfigurasi wajib yang hilang membatalkan perintah.
-   Sebelum bootstrap selesai, halaman publik/API menjawab 503; `/setup` serta `/api/setup/*`
-   selalu 404. Bootstrap tidak membuat sesi login: admin tetap harus masuk lewat One Login
-   dengan afiliasi ACTIVE di dalam cakupan situs.
+   Perintah memakai D1 lokal Wrangler yang sama dengan `npm run dev`; jalankan setelah
+   migrasi lokal selesai. Bootstrap aman diulang: hanya satu pemilihan Draf dibuat dan
+   admin pertama tidak diganti. Konfigurasi wajib yang hilang membatalkan perintah.
+   Mode bootstrap jarak jauh belum didukung. Sebelum bootstrap selesai, halaman publik/API
+   menjawab 503; `/setup` serta `/api/setup/*` selalu 404. Bootstrap tidak membuat sesi login:
+   admin tetap harus masuk lewat One Login dengan afiliasi ACTIVE di dalam cakupan situs.
 
 Pengembangan lokal (Node.js 22.12+):
 

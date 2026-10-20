@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { getPlatformProxy } from "wrangler";
 
 const file = new URL("../.dev.vars", import.meta.url);
 let local = {};
@@ -20,15 +20,29 @@ if (!memberId) {
   console.error("Gunakan: npm run bootstrap -- <member_id Admin Voting pertama>");
   process.exit(1);
 }
-const quote = (value) => `'${value.replaceAll("'", "''")}'`;
-const name = quote(config.SITE_NAME.trim());
-const member = quote(memberId);
-const scope = quote(config.SITE_SCOPE.trim());
-const baseUrl = quote(config.SITE_BASE_URL.trim());
-const logoPath = quote((config.SITE_LOGO_PATH || "/logo.svg").trim());
-const now = quote(new Date().toISOString());
-// Run all bootstrap writes in one transaction so an interrupted command can
-// be safely retried without leaving partially initialized site state.
-const sql = `BEGIN IMMEDIATE; INSERT INTO elections (title, status_lock) SELECT ${name}, 'draft' WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1') AND NOT EXISTS (SELECT 1 FROM elections); INSERT INTO admin_voting (member_id, name, is_technical, created_at) SELECT ${member}, 'Technical Admin', 1, ${now} WHERE EXISTS (SELECT 1 FROM elections) AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); INSERT INTO system_config (key,value) SELECT 'site_scope',${scope} WHERE EXISTS (SELECT 1 FROM admin_voting WHERE member_id=${member}) AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); INSERT INTO system_config (key,value) SELECT 'site_base_url',${baseUrl} WHERE EXISTS (SELECT 1 FROM admin_voting WHERE member_id=${member}) AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); INSERT INTO system_config (key,value) SELECT 'site_name',${name} WHERE EXISTS (SELECT 1 FROM admin_voting WHERE member_id=${member}) AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); INSERT INTO system_config (key,value) SELECT 'site_logo_path',${logoPath} WHERE EXISTS (SELECT 1 FROM admin_voting WHERE member_id=${member}) AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); INSERT INTO system_config (key,value) SELECT 'initialized','1' WHERE EXISTS (SELECT 1 FROM admin_voting WHERE member_id=${member}) AND EXISTS (SELECT 1 FROM elections WHERE title=${name} AND status_lock='draft') AND NOT EXISTS (SELECT 1 FROM system_config WHERE key='initialized' AND value='1'); COMMIT;`;
-const result = spawnSync("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", sql], { stdio: "inherit", env: process.env });
-process.exit(result.status ?? 1);
+const proxy = await getPlatformProxy({ remoteBindings: false });
+try {
+  const db = proxy.env.DB;
+  const initialized = await db.prepare("SELECT value FROM system_config WHERE key='initialized'").first();
+  if (initialized?.value === "1") {
+    console.log("Situs sudah diinisialisasi; tidak ada perubahan.");
+    process.exitCode = 0;
+  } else {
+    const existingAdmins = await db.prepare("SELECT member_id FROM admin_voting").all();
+    if (existingAdmins.results.length) throw new Error("Data bootstrap parsial: admin sudah ada tanpa situs terinisialisasi; operator perlu memeriksa basis data.");
+    const now = new Date().toISOString();
+    const results = await db.batch([
+      db.prepare("INSERT INTO elections (title, status_lock) SELECT ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM elections)").bind(config.SITE_NAME.trim()),
+      db.prepare("INSERT INTO admin_voting (member_id, name, is_technical, created_at) VALUES (?, 'Technical Admin', 1, ?)").bind(memberId, now),
+      db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?)").bind(config.SITE_SCOPE.trim(), config.SITE_BASE_URL.trim(), config.SITE_NAME.trim(), (config.SITE_LOGO_PATH || "/logo.svg").trim()),
+      db.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1')"),
+    ]);
+    if (results.some((result) => result.success === false)) throw new Error("Bootstrap tidak dapat diselesaikan; basis data belum diinisialisasi.");
+    console.log("Bootstrap situs selesai.");
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Bootstrap gagal.");
+  process.exitCode = 1;
+} finally {
+  await proxy.dispose();
+}
