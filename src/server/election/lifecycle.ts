@@ -1,5 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { buildAuditInsert } from "../lib/audit";
+import { AUDIT_GENESIS_HASH, buildAuditInsert, canonicalRow, sha256Hex } from "../lib/audit";
 import { stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
@@ -54,10 +54,23 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
  return {frozen_hak_pilih:frozen,deleted_test_votes:votes};
 }
 async function requireStage(db:D1Database,now:Date,desired:"open"|"closed") {
- const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}>(); if(!row||stage(row,now.toISOString())!==desired) throw new ElectionError("Tahap pemilihan tidak mengizinkan tindakan ini"); return row;
+ const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}>(); if(!row||stage(row,now.toISOString())!==desired) throw new ElectionError("Tahap pemilihan tidak mengizinkan tindakan ini"); return row;
 }
 export async function extendClosing(db:D1Database,now:Date,newClosesAt:string,reason:string) { const row=await requireStage(db,now,"open"); if(!Number.isFinite(Date.parse(newClosesAt))||Date.parse(newClosesAt)<=Date.parse(row.closes_at)) throw new ElectionError("Waktu penutupan baru harus lebih akhir"); await db.batch([db.prepare("UPDATE elections SET closes_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(newClosesAt),await audit(db,now,"Waktu penutupan diperpanjang",null,JSON.stringify({closes_at:newClosesAt,reason}))]); }
-export async function closeEarly(db:D1Database,now:Date,reason:string) { await requireStage(db,now,"open"); await db.batch([db.prepare("UPDATE elections SET closed_early_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(now.toISOString()),await audit(db,now,"Pemilihan ditutup lebih awal",null,JSON.stringify({reason}))]); }
+export async function closeEarly(db:D1Database,now:Date,reason:string) {
+ const row=await requireStage(db,now,"open");
+ const at=now.toISOString();
+ const detail=JSON.stringify({reason});
+ const last=await db.prepare("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1").first<{hash:string}>();
+ const prevHash=last?.hash??AUDIT_GENESIS_HASH;
+ const auditEntry={at,actor_type:"admin" as const,actor_member_id:null,actor_name:"",action:"Pemilihan ditutup lebih awal",target:null,komsat_path:null,detail_json:detail};
+ const hash=await sha256Hex(prevHash+canonicalRow({...auditEntry,prev_hash:prevHash}));
+ const results=await db.batch([
+  db.prepare("UPDATE elections SET closed_early_at=?, closing_snapshot_hash=?, closing_snapshot_at=? WHERE id=? AND status_lock='locked' AND closed_early_at IS NULL AND closing_snapshot_hash IS NULL").bind(at,hash,at,row.id),
+  db.prepare("INSERT INTO audit_log (at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash) SELECT ?,?,?,?,?,?,?,?,?,? FROM elections WHERE id=? AND closed_early_at=? AND closing_snapshot_hash=?").bind(at,"admin",null,"","Pemilihan ditutup lebih awal",null,null,detail,prevHash,hash,row.id,at,hash),
+ ]);
+ if(!results[0]?.meta?.changes) throw new ElectionError("Pemilihan sudah ditutup");
+}
 export async function publishResults(db:D1Database,now:Date) { await requireStage(db,now,"closed"); const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked'"),await audit(db,now,"Hasil pemilihan diumumkan",null)]); if(!result[0]?.meta.changes) throw new ElectionError("Hasil telah diumumkan"); }
 export async function castTestVote(db:D1Database,now:Date,candidateId:number,adminMemberId:string) {
  const row=await db.prepare("SELECT id,status_lock FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Uji coba hanya diizinkan saat Draf");
