@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import migrationSql from "../migrations/0001_init.sql?raw";
 import unitsMigrationSql from "../migrations/0002_units.sql?raw";
+import electionLockMigrationSql from "../migrations/0003_election_lock.sql?raw";
 
 declare module "*.sql?raw" {
   const content: string;
@@ -24,7 +25,7 @@ const TABLES = [
 
 beforeEach(async () => {
   await reset();
-  const statements = [migrationSql, unitsMigrationSql].join(";")
+  const statements = [migrationSql, unitsMigrationSql, electionLockMigrationSql].join(";")
     .split(";")
     .map((statement) => statement.trim())
     .filter(Boolean)
