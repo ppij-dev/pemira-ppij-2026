@@ -8,13 +8,9 @@ Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare W
 > **Penting — Konfigurasi SSO OneLogin:**
 > **Kontak PPIJ Portal admin untuk meminta realm config untuk service** (`client_id`, `client_secret`, dan scope Korda/Komsat untuk pemilihan Anda).
 
-## Versi 1.0 (MVP lokal) vs 1.1
+## Versi 1.0 vs 1.1
 
-**1.0** berjalan lokal sepenuhnya: bootstrap manual oleh operator, sinkronisasi daftar pemilih lewat
-Service API (lokal: fixture deterministik), pemungutan suara rahasia, bukti suara berbasis hash,
-hasil tingkat korda, dan jejak audit berantai. **Belum ada** push Wrangler, email keluar, wizard
-`/setup`, unggah logo/foto, peta wilayah, atau editor kandidat kaya — semuanya direncanakan untuk
-perubahan 1.1 berikutnya.
+**1.0** mendukung latihan (*rehearsal*) lokal secara penuh serta deployment produksi ke Cloudflare melalui tombol *Deploy to Cloudflare* atau impor repositori di dasbor dengan bootstrap operator jarak jauh (`--remote`). Fitur 1.0 mencakup autentikasi OIDC OneLogin, sinkronisasi daftar pemilih Service API, pemungutan suara rahasia, bukti suara berbasis hash Crockford, hasil agregat tingkat korda, dan jejak audit berantai append-only. **Fitur yang ditunda ke 1.1**: pengiriman email keluar (pengingat, undangan, bukti suara), wizard peramban `/setup`, unggah dan pemotongan logo lewat peramban, visualisasi peta wilayah dan rincian komsat, editor kandidat kaya (CKEditor/foto/video), serta filter dan ekspor CSV audit.
 
 ## Pemasangan ke Cloudflare (untuk Korda / Komsat)
 
@@ -29,7 +25,7 @@ Klik tombol **Deploy to Cloudflare** di bagian atas README ini. Alur resmi Cloud
 4. Membuat dan menghubungkan resource D1 (`DB`) dan R2 (`MEDIA`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori.
 5. Membangun dan merilis worker via Cloudflare Workers Builds. Skrip `deploy` di `package.json` otomatis menjalankan `wrangler d1 migrations apply DB --remote` sebelum deploy worker.
 
-*(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku rendering visual formulir prompt di antarmuka dasbor Cloudflare dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*
+*(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku provisioning otomatis D1/R2 beserta penulisan ulang ID-nya, rendering visual formulir prompt di antarmuka dasbor Cloudflare, dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*
 
 ### Jalur B: Fork manual lalu "Import repository" di dasbor Cloudflare (Workers Builds)
 
@@ -38,24 +34,35 @@ Jika Anda melakukan fork manual di GitHub lalu memilih **Import a repository** d
 2. Anda harus membuat basis data D1 dan bucket R2 secara manual melalui dasbor Cloudflare atau CLI (`npx wrangler d1 create <nama_db>` dan `npx wrangler r2 bucket create <nama_bucket>`).
 3. Sesuaikan `wrangler.jsonc` di fork Anda: isi `database_id`, `database_name`, dan nama bucket R2 dengan resource yang telah Anda buat, serta sesuaikan nilai `vars` (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, dll.). Commit dan push ke fork Anda.
 4. Masukkan 3 rahasia secara manual di dasbor Cloudflare (**Settings > Variables and Secrets**) atau melalui terminal menggunakan `npx wrangler secret put <NAMA_SECRET>`.
+5. Perhatikan bahwa konfigurasi bawaan Workers Builds menyetel perintah Deploy ke `npx wrangler deploy` (bukan `npm run deploy`). Migrasi D1 **tidak** akan berjalan otomatis kecuali Anda mengubah perintah Deploy di pengaturan build Cloudflare menjadi `npm run deploy` atau menjalankan migrasi secara manual via CLI (`npx wrangler d1 migrations apply DB --remote`).
 
 ### Checklist wajib setelah deploy (kedua jalur)
 
-Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** melakukan langkah-langkah berikut sebelum sistem dapat dipakai:
+Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** menyelesaikan langkah-langkah berikut secara berurutan sebelum sistem dapat dipakai:
 
-1. **Pastikan migrasi basis data telah berjalan**:
-   Skrip `deploy` di `package.json` (`wrangler d1 migrations apply DB --remote && wrangler deploy`) secara bawaan menerapkan migrasi skema D1 saat rilis pertama. Jika migrasi gagal atau menggunakan alur deploy manual, terapkan migrasi secara mandiri:
+1. **Pastikan 3 rahasia telah tersimpan**:
+   Pastikan rahasia `ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, dan `APP_MASTER_KEY` sudah terpasang. Pada Jalur A, rahasia ini dimasukkan saat alur deploy button; pada Jalur B (atau jika terlewat pada Jalur A), masukkan rahasia di dasbor Cloudflare (**Settings > Variables and Secrets**) atau melalui CLI (`npx wrangler secret put <NAMA_SECRET>`).
+2. **Hubungkan domain kustom (custom domain) SEBELUM bootstrap**:
+   Hubungkan nama domain produksi cabang Anda di dasbor Cloudflare (**Settings > Domains & Routes**) sebelum menjalankan perintah bootstrap. Langkah ini sangat krusial karena nilai `SITE_BASE_URL` akan disimpan secara permanen ke tabel `system_config` di D1 saat proses bootstrap.
+3. **Daftarkan Redirect URI OIDC di PPIJ OneLogin**:
+   Pastikan Redirect URI pada konfigurasi client OneLogin PPIJ Portal diatur persis ke `<SITE_BASE_URL>/api/auth/callback` (sesuai domain kustom di atas). Jika URI tidak cocok persis, proses sign-in pemilih dan admin akan ditolak oleh OneLogin.
+4. **Pastikan migrasi basis data telah berjalan**:
+   Skrip `deploy` di `package.json` (`wrangler d1 migrations apply DB --remote && wrangler deploy`) secara bawaan menerapkan migrasi skema D1 saat rilis jika perintah Deploy disetel ke `npm run deploy`. Pada Jalur B yang menggunakan bawaan `npx wrangler deploy`, atau jika migrasi belum pernah berjalan, jalankan migrasi secara mandiri:
    ```bash
    npx wrangler d1 migrations apply DB --remote
    ```
-2. **Sesuaikan variabel cabang di `wrangler.jsonc`**:
-   Buka berkas `wrangler.jsonc` pada fork repositori Anda dan pastikan nilai `vars` sesuai dengan identitas cabang pemilihan (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, `SITE_LOGO_PATH`, `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`). Berkas `wrangler.jsonc` adalah *source of truth*; pengubahan nilai variabel melalui dasbor Cloudflare akan tertimpa saat build/deploy berikutnya. Commit dan push perubahan ini ke repositori Anda.
-3. **Jalankan bootstrap operator jarak jauh untuk Admin Voting pertama**:
+5. **Jalankan bootstrap operator jarak jauh untuk Admin Voting pertama**:
    Situs baru berada dalam status uninitialized (halaman publik dan API menjawab status HTTP 503; `/setup` selalu 404). Tidak ada pengguna yang dapat masuk sebagai admin sebelum bootstrap selesai. Operator wajib menjalankan satu kali perintah bootstrap remote dari terminal lokal:
    ```bash
    npm run bootstrap -- --remote --database <nama_d1_atau_binding_DB> <member_id>
    ```
-   Gunakan flag `--dry-run` terlebih dahulu untuk memverifikasi pernyataan SQL dan nilai konfigurasi yang akan disimpan ke tabel `system_config`.
+   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika berkas tersebut ada di direktori kerja lokal. Environment variable di shell mengesampingkan (menimpa) isi `.dev.vars`. Operator wajib mengekspor variabel environment produksi di shell (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, `SITE_LOGO_PATH`, `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, dan ketiga rahasia) agar nilai lokal (seperti `http://localhost:4321`) tidak masuk ke D1 produksi.
+   >
+   > **Wajib jalankan dengan opsi `--dry-run` terlebih dahulu** untuk memeriksa baris pernyataan SQL sebelum dieksekusi:
+   > ```bash
+   > npm run bootstrap -- --remote --database <nama_d1_atau_binding_DB> --dry-run <member_id>
+   > ```
+   > Periksa dengan teliti baris `site_base_url`, `site_scope`, dan `site_logo_path` pada keluaran dry-run untuk memastikan nilainya telah benar sesuai konfigurasi produksi cabang Anda.
 
 ## Mulai cepat (operator, 1.0)
 
@@ -145,7 +152,7 @@ npm run dev      # server pengembangan
 npm run check    # astro check + tsc --noEmit
 npm test         # Vitest di dalam Miniflare (workerd)
 npm run e2e      # Playwright; jalankan `npx playwright install` lebih dulu
-npm run deploy   # migrasi D1 + wrangler deploy (fase rilis, bukan siklus lokal 1.0)
+npm run deploy   # migrasi D1 + wrangler deploy
 ```
 
 Pengujian identitas lokal memakai Keycloak hang milik `ppij-identity` di `127.0.0.1:38180` dengan
@@ -165,13 +172,20 @@ Ketika repositori hulu (`upstream`) merilis perbaikan atau fitur baru, cabang da
    ```
 2. **Klon dari tombol Deploy to Cloudflare**:
    Berdasarkan dokumentasi Cloudflare, tombol deploy mengkloning repositori ke akun Git pengguna. Apakah kloning tersebut mempertahankan relasi fork GitHub atau berupa repositori mandiri berstatus *unverified* (belum diverifikasi di akun nyata). Oleh karena itu, tambahkan remote `upstream` manual seperti pada perintah di atas untuk menarik pembaruan dari repositori utama.
-3. **Resolusi konflik pada `wrangler.jsonc`**:
-   Berkas `wrangler.jsonc` adalah berkas yang diubah oleh setiap cabang (memuat ID dan nama D1/R2 serta nilai `vars` spesifik cabang). Saat melakukan merge dari `upstream/main`, konflik pada berkas ini sangat wajar terjadi. Selesaikan konflik dengan tetap mempertahankan nilai konfigurasi dan resource milik cabang Anda.
-4. **Penerapan migrasi skema baru**:
-   Migrasi D1 baru akan diterapkan secara otomatis saat kode hasil penggabungan di-push ke branch utama repositori Anda, karena skrip `deploy` di `package.json` secara otomatis mengeksekusi `wrangler d1 migrations apply DB --remote` sebelum menjalankan `wrangler deploy`.
-5. **Aturan pembekuan (Freeze Rule)**:
-   **Dilarang keras melakukan merge atau men-deploy perubahan hulu antara tahapan *Kunci & Jadwalkan* hingga hasil pemilihan dipublikasikan (*Diumumkan*).** Mengubah kode atau skema saat pemungutan suara atau perhitungan suara sedang berlangsung berisiko merusak integritas pemilihan atau audit. Pembaruan hanya boleh dilakukan setelah seluruh proses pemilihan tuntas. Pengelola pusat disarankan menandai rilis dengan tag Git (misalnya `v1.0.0`), dan cabang disarankan memperbarui kode berdasarkan tag rilis tersebut daripada commit branch utama sembarangan.
-
+3. **Pembaruan berbasis tag rilis (Sangat Disarankan)**:
+   Daripada melakukan merge commit branch `main` sembarangan, sangat disarankan memperbarui kode berdasarkan tag rilis stabil dari repositori hulu:
+   ```bash
+   git remote add upstream https://github.com/ppij-dev/ppij-election-system.git
+   git fetch upstream --tags
+   git merge v1.0.1
+   ```
+4. **Resolusi konflik pada `wrangler.jsonc`**:
+   Berkas `wrangler.jsonc` adalah berkas yang diubah oleh setiap cabang (memuat ID dan nama D1/R2 serta nilai `vars` spesifik cabang). Saat melakukan merge dari `upstream`, konflik pada berkas ini sangat wajar terjadi. Selesaikan konflik dengan tetap mempertahankan nilai konfigurasi dan resource milik cabang Anda.
+5. **Penerapan migrasi skema baru**:
+   Migrasi D1 baru akan diterapkan secara otomatis saat kode hasil penggabungan di-push ke branch utama repositori Anda **hanya jika** perintah Deploy di pengaturan build Cloudflare disetel ke `npm run deploy` (yang mengeksekusi `wrangler d1 migrations apply DB --remote && wrangler deploy`). Jika menggunakan perintah deploy bawaan Cloudflare (`npx wrangler deploy`), migrasi tidak akan berjalan otomatis; operator wajib menjalankan `npx wrangler d1 migrations apply DB --remote` secara manual.
+6. **Aturan pembekuan (Freeze Rule) dan Deploy Otomatis**:
+   **PENTING: Setiap push ke branch utama (`main`) pada repositori fork/klon cabang Anda akan langsung memicu proses build dan deploy otomatis seketika melalui Cloudflare Workers Builds.**
+   Oleh karena itu, **dilarang keras melakukan merge atau push ke branch utama antara tahapan *Kunci & Jadwalkan* hingga hasil pemilihan dipublikasikan (*Diumumkan*)**. Mengubah kode atau skema saat pemungutan suara atau perhitungan suara sedang berlangsung berisiko merusak integritas pemilihan atau audit. Merge pembaruan hanya boleh dilakukan di luar jendela pembekuan (setelah pemilihan tuntas).
 
 ## Fitur Utama (1.0)
 
@@ -195,7 +209,7 @@ Pemilik akun Cloudflare dapat membuat tautan undangan satu-kali (berlaku 72 jam)
   npm run recovery-invite -- <member_id>
 ```
 
-> Catatan 1.0: mode `--remote` belum didukung (satu-satunya jalur resmi saat ini adalah lokal; dukungan jarak jauh menyusul bersama fase 2).
+> Catatan: Batasan ini hanya berlaku untuk `npm run recovery-invite` (skrip `scripts/recovery-invite.mjs` saat ini menolak flag `--remote`; pemulihan akses jarak jauh menyusul di fase berikutnya). Untuk inisialisasi awal sistem, perintah bootstrap jarak jauh `npm run bootstrap -- --remote` telah didukung penuh.
 
 Anggota harus masih ACTIVE, berada di dalam cakupan situs, dan bukan kandidat. Perintah tidak mengirim email. Bagikan tautan yang dicetak hanya kepada anggota tersebut: undangan terikat ke `member_id` dan ditolak bila diteruskan.
 
