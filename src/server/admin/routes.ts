@@ -90,10 +90,14 @@ export function createAdminRoutes() {
     const session = key && cookie ? await openSession(cookie, key) : null;
     if (!session || !affiliationInScope(session.affiliation, (await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>())?.value ?? "")) return jsonError(c, "undangan_tidak_valid", 403);
     const contentType = c.req.header("content-type") ?? "";
-    const body = contentType.includes("application/x-www-form-urlencoded")
-      ? Object.fromEntries(new URLSearchParams(await c.req.text()))
-      : await c.req.json<{token?:string}>().catch(() => ({} as {token?:string}));
-    const token = body.token ?? c.req.query("token") ?? "";
+    let token = c.req.query("token") ?? "";
+    if (contentType.includes("application/x-www-form-urlencoded")) {
+      const form = await c.req.parseBody();
+      if (typeof form.token === "string") token = form.token;
+    } else {
+      const body = await c.req.json<{token?:string}>().catch(() => ({} as {token?:string}));
+      token = body.token ?? token;
+    }
     if (!token) return jsonError(c,"undangan_tidak_valid",400);
     const row = await c.env.DB.prepare("SELECT member_id, expires_at FROM invitations WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(await digest(token)).first<{member_id:string;expires_at:string}>();
     if (!row || Date.parse(row.expires_at) <= Date.now()) return jsonError(c,"undangan_tidak_valid_atau_kedaluwarsa",409);

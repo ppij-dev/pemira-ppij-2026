@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { recoveryInvitationSql } from "./recovery-invite.mjs";
 
 const args = process.argv.slice(2);
 const target = args.includes("--remote") ? "--remote" : "--local";
@@ -31,7 +31,7 @@ const previousHash = sql("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1")
 const entry = { at, actor_type:"system", actor_member_id:null, actor_name:"Cloudflare operator", action:"admin_invitation_recovery", target:memberId, komsat_path:null, detail_json:null, prev_hash:previousHash };
 const auditHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(previousHash + JSON.stringify(entry))))].map((value) => value.toString(16).padStart(2, "0")).join("");
 const link = token;
-sql(`BEGIN; INSERT INTO invitations (token_hash, member_id, created_at, expires_at) VALUES (${quote(hash)}, ${quote(memberId)}, ${quote(at)}, ${quote(expires)}); INSERT INTO audit_log (at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash) VALUES (${quote(at)},'system',NULL,'Cloudflare operator','admin_invitation_recovery',${quote(memberId)},NULL,NULL,${quote(previousHash)},${quote(auditHash)}); COMMIT;`);
+sql(`BEGIN; ${recoveryInvitationSql({ memberId, tokenHash: hash, createdAt: at, expiresAt: expires, previousHash, auditHash })} COMMIT;`);
 const baseUrl = sql("SELECT value FROM system_config WHERE key='site_base_url'")[0]?.value;
 if (!baseUrl) throw new Error("SITE_BASE_URL tidak ditemukan pada konfigurasi situs.");
 console.log(`${baseUrl}/api/admin/invitations/accept?token=${encodeURIComponent(link)}`);
