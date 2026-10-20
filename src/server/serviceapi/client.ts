@@ -2,7 +2,7 @@ export type ServiceApiErrorCode = "no_grant" | "permission_missing" | "http_erro
 export class ServiceApiError extends Error {
   constructor(public readonly code: ServiceApiErrorCode, message: string, public readonly status?: number) { super(message); this.name = "ServiceApiError"; }
 }
-export interface ServiceApiConfig { issuer: string; clientId: string; clientSecret: string; serviceApiUrl: string; }
+export interface ServiceApiConfig { issuer: string; clientId: string; clientSecret: string; serviceApiUrl: string; fetchImpl?: typeof fetch; }
 export interface Member { member_id: string; full_name: string; nickname: string; komsat_path: string; status: string; member_number: string; updated_at: string; }
 export interface Unit { path: string; name: string; parent_path: string; type: "national" | "korda" | "komsat"; }
 const timeoutMs = 10_000;
@@ -12,7 +12,7 @@ export class ServiceApiClient {
   private async request(url: string, init?: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try { return await fetch(url, { ...init, signal: controller.signal }); }
+    try { return await (this.cfg.fetchImpl ?? fetch)(url, { ...init, signal: controller.signal }); }
     catch (error) { if (controller.signal.aborted) throw new ServiceApiError("timeout", "Service API request timed out"); throw new ServiceApiError("http_error", String(error)); }
     finally { clearTimeout(timer); }
   }

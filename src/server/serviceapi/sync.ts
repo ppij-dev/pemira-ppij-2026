@@ -27,5 +27,5 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
   const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_sync", target: null, komsat_path: null, detail_json: JSON.stringify({ summary: `+${added} baru / -${removed} keluar`, added, removed }) });
   upserts.push(db.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(now.toISOString()), audit);
   await db.batch(upserts);
-  return { added, removed, total: (totalRow?.total ?? 0) + added - removed };
+  return { added, removed, total: (totalRow?.total ?? 0) + added };
 }

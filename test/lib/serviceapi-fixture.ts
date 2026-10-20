@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-export async function startServiceApiFixture(opts: { mode?: "ok" | "no_grant" | "fail_page_n"; delayMs?: number; failPage?: number } = {}): Promise<{ issuer: string; serviceUrl: string; close(): Promise<void> }> {
-  let memberCalls = 0;
+
+// The HTTP fixture is for out-of-workerd rehearsals; focused workerd tests use createServiceApiStub.
+type FixtureOptions = { mode?: "ok" | "no_grant" | "fail_page_n"; delayMs?: number; failPage?: number };
+function createHandler(opts: FixtureOptions) {
   const units = [
     { path: "/ppij", name: "PPIJ", parent_path: "", type: "national" },
     { path: "/ppij/okayama", name: "Okayama", parent_path: "/ppij", type: "korda" },
@@ -13,26 +15,40 @@ export async function startServiceApiFixture(opts: { mode?: "ok" | "no_grant" | 
     ...[9, 10, 11].map((n) => ({ member_id: `member-${n}`, full_name: `Member ${n}`, nickname: `M${n}`, komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(n), updated_at: "2026-01-02T00:00:00Z" })),
     { ...initial[0]!, status: "INACTIVE", updated_at: "2026-01-02T00:00:00Z" },
   ];
+  return (url: URL, init: RequestInit = {}): Response => {
+    if (url.pathname.endsWith("/protocol/openid-connect/token") && init.method === "POST") return Response.json({ access_token: "fixture-token", token_type: "Bearer" });
+    if (url.pathname !== "/v1/service/members" && url.pathname !== "/v1/service/units") return Response.json({ error: "not_found" }, { status: 404 });
+    if (opts.mode === "no_grant") return Response.json({ error: "no_grant" }, { status: 403 });
+    if (new Headers(init.headers).get("authorization") !== "Bearer fixture-token") return Response.json({ error: "unauthorized" }, { status: 401 });
+    if (url.pathname.endsWith("/units")) return Response.json({ items: units, cursor: null });
+    const changedSince = url.searchParams.has("changed_since");
+    const data = changedSince ? changed : initial;
+    if (url.searchParams.has("member_id") && !data.some((member) => member.member_id === url.searchParams.get("member_id"))) return Response.json({ error: "not_found" }, { status: 404 });
+    const cursor = url.searchParams.get("cursor"); const page = cursor ? Number(cursor) : 0;
+    if (opts.mode === "fail_page_n" && page === (opts.failPage ?? 1)) return Response.json({ error: "failed_page" }, { status: 500 });
+    
+    return Response.json({ items: data.slice(page * 2, page * 2 + 2), cursor: (page + 1) * 2 < data.length ? String(page + 1) : null });
+  };
+}
+
+export function createServiceApiStub(opts: FixtureOptions = {}): { fetchImpl: typeof fetch; issuer: string; serviceUrl: string; token: string } {
+  const handler = createHandler(opts);
+  const fetchImpl: typeof fetch = async (input, init) => handler(new URL(typeof input === "string" || input instanceof URL ? input : input.url), init);
+  return { fetchImpl, issuer: "https://fixture.invalid", serviceUrl: "https://fixture.invalid", token: "fixture-token" };
+}
+
+export async function startServiceApiFixture(opts: FixtureOptions = {}): Promise<{ issuer: string; serviceUrl: string; close(): Promise<void> }> {
+  const handler = createHandler(opts);
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    const send = (status: number, body: unknown) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
-    if (url.pathname.endsWith("/protocol/openid-connect/token") && req.method === "POST") return send(200, { access_token: "fixture-token", token_type: "Bearer" });
-    if (url.pathname === "/v1/service/members" || url.pathname === "/v1/service/units") {
-      const respond = () => {
-        if (opts.mode === "no_grant") return send(403, { error: "no_grant" });
-        if (req.headers.authorization !== "Bearer fixture-token") return send(401, { error: "unauthorized" });
-        if (url.pathname.endsWith("/units")) return send(200, { items: units, cursor: null });
-        const changedSince = url.searchParams.has("changed_since");
-        if (changedSince) memberCalls++;
-        const data = changedSince ? memberCalls > 1 ? changed : [] : initial;
-        const cursor = url.searchParams.get("cursor"); const page = cursor ? Number(cursor) : 0;
-        if (opts.mode === "fail_page_n" && page === (opts.failPage ?? 1)) return send(500, { error: "failed_page" });
-        return send(200, { items: data.slice(page * 2, page * 2 + 2), cursor: (page + 1) * 2 < data.length ? String(page + 1) : null });
-      };
-      if (opts.delayMs) setTimeout(respond, opts.delayMs); else respond();
-      return;
-    }
-    send(404, { error: "not_found" });
+    const respond = () => {
+      req.resume();
+      req.on("end", () => {
+        const response = handler(url, { method: req.method, headers: req.headers });
+        void response.text().then((body) => { res.writeHead(response.status, { "content-type": "application/json" }); res.end(body); });
+      });
+    };
+    if (opts.delayMs) setTimeout(respond, opts.delayMs); else respond();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo; const base = `http://127.0.0.1:${address.port}`;
