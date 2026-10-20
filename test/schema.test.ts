@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import migrationSql from "../migrations/0001_init.sql?raw";
+import unitsMigrationSql from "../migrations/0002_units.sql?raw";
 
 declare module "*.sql?raw" {
   const content: string;
@@ -18,11 +19,12 @@ const TABLES = [
   "ballots",
   "reminders",
   "audit_log",
+  "units",
 ];
 
 beforeEach(async () => {
   await reset();
-  const statements = migrationSql
+  const statements = [migrationSql, unitsMigrationSql].join(";")
     .split(";")
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -51,6 +53,11 @@ describe("migrations/0001_init.sql", () => {
     for (const table of TABLES) {
       expect(names).toContain(table);
     }
+  });
+  it("creates constrained unit paths", async () => {
+    await env.DB.prepare("INSERT INTO units (path,name,parent_path,type) VALUES ('/ppij','PPIJ','','national')").run();
+    await expect(env.DB.prepare("INSERT INTO units (path,name,parent_path,type) VALUES ('/bad','Bad','/ppij','province')").run()).rejects.toThrow();
+    await expect(env.DB.prepare("INSERT INTO units (path,name,parent_path,type) VALUES ('/ppij','Duplicate','/','national')").run()).rejects.toThrow();
   });
 
   it("menolak partisipasi ganda untuk anggota yang sama di satu pemilihan", async () => {
