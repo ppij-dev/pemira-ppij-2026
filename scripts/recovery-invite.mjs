@@ -1,5 +1,4 @@
 import { pathToFileURL } from "node:url";
-import { getPlatformProxy } from "wrangler";
 
 const quote = (value) => `'${value.replaceAll("'", "''")}'`;
 
@@ -19,6 +18,7 @@ async function main() {
     return;
   }
   if (args.includes("--remote")) throw new Error("Pemulihan jarak jauh tidak didukung oleh perintah ini.");
+  const { getPlatformProxy } = await import("wrangler");
   const proxy = await getPlatformProxy({ remoteBindings: false });
   try {
     const db = proxy.env.DB;
@@ -45,6 +45,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (typeof process !== "undefined" && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

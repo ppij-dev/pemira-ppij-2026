@@ -1,6 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { buildAuditInsert } from "../lib/audit";
-import { stage } from "../lib/stage";
 
 export class ElectionError extends Error {
   constructor(message: string, public readonly status = 409, public readonly checks?: ReadinessCheck[]) { super(message); this.name = "ElectionError"; }

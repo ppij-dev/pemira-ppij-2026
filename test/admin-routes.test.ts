@@ -8,7 +8,7 @@ import { affiliationInScope } from "../src/server/admin/routes";
 import { canonicalRow, verifyChain, type AuditEntry, type AuditRow } from "../src/server/lib/audit";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
-declare module "*.mjs" { export function recoveryInvitationSql(input: { memberId: string; tokenHash: string; createdAt: string; expiresAt: string; previousHash: string; auditHash: string }): string; }
+declare module "*.mjs" { export function recoveryInvitationSql(input: { memberId: string; tokenHash: string; createdAt: string; expiresAt: string; previousHash: string; auditHash: string }): string[] | string; }
 const MASTER_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 const SCOPE = "/ppij/okayama";
 const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY };
@@ -154,7 +154,8 @@ describe("Admin Voting invitation routes", () => {
     const entry: AuditEntry = { at, actor_type: "system", actor_member_id: null, actor_name: "Cloudflare operator", action: "admin_invitation_recovery", target: "member-recovery", komsat_path: null, detail_json: null };
     const auditHash = await digestHex(previousHash + canonicalRow({ ...entry, prev_hash: previousHash }));
     const sql = recoveryInvitationSql({ memberId: "member-recovery", tokenHash, createdAt: at, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), previousHash, auditHash });
-    await env.DB.batch(sql.split(";").map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement)));
+    const statements = Array.isArray(sql) ? sql : sql.split(";").map((statement) => statement.trim()).filter(Boolean);
+    await env.DB.batch(statements.map((statement) => env.DB.prepare(statement)));
     expect((await accept(token, "member-recovery")).status).toBe(200);
     expect(await env.DB.prepare("SELECT member_id FROM admin_voting WHERE member_id='member-recovery'").first()).toEqual({ member_id: "member-recovery" });
     expect(await auditActions()).toEqual(["admin_invitation_recovery", "admin_invitation_accepted"]);

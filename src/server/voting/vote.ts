@@ -147,7 +147,7 @@ export async function castVote(
   body: unknown,
   hooks?: { beforeBatch?: () => Promise<void> },
 ): Promise<VoteResult> {
-  const { election, voter } = await authorizeVoter(db, session);
+  const { voter } = await authorizeVoter(db, session);
 
   // Rate limit: 5 percobaan per 60 detik per sesi, dihitung setelah otorisasi
   await consumeVoteAttempt(db, session.member_id);
