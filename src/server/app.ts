@@ -5,6 +5,8 @@ import { createAuthRoutes } from "./auth/routes";
 import { electionRoutes } from "./election/routes";
 import { serviceApiRoutes } from "./serviceapi/routes";
 import { resultsRoutes } from "./results/routes";
+import { voteRoutes } from "./voting/routes";
+import { boardRoutes } from "./voting/board";
 import { requireAdmin } from "./admin/routes";
 import { loadRuntimeConfig } from "./setup/bootstrap";
 export type Bindings = {
@@ -48,5 +50,9 @@ app.use("/election/*", requireAdmin);
 app.use("/admin/sync", requireAdmin);
 app.route("/", electionRoutes);
 app.route("/", serviceApiRoutes);
+
+// Voting publik: /votes dan /votes/board publik sesuai kontrak (guard internal).
+app.route("/", voteRoutes);
+app.route("/", boardRoutes);
 
 export { app };
