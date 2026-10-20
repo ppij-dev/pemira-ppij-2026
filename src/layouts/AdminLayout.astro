@@ -1,19 +1,10 @@
 ---
-import { getCookie } from "hono/cookie";
-import { SESSION_COOKIE, openSession } from "../server/auth/session";
-import { affiliationInScope } from "../server/admin/routes";
-import type { SessionData } from "../server/auth/session";
-const locals = Astro.locals as typeof Astro.locals & { runtime?: { env?: { APP_MASTER_KEY?: string; DB?: D1Database } } };
-const cookie = getCookie(Astro.request.headers, SESSION_COOKIE);
-const key = locals.runtime?.env?.APP_MASTER_KEY;
-const db = locals.runtime?.env?.DB;
-const session: SessionData | null = cookie && key ? await openSession(cookie, key) : null;
-let authorized = false;
-if (session && db) {
-  const admin = await db.prepare("SELECT member_id FROM admin_voting WHERE member_id = ?").bind(session.member_id).first();
-  const scope = await db.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{ value: string }>();
-  authorized = !!admin && !!scope && affiliationInScope(session.affiliation, scope.value);
-}
+import { env } from "cloudflare:workers";
+import { SESSION_COOKIE, isAdminPageAuthorized, type AdminBindings } from "../pages/admin/admin-auth";
+const cookie = Astro.cookies.get(SESSION_COOKIE)?.value;
+const bindings = env as unknown as AdminBindings;
+const authorized = await isAdminPageAuthorized(cookie, bindings);
+if (!authorized) Astro.response.status = 403;
 const title = Astro.props.title ?? "Admin Voting";
 ---
 <html lang="id"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{title} · PPIJ Pemilu</title></head><body class="min-h-screen bg-slate-50 text-slate-900"><header class="border-b bg-white"><nav class="mx-auto flex max-w-5xl flex-wrap gap-4 px-4 py-4 font-semibold"><a href="/admin">Panitia</a><a href="/admin/pemilih">Pemilih</a><a href="/admin/kandidat">Kandidat</a><a href="/admin/pemilihan">Pemilihan</a></nav></header><main class="mx-auto max-w-5xl px-4 py-6"><Fragment slot="header">{title}</Fragment>{authorized ? <slot /> : <section class="rounded-xl border bg-white p-8"><h1 class="text-xl font-bold">Akses khusus Admin Voting</h1><p class="mt-2 text-slate-600">Anda tidak memiliki akses ke halaman ini.</p></section>}</main></body></html>
