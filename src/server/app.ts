@@ -7,6 +7,7 @@ import { serviceApiRoutes } from "./serviceapi/routes";
 import { resultsRoutes } from "./results/routes";
 import { voteRoutes } from "./voting/routes";
 import { boardRoutes } from "./voting/board";
+import { auditRoutes } from "./audit/routes";
 import { requireAdmin } from "./admin/routes";
 import { loadRuntimeConfig } from "./setup/bootstrap";
 export type Bindings = {
@@ -27,7 +28,10 @@ app.route("/setup", setupRoutes);
 // /api/results harus publik: pasang SEBELUM createAuthRoutes (wildcard
 // requireAdmin panitia di dalamnya akan menutup rute ini bila dilewati).
 // /api/dashboard tetap terlindungi oleh requireAdmin internal resultsRoutes.
+// Sama untuk /votes*: sesi divalidasi internal, bukan oleh guard panitia.
 app.route("/", resultsRoutes);
+app.route("/", voteRoutes);
+app.route("/", boardRoutes);
 
 app.route("/", createAuthRoutes({
   loadRuntime: (c) => {
@@ -51,8 +55,7 @@ app.use("/admin/sync", requireAdmin);
 app.route("/", electionRoutes);
 app.route("/", serviceApiRoutes);
 
-// Voting publik: /votes dan /votes/board publik sesuai kontrak (guard internal).
-app.route("/", voteRoutes);
-app.route("/", boardRoutes);
+// Audit khusus Admin Voting (guard internal per rute).
+app.route("/", auditRoutes);
 
 export { app };
