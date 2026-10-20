@@ -47,17 +47,17 @@ describe("operator bootstrap", () => {
   it("leaves missing-config databases uninitialized", async () => {
     expect(await bootstrapSite(env.DB, null, "member-123")).toBe(false);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM elections").first()).toMatchObject({n: 0});
-    expect((await site.request("/", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(503);
+    expect((await site.request("/", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(503);
   });
 
   it("returns 503 publicly, 404 for reserved setup paths, and serves public paths after bootstrap", async () => {
-    expect((await site.request("/", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(503);
-    expect((await site.request("/setup", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(404);
-    expect((await site.request("/api/setup/claim", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(404);
-    expect((await site.request("/robots.txt", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(200);
+    expect((await site.request("/", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(503);
+    expect((await site.request("/setup", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(404);
+    expect((await site.request("/api/setup/claim", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(404);
+    expect((await site.request("/robots.txt", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(200);
     await bootstrapSite(env.DB, validConfig, "member-123");
-    expect((await site.request("/", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(200);
-    expect((await site.request("/setup", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(404);
-    expect((await site.request("/api/setup/claim", {}, { DB: env.DB, MEDIA: {} as Bindings["MEDIA"] })).status).toBe(404);
+    expect((await site.request("/", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(200);
+    expect((await site.request("/setup", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(404);
+    expect((await site.request("/api/setup/claim", {}, { DB: env.DB, APP_MASTER_KEY: "" })).status).toBe(404);
   });
 });

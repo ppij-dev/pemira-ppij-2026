@@ -13,7 +13,7 @@ import { encodeReceipt, decodeReceipt, hashReceipt } from "../src/server/voting/
 import type { Bindings } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
-const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: "" } satisfies Bindings;
+const bindings = { DB: env.DB, APP_MASTER_KEY: "" } satisfies Bindings;
 const app = new Hono<{ Bindings: Bindings }>().basePath("/api");
 app.route("/", boardRoutes);
 const open = new Date(Date.now() - 60_000).toISOString();

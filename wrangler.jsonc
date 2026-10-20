@@ -23,19 +23,13 @@
     "SITE_LOGO_PATH": "/logo.svg"
   },
   // Placeholder values: the Deploy to Cloudflare button provisions the D1
-  // database and R2 bucket and rewrites the IDs in the cloned repository.
+  // database and rewrites the IDs in the cloned repository.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "ppij-election",
       "database_id": "placeholder-provisioned-by-deploy-button",
       "migrations_dir": "migrations"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "MEDIA",
-      "bucket_name": "ppij-election-media"
     }
   ]
 }

@@ -19,7 +19,7 @@ the shared `ppij` realm or creating another container.
 
 ## 1. Existing foundation (completed, not a claim of end-to-end readiness)
 
-- [x] 1.1 Astro + Hono, D1/R2 bindings, Tailwind, Tabler, Miniflare, Playwright and documented Deploy button; real-account provisioning remains unverified.
+- [x] 1.1 Astro + Hono, D1 binding (R2 removed in 5.10), Tailwind, Tabler, Miniflare, Playwright and documented Deploy button; real-account provisioning remains unverified.
 - [x] 1.2 Initial D1 schema with unique participation and `ballots WITHOUT ROWID`; amend it for the 1.0 plain description, frozen count and closing snapshot.
 - [x] 1.3 Encryption helpers, clock stage and audit-chain writer with focused tests.
 - [x] 1.4 noindex header, robots.txt and meta tag with tests.
@@ -56,7 +56,8 @@ the shared `ppij` realm or creating another container.
 - [x] 5.6 Remote operator bootstrap: `npm run bootstrap -- --remote --database <name> <member_id>` runs the same statements as the local path through `wrangler d1 execute --remote`; shared statement builder, idempotent, `--dry-run`, README and spec wording about "--remote unsupported" updated; verify with a focused unit test using an injected executor (no real remote call).
 - [x] 5.7 Deploy-button configuration prompt: only true secrets (`ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) are masked; non-secret settings (issuer, client IDs, service URL, scope, base URL, name, logo path) are visible, editable plain `vars`; README and local `.dev.vars.example` guidance stay consistent; verify against Cloudflare docs and a focused check that local dev and the bootstrap CLI still read all required keys.
 - [x] 5.8 Configurable site logo: header, landing and favicon use `SITE_LOGO_PATH` (stored as `system_config.site_logo_path`) instead of hardcoded `/logo.svg`, favicon `type` derived from extension; Okayama logo `ppi-okayama-logo.webp` shipped as a local static asset; verify with a focused check of rendered pages and no third-party image request.
-- [x] 5.9 Deploy to Cloudflare badge in README with the repo URL, plus honest guidance on the two install paths (button: prompted secrets and provisioned D1/R2; "import repository" in the dashboard: no prompt, set secrets manually); README wording that calls the button a 1.1 feature is corrected; verify the badge URL form against Cloudflare docs.
+- [x] 5.9 Deploy to Cloudflare badge in README with the repo URL, plus honest guidance on the two install paths (button: prompted secrets and provisioned D1; "import repository" in the dashboard: no prompt, set secrets manually); README wording that calls the button a 1.1 feature is corrected; verify the badge URL form against Cloudflare docs.
+- [x] 5.10 Remove R2: drop the `MEDIA` binding and `r2_buckets` from wrangler.jsonc, the `MEDIA` field from `Bindings`, the R2 setup in vitest config, test mocks and every doc/spec mention that says D1 and R2 are provisioned; candidate and logo images are static files under `public/` shipped with the repo (no upload path); verify that tsc, build, `wrangler deploy --dry-run` and the focused tests pass with no R2 binding.
 
 ## Deferred to a separately planned 1.1 change (not tracked as 1.0 tasks)
 
@@ -68,5 +69,5 @@ success paths for these. The checked email transport code remains unused until w
 ## Unverified release gates (not part of the no-push local loop)
 
 Real Service API grant and contract test with ppij-identity; Cloudflare deploy-button
-provisioning of D1/R2 and secret prompt; staging election with real OIDC and Service API;
+provisioning of D1 and secret prompt; staging election with real OIDC and Service API;
 serialized owner-run `scripts/gate.sh`. Passing local fixtures does not establish these.

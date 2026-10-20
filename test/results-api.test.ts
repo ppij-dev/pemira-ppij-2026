@@ -15,7 +15,7 @@ declare module "*.sql?raw" {
 
 const MASTER_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 const SCOPE = "/ppij/okayama";
-const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY };
+const bindings = { DB: env.DB, APP_MASTER_KEY: MASTER_KEY };
 
 
 async function sessionCookie(memberId: string, name = memberId, affiliation: string | string[] | null = SCOPE) {

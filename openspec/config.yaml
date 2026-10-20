@@ -3,9 +3,9 @@ schema: spec-driven
 context: |
   Public open-source repository: git@github.com:ppij-dev/ppij-election-system.git
   Standalone, forkable, self-installable election product: PPIJ national and any satellite
-  (korda/komsat) can fork and self-host their own instance on Cloudflare (Workers/Pages + D1 + R2).
+  (korda/komsat) can fork and self-host their own instance on Cloudflare (Workers/Pages + D1).
   Stack: Hono (API & OIDC BFF on Cloudflare Worker) + Astro (mobile-first UI with bottom navigation,
-  templui/shadcn-inspired styling, Tabler icons only, no emoji) + Cloudflare D1 (SQLite) + Cloudflare R2.
+  templui/shadcn-inspired styling, Tabler icons only, no emoji) + Cloudflare D1 (SQLite).
   Lean 1.0 (change add-election-mvp, revised 2026-10-20): local-first development and rehearsal —
   operator bootstrap (migrations + Wrangler/local config/secrets + repeat-safe bootstrap command with
   the first Admin Voting member_id) replaces the browser /setup, which is deferred to 1.1 together with
@@ -13,7 +13,7 @@ context: |
   /api/setup/* return 404. Development uses the shared warm ppij-identity Keycloak (127.0.0.1:38180,
   isolated election-test realm/client, personas — never start/stop that stack or edit realm ppij), a
   deterministic Service API HTTP fixture (no real grant yet, never read its Postgres directly), and
-  Miniflare D1/R2; no Wrangler push. No outgoing email in 1.0 (email transport exists, unwired; a local
+  Miniflare D1; no Wrangler push. No outgoing email in 1.0 (email transport exists, unwired; a local
   demo toast must say "Email terkirim (simulasi)" and send nothing). README tells installers:
   "Kontak PPIJ Portal admin untuk meminta realm config untuk service".
   Roles (use these exact words):

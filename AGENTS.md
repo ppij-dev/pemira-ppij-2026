@@ -22,7 +22,7 @@ Standalone, forkable, self-installable e-voting product (`git@github.com:ppij-de
 Any organization in the PPIJ ecosystem (PPIJ Pusat, a Korda, or a Komsat) can fork and self-host its own instance on Cloudflare.
 
 ## Stack & Architecture
-- **Runtime & Hosting**: Cloudflare Pages / Workers, Cloudflare D1 (SQLite), Cloudflare R2 (media storage; unused by lean 1.0 flows, reserved for 1.1 media/editor).
+- **Runtime & Hosting**: Cloudflare Pages / Workers, Cloudflare D1 (SQLite); media (candidate photos, logo) are static files under `public/` shipped with the repo and R2 is not used (rich media upload in 1.1 will require a storage decision, as R2 requires a paid plan).
 - **Backend API & Auth BFF**: **Hono** running on Cloudflare Workers (`/api/*`).
 - **Frontend UI**: **Astro** + templui/shadcn-inspired CSS theme + `@tabler/icons`, mobile-first layout with fixed bottom navigation.
 - **Identity & Eligibility**: Connects to **PPIJ OneLogin** (`sso.ppijepang.app`, realm `ppij`) via OIDC; eligibility needs the Pemilih roll frozen at Kunci & Jadwalkan plus the `affiliation` claim (present only while membership is ACTIVE). The Pemilih roll comes from the ppij-identity Service API (`add-service-api`; in local 1.0 via deterministic HTTP fixture — contacts/reminders deferred to 1.1).

@@ -11,7 +11,7 @@ declare module "*.sql?raw" { const sql: string; export default sql; }
 declare module "*.mjs" { export function recoveryInvitationSql(input: { memberId: string; tokenHash: string; createdAt: string; expiresAt: string; previousHash: string; auditHash: string }): string[] | string; }
 const MASTER_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 const SCOPE = "/ppij/okayama";
-const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY };
+const bindings = { DB: env.DB, APP_MASTER_KEY: MASTER_KEY };
 
 async function sessionCookie(memberId: string, affiliation: string | string[] | null = SCOPE, portal_admin_unit?: string) {
   const value = await sealSession({ member_id: memberId, name: memberId, affiliation, portal_admin_unit, auth_time: Math.floor(Date.now() / 1000) }, MASTER_KEY);

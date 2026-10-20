@@ -8,7 +8,7 @@ import { auditRoutes } from "../src/server/audit/routes";
 async function appendMany(count: number) { for (let i = 0; i < count; i++) await append(`bulk-${i}`); }
 declare module "*.sql?raw" { const sql: string; export default sql; }
 const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
-const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: key };
+const bindings = { DB: env.DB, APP_MASTER_KEY: key };
 async function request(path: string, member = "admin-1") {
   const cookie = await sealSession({ member_id: member, name: member, affiliation: "/ppij/test", auth_time: Math.floor(Date.now()/1000) }, key);
   return auditRoutes.request(path.replace(/^\/api/, ""), { headers: { cookie: `ppij_session=${cookie}` } }, bindings);

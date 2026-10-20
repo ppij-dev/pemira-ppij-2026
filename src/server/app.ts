@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { D1Database } from "@cloudflare/workers-types";
 import { setupRoutes } from "./setup/routes";
 import { createAuthRoutes } from "./auth/routes";
 import { electionRoutes } from "./election/routes";
@@ -13,10 +13,8 @@ import { loadRuntimeConfig } from "./setup/bootstrap";
 export type Bindings = {
   /** D1: election data, audit log, encrypted secrets. */
   DB: D1Database;
-  /** R2: candidate profiles and CKEditor uploads. */
   /** Secret used to authenticate session cookies. */
   APP_MASTER_KEY: string;
-  MEDIA: R2Bucket;
 };
 
 // The API sub-app, mounted at /api by src/fetch.ts.

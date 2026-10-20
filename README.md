@@ -1,7 +1,7 @@
 # ppij-election-system
 
 Self-installable, publicly verifiable e-voting system for PPI Jepang (PPIJ Pusat, Korda, and Komsat).
-Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare Workers / Pages, D1, and R2**.
+Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare Workers / Pages and D1**.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ppij-dev/ppij-election-system)
 
@@ -10,7 +10,7 @@ Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare W
 
 ## Versi 1.0 vs 1.1
 
-**1.0** mendukung latihan (*rehearsal*) lokal secara penuh serta deployment produksi ke Cloudflare melalui tombol *Deploy to Cloudflare* atau impor repositori di dasbor dengan bootstrap operator jarak jauh (`--remote`). Fitur 1.0 mencakup autentikasi OIDC OneLogin, sinkronisasi daftar pemilih Service API, pemungutan suara rahasia, bukti suara berbasis hash Crockford, hasil agregat tingkat korda, dan jejak audit berantai append-only. **Fitur yang ditunda ke 1.1**: pengiriman email keluar (pengingat, undangan, bukti suara), wizard peramban `/setup`, unggah dan pemotongan logo lewat peramban, visualisasi peta wilayah dan rincian komsat, editor kandidat kaya (CKEditor/foto/video), serta filter dan ekspor CSV audit.
+**1.0** mendukung latihan (*rehearsal*) lokal secara penuh serta deployment produksi ke Cloudflare melalui tombol *Deploy to Cloudflare* atau impor repositori di dasbor dengan bootstrap operator jarak jauh (`--remote`). Fitur 1.0 mencakup autentikasi OIDC OneLogin, sinkronisasi daftar pemilih Service API, pemungutan suara rahasia, bukti suara berbasis hash Crockford, hasil agregat tingkat korda, dan jejak audit berantai append-only. **Fitur yang ditunda ke 1.1**: pengiriman email keluar (pengingat, undangan, bukti suara), wizard peramban `/setup`, unggah dan pemotongan logo lewat peramban, visualisasi peta wilayah dan rincian komsat, editor kandidat kaya (CKEditor/foto/video; memerlukan keputusan penyimpanan karena Cloudflare R2 membutuhkan paket berbayar), serta filter dan ekspor CSV audit.
 
 ## Pemasangan ke Cloudflare (untuk Korda / Komsat)
 
@@ -22,17 +22,17 @@ Klik tombol **Deploy to Cloudflare** di bagian atas README ini. Alur resmi Cloud
 1. Mengkloning repositori ini ke akun GitHub/GitLab pengguna.
 2. Meminta input 3 rahasia (`ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) yang diambil dari `.dev.vars.example` dalam keadaan terselubung (masked).
 3. Menampilkan variabel non-rahasia dari blok `vars` di `wrangler.jsonc` untuk diatur nilainya.
-4. Membuat dan menghubungkan resource D1 (`DB`) dan R2 (`MEDIA`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori.
+4. Membuat dan menghubungkan basis data D1 (`DB`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori.
 5. Membangun dan merilis worker via Cloudflare Workers Builds. Skrip `deploy` di `package.json` otomatis menjalankan `wrangler d1 migrations apply DB --remote` sebelum deploy worker.
 
-*(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku provisioning otomatis D1/R2 beserta penulisan ulang ID-nya, rendering visual formulir prompt di antarmuka dasbor Cloudflare, dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*
+*(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku provisioning otomatis D1 beserta penulisan ulang ID-nya, rendering visual formulir prompt di antarmuka dasbor Cloudflare, dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*
 
 ### Jalur B: Fork manual lalu "Import repository" di dasbor Cloudflare (Workers Builds)
 
 Jika Anda melakukan fork manual di GitHub lalu memilih **Import a repository** di dasbor Cloudflare (Workers & Pages > Create application > Workers Builds):
-1. Dasbor Cloudflare **tidak** menampilkan prompt rahasia dari `.dev.vars.example` dan **tidak** membuat resource D1/R2 baru secara otomatis.
-2. Anda harus membuat basis data D1 dan bucket R2 secara manual melalui dasbor Cloudflare atau CLI (`npx wrangler d1 create <nama_db>` dan `npx wrangler r2 bucket create <nama_bucket>`).
-3. Sesuaikan `wrangler.jsonc` di fork Anda: isi `database_id`, `database_name`, dan nama bucket R2 dengan resource yang telah Anda buat, serta sesuaikan nilai `vars` (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, dll.). Commit dan push ke fork Anda.
+1. Dasbor Cloudflare **tidak** menampilkan prompt rahasia dari `.dev.vars.example` dan **tidak** membuat basis data D1 baru secara otomatis.
+2. Anda harus membuat basis data D1 secara manual melalui dasbor Cloudflare atau CLI (`npx wrangler d1 create <nama_db>`).
+3. Sesuaikan `wrangler.jsonc` di fork Anda: isi `database_id` dan `database_name` dengan basis data yang telah Anda buat, serta sesuaikan nilai `vars` (`SITE_BASE_URL`, `SITE_SCOPE`, `SITE_NAME`, dll.). Commit dan push ke fork Anda.
 4. Masukkan 3 rahasia secara manual di dasbor Cloudflare (**Settings > Variables and Secrets**) atau melalui terminal menggunakan `npx wrangler secret put <NAMA_SECRET>`.
 5. Perhatikan bahwa konfigurasi bawaan Workers Builds menyetel perintah Deploy ke `npx wrangler deploy` (bukan `npm run deploy`). Migrasi D1 **tidak** akan berjalan otomatis kecuali Anda mengubah perintah Deploy di pengaturan build Cloudflare menjadi `npm run deploy` atau menjalankan migrasi secara manual via CLI (`npx wrangler d1 migrations apply DB --remote`).
 
@@ -73,7 +73,7 @@ Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** men
 
    ```bash
    npm install
-   npm run dev      # server pengembangan (Miniflare: D1 & R2 lokal)
+   npm run dev      # server pengembangan (Miniflare: D1 lokal)
    ```
 
 2. Terapkan migrasi D1 (`npx wrangler d1 migrations apply DB --local` untuk Miniflare;
@@ -180,7 +180,7 @@ Ketika repositori hulu (`upstream`) merilis perbaikan atau fitur baru, cabang da
    git merge v1.0.1
    ```
 4. **Resolusi konflik pada `wrangler.jsonc`**:
-   Berkas `wrangler.jsonc` adalah berkas yang diubah oleh setiap cabang (memuat ID dan nama D1/R2 serta nilai `vars` spesifik cabang). Saat melakukan merge dari `upstream`, konflik pada berkas ini sangat wajar terjadi. Selesaikan konflik dengan tetap mempertahankan nilai konfigurasi dan resource milik cabang Anda.
+   Berkas `wrangler.jsonc` adalah berkas yang diubah oleh setiap cabang (memuat ID dan nama D1 serta nilai `vars` spesifik cabang). Saat melakukan merge dari `upstream`, konflik pada berkas ini sangat wajar terjadi. Selesaikan konflik dengan tetap mempertahankan nilai konfigurasi dan resource milik cabang Anda.
 5. **Penerapan migrasi skema baru**:
    Migrasi D1 baru akan diterapkan secara otomatis saat kode hasil penggabungan di-push ke branch utama repositori Anda **hanya jika** perintah Deploy di pengaturan build Cloudflare disetel ke `npm run deploy` (yang mengeksekusi `wrangler d1 migrations apply DB --remote && wrangler deploy`). Jika menggunakan perintah deploy bawaan Cloudflare (`npx wrangler deploy`), migrasi tidak akan berjalan otomatis; operator wajib menjalankan `npx wrangler d1 migrations apply DB --remote` secara manual.
 6. **Aturan pembekuan (Freeze Rule) dan Deploy Otomatis**:
@@ -199,7 +199,9 @@ Ketika repositori hulu (`upstream`) merilis perbaikan atau fitur baru, cabang da
 - **Dasbor panitia**: hitung mundur, perolehan suara keseluruhan, tabel hasil tingkat korda (korda dengan kurang dari 10 suara tidak dirinci), statistik pemilih berbasis daftar beku, dan cek kecocokan jumlah suara. Data diperbarui dengan tombol *Muat Ulang Data*.
 - **Audit berantai hash**: setiap aksi Admin Voting, pemilih, dan sistem tercatat append-only; integritas rantai bisa diperiksa, dan hash audit saat penutupan ditampilkan di papan bukti.
 
-Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup`, editor kandidat kaya (CKEditor/foto/video), peta wilayah + rincian komsat, unggah/krop logo, filter & ekspor CSV audit.
+- **Foto kandidat dan logo sebagai aset statis**: Foto kandidat dan logo pada versi 1.0 adalah berkas statis di direktori `public/` yang disertakan bersama repositori (tidak ada alur unggah berkas di antarmuka web). Cabang (korda/komsat) menambahkan foto kandidat atau logo dengan cara melakukan commit berkas ke dalam direktori `public/` pada fork repositori mereka, lalu memasukkan jalur relatifnya (misalnya `/placeholder-candidate.png` atau berkas yang di-commit) saat mengonfigurasi kandidat atau variabel `SITE_LOGO_PATH`.
+
+Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup`, editor kandidat kaya dan unggah media (CKEditor/foto/video; membutuhkan keputusan penyimpanan terpisah karena Cloudflare R2 memerlukan akun/paket berbayar), peta wilayah + rincian komsat, unggah/krop logo lewat peramban, filter & ekspor CSV audit.
 
 ## Jika semua Admin Voting kehilangan akses
 

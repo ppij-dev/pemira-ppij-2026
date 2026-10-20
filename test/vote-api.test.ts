@@ -25,7 +25,7 @@ const ORIGIN = "https://election.test";
 // Tahap Dibuka: opens_at di masa lalu, closes_at 2 jam dari sekarang
 const OPENS_AT = new Date(Date.now() - 60_000).toISOString();
 const CLOSES_AT = new Date(Date.now() + 2 * 3_600_000).toISOString();
-const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY } satisfies Bindings;
+const bindings = { DB: env.DB, APP_MASTER_KEY: MASTER_KEY } satisfies Bindings;
 
 const testApp = new Hono<{ Bindings: Bindings }>().basePath("/api");
 testApp.route("/", voteRoutes);
