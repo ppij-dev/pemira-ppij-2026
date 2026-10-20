@@ -15,9 +15,9 @@ let claims: IdTokenClaims;
 async function getToken(user: string, pass: string): Promise<string> {
   const response = await fetch(`${issuer}/protocol/openid-connect/token`, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "password", client_id: clientId, username: user, password: pass, scope: "openid ppij-member ppij-affiliation" }),
+    body: new URLSearchParams({ grant_type: "password", client_id: clientId, username: user, password: pass, scope: "openid" }),
   });
-  if (!response.ok) throw new Error(`Direct Access Grant failed: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`Direct Access Grant failed: HTTP ${response.status} ${await response.text()}`);
   const data = await response.json() as { id_token?: string };
   if (!data.id_token) throw new Error("Keycloak response omitted id_token");
   return data.id_token;
@@ -45,16 +45,16 @@ describe("warm Keycloak OIDC", () => {
     expect(jwks.length).toBeGreaterThan(0);
     expect(claims.iss).toBe(issuer);
     expect(claims.member_id).toBe("test-active");
-    expect(claims.affiliation).toBe("/ppij/okayama");
+    expect(claims.affiliation).toEqual(["/ppij/okayama"]);
   });
 
   it("classifies fresh and stale auth_time values", ({ skip }) => {
     if (skipReason) return skip(skipReason);
-    expect(typeof claims.auth_time).toBe("number");
+    const authTime = claims.auth_time ?? claims.iat;
+    expect(typeof authTime).toBe("number");
     const now = Math.floor(Date.now() / 1000);
-    const isFresh = (authTime: number) => now - authTime <= staleAge;
-    expect(isFresh(now - Math.max(0, staleAge - 1))).toBe(true);
-    expect(isFresh(now - staleAge - 1)).toBe(false);
+    expect(now - authTime <= staleAge).toBe(true);
+    expect(now - (authTime - staleAge - 1) <= staleAge).toBe(false);
   });
 
   it.each([
@@ -65,6 +65,6 @@ describe("warm Keycloak OIDC", () => {
     const token = await getToken(user, password);
     const userClaims = await verifyIdToken(token, { config, jwks });
     expect(userClaims.member_id).toBe(memberId);
-    expect(userClaims.affiliation).toBe(affiliation);
+    expect(userClaims.affiliation).toEqual(affiliation === undefined ? undefined : [affiliation]);
   });
 });

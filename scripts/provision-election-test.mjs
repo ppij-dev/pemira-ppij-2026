@@ -38,4 +38,13 @@ realm.clients[0].secret = secret;
 await api("/admin/realms/election-test", { method: "DELETE" });
 const created = await api("/admin/realms", { method: "POST", body: JSON.stringify(realm) });
 if (created.status !== 201) throw new Error(`Realm create returned HTTP ${created.status}`);
+for (const username of ["election-active", "election-suspended", "election-out-of-scope"]) {
+  const users = await api(`/admin/realms/election-test/users?username=${encodeURIComponent(username)}`);
+  const matches = await users.json();
+  if (matches.length !== 1) throw new Error(`Expected exactly one ${username} user, found ${matches.length}`);
+  await api(`/admin/realms/election-test/users/${matches[0].id}/reset-password`, {
+    method: "PUT",
+    body: JSON.stringify({ type: "password", value: "test-password", temporary: false }),
+  });
+}
 console.log(`Provisioned ${base}/realms/election-test; app client secret configured from environment/flag.`);
