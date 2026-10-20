@@ -8,6 +8,7 @@ import {
   main,
   parseBootstrapArgs,
   runRemoteBootstrap,
+  USAGE_TEXT,
   validateConfig,
 } from "../scripts/bootstrap.mjs";
 
@@ -103,11 +104,97 @@ describe("bootstrap CLI arguments and configuration parsing", () => {
     });
   });
 
+  it("rejects unknown flags", () => {
+    expect(() => parseBootstrapArgs(["--remte", "member-001"])).toThrow(USAGE_TEXT);
+    expect(() => parseBootstrapArgs(["--foo", "member-001"])).toThrow(USAGE_TEXT);
+  });
+
+  it("rejects a second positional argument", () => {
+    expect(() => parseBootstrapArgs(["member-001", "member-002"])).toThrow(USAGE_TEXT);
+    expect(() =>
+      parseBootstrapArgs(["--remote", "--database", "db", "member-001", "member-002"])
+    ).toThrow(USAGE_TEXT);
+  });
+
+  it("rejects --database without --remote", () => {
+    expect(() => parseBootstrapArgs(["--database", "election-db", "member-001"])).toThrow(USAGE_TEXT);
+    expect(() => parseBootstrapArgs(["-d", "election-db", "member-001"])).toThrow(USAGE_TEXT);
+    expect(() => parseBootstrapArgs(["--database=election-db", "member-001"])).toThrow(USAGE_TEXT);
+  });
+
+  it("rejects --database value starting with - or empty", () => {
+    expect(() =>
+      parseBootstrapArgs(["--remote", "--database", "-election-db", "member-001"])
+    ).toThrow(USAGE_TEXT);
+    expect(() =>
+      parseBootstrapArgs(["--remote", "--database=-election-db", "member-001"])
+    ).toThrow(USAGE_TEXT);
+    expect(() =>
+      parseBootstrapArgs(["--remote", "--database", "--dry-run", "member-001"])
+    ).toThrow(USAGE_TEXT);
+  });
+
+  it("rejects --remote without --database", () => {
+    expect(() => parseBootstrapArgs(["--remote", "member-001"])).toThrow(USAGE_TEXT);
+  });
+
   it("validates required operator configuration", () => {
     expect(validateConfig(validConfig)).toBe(true);
     expect(validateConfig({ ...validConfig, APP_MASTER_KEY: "" })).toBe(false);
     expect(validateConfig({ ...validConfig, ONELOGIN_CLIENT_SECRET: " " })).toBe(false);
     expect(validateConfig(null)).toBe(false);
+  });
+
+  it("main exits non-zero and does not touch remote or local on rejected argv forms", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const rejectedForms = [
+      ["--remte", "member-001"],
+      ["member-001", "member-002"],
+      ["--database", "some-db", "member-001"],
+      ["--remote", "--database", "-bad-db", "member-001"],
+      ["--remote", "member-001"],
+    ];
+
+    for (const argv of rejectedForms) {
+      process.exitCode = 0;
+      const mockExecutor = vi.fn();
+      await main(argv, { executor: mockExecutor, env: validConfig });
+      expect(process.exitCode).toBe(1);
+      expect(mockExecutor).not.toHaveBeenCalled();
+    }
+    errorSpy.mockRestore();
+  });
+});
+
+describe("D1 output extraction and error handling", () => {
+  it("extracts results array from valid D1 JSON output", () => {
+    expect(
+      extractD1Results(JSON.stringify([{ results: [{ value: "1" }], success: true }]))
+    ).toEqual([{ value: "1" }]);
+
+    expect(
+      extractD1Results(JSON.stringify([{ results: [], success: true }]))
+    ).toEqual([]);
+  });
+
+  it("throws when stdout cannot be parsed as JSON", () => {
+    expect(() => extractD1Results("Error: connection refused")).toThrow(
+      "Keluaran basis data D1 tidak dapat diurai sebagai JSON."
+    );
+    expect(() => extractD1Results("")).toThrow("Keluaran basis data D1 kosong.");
+    expect(() => extractD1Results(null)).toThrow("Keluaran basis data D1 kosong.");
+  });
+
+  it("throws when parsed JSON has no results array", () => {
+    expect(() => extractD1Results(JSON.stringify([{ success: true }]))).toThrow(
+      "Keluaran basis data D1 tidak memiliki array hasil."
+    );
+    expect(() => extractD1Results(JSON.stringify([]))).toThrow(
+      "Keluaran basis data D1 tidak memiliki array hasil."
+    );
+    expect(() => extractD1Results(JSON.stringify({ success: true }))).toThrow(
+      "Keluaran basis data D1 tidak memiliki array hasil."
+    );
   });
 });
 
@@ -257,6 +344,52 @@ describe("remote bootstrap execution", () => {
 
     // Exactly 2 check calls made, write was NOT executed
     expect(executedCalls).toHaveLength(2);
+    expect(executedCalls.some((c) => c.args.includes("--file"))).toBe(false);
+  });
+
+  it("aborts when pre-check stdout cannot be parsed as JSON with no write call", async () => {
+    const executedCalls: { bin: string; args: string[] }[] = [];
+
+    const mockExecutor = vi.fn().mockImplementation(async (bin: string, args: string[]) => {
+      executedCalls.push({ bin, args });
+      // Return unparseable string
+      return { stdout: "Error: 502 Bad Gateway" };
+    });
+
+    await expect(
+      runRemoteBootstrap({
+        database: "ppij-election-db",
+        memberId: "admin-tech-01",
+        config: validConfig,
+        executor: mockExecutor,
+      })
+    ).rejects.toThrow("Keluaran basis data D1 tidak dapat diurai sebagai JSON.");
+
+    // Exactly 1 pre-check call made, write was NOT executed
+    expect(executedCalls).toHaveLength(1);
+    expect(executedCalls.some((c) => c.args.includes("--file"))).toBe(false);
+  });
+
+  it("aborts when pre-check stdout has no results array with no write call", async () => {
+    const executedCalls: { bin: string; args: string[] }[] = [];
+
+    const mockExecutor = vi.fn().mockImplementation(async (bin: string, args: string[]) => {
+      executedCalls.push({ bin, args });
+      // Return JSON without results array
+      return { stdout: JSON.stringify([{ success: false, errors: ["table not found"] }]) };
+    });
+
+    await expect(
+      runRemoteBootstrap({
+        database: "ppij-election-db",
+        memberId: "admin-tech-01",
+        config: validConfig,
+        executor: mockExecutor,
+      })
+    ).rejects.toThrow("Keluaran basis data D1 tidak memiliki array hasil.");
+
+    // Exactly 1 pre-check call made, write was NOT executed
+    expect(executedCalls).toHaveLength(1);
     expect(executedCalls.some((c) => c.args.includes("--file"))).toBe(false);
   });
 

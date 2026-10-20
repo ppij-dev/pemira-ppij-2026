@@ -23,6 +23,9 @@ export const REQUIRED_CONFIG = [
   "APP_MASTER_KEY",
 ];
 
+export const USAGE_TEXT =
+  "Gunakan: npm run bootstrap -- <member_id Admin Voting pertama> atau npm run bootstrap -- --remote --database <nama_d1> <member_id>";
+
 export function parseBootstrapArgs(argv) {
   let isRemote = false;
   let database = "";
@@ -37,16 +40,40 @@ export function parseBootstrapArgs(argv) {
       dryRun = true;
     } else if (arg === "--database" || arg === "-d") {
       i++;
-      if (i < argv.length) {
-        database = argv[i].trim();
+      if (i >= argv.length) {
+        throw new Error(USAGE_TEXT);
       }
+      const val = argv[i].trim();
+      if (!val || val.startsWith("-")) {
+        throw new Error(USAGE_TEXT);
+      }
+      database = val;
     } else if (arg.startsWith("--database=")) {
-      database = arg.slice("--database=".length).trim();
-    } else if (!arg.startsWith("-")) {
-      if (!memberId) {
-        memberId = arg.trim();
+      const val = arg.slice("--database=".length).trim();
+      if (!val || val.startsWith("-")) {
+        throw new Error(USAGE_TEXT);
       }
+      database = val;
+    } else if (arg.startsWith("-")) {
+      throw new Error(USAGE_TEXT);
+    } else {
+      if (memberId) {
+        throw new Error(USAGE_TEXT);
+      }
+      memberId = arg.trim();
     }
+  }
+
+  if (!memberId) {
+    throw new Error(USAGE_TEXT);
+  }
+
+  if (database && !isRemote) {
+    throw new Error(USAGE_TEXT);
+  }
+
+  if (isRemote && !database) {
+    throw new Error(USAGE_TEXT);
   }
 
   return { isRemote, database, dryRun, memberId };
@@ -70,25 +97,42 @@ export function validateConfig(config) {
 }
 
 export function extractD1Results(raw) {
-  if (!raw) return [];
+  if (raw === null || raw === undefined) {
+    throw new Error("Keluaran basis data D1 kosong.");
+  }
+  let parsed;
   if (typeof raw !== "string") {
-    if (Array.isArray(raw)) return raw[0]?.results ?? [];
-    return raw?.results ?? [];
-  }
-  const text = raw.trim();
-  if (!text) return [];
-  const jsonStart = text.search(/[{\[]/);
-  const jsonEnd = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
-  const jsonStr = jsonStart !== -1 && jsonEnd !== -1 ? text.slice(jsonStart, jsonEnd + 1) : text;
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (Array.isArray(parsed)) {
-      return parsed[0]?.results ?? [];
+    parsed = raw;
+  } else {
+    const text = raw.trim();
+    if (!text) {
+      throw new Error("Keluaran basis data D1 kosong.");
     }
-    return parsed?.results ?? [];
-  } catch {
-    return [];
+    const jsonStart = text.search(/[{\[]/);
+    const jsonEnd = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd < jsonStart) {
+      throw new Error("Keluaran basis data D1 tidak dapat diurai sebagai JSON.");
+    }
+    const jsonStr = text.slice(jsonStart, jsonEnd + 1);
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      throw new Error("Keluaran basis data D1 tidak dapat diurai sebagai JSON.");
+    }
   }
+
+  if (Array.isArray(parsed)) {
+    if (parsed.length > 0 && Array.isArray(parsed[0]?.results)) {
+      return parsed[0].results;
+    }
+    throw new Error("Keluaran basis data D1 tidak memiliki array hasil.");
+  }
+
+  if (parsed && typeof parsed === "object" && Array.isArray(parsed.results)) {
+    return parsed.results;
+  }
+
+  throw new Error("Keluaran basis data D1 tidak memiliki array hasil.");
 }
 
 export async function defaultExecutor(file, args) {
@@ -248,21 +292,16 @@ export async function main(
     wranglerBin = "wrangler",
   } = {}
 ) {
-  const { isRemote, database, dryRun, memberId } = parseBootstrapArgs(argv);
-
-  if (!memberId) {
-    console.error(
-      "Gunakan: npm run bootstrap -- <member_id Admin Voting pertama> atau npm run bootstrap -- --remote --database <nama_d1> <member_id>"
-    );
+  let parsed;
+  try {
+    parsed = parseBootstrapArgs(argv);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : USAGE_TEXT);
     process.exitCode = 1;
     return;
   }
 
-  if (isRemote && !database) {
-    console.error("Nama basis data D1 wajib diisi untuk mode --remote (--database <nama>).");
-    process.exitCode = 1;
-    return;
-  }
+  const { isRemote, database, dryRun, memberId } = parsed;
 
   const config = await loadConfig(devVarsPath, env);
   if (!validateConfig(config)) {
@@ -289,19 +328,25 @@ export async function main(
     return;
   }
 
-  if (isRemote) {
-    await runRemoteBootstrap({
-      database,
-      memberId,
-      config,
-      executor,
-      wranglerBin,
-    });
-  } else {
-    await runLocalBootstrap({
-      memberId,
-      config,
-    });
+  try {
+    if (isRemote) {
+      await runRemoteBootstrap({
+        database,
+        memberId,
+        config,
+        executor,
+        wranglerBin,
+      });
+    } else {
+      await runLocalBootstrap({
+        memberId,
+        config,
+      });
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : "Bootstrap gagal.");
+    process.exitCode = 1;
+    throw error;
   }
 }
 
