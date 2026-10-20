@@ -9,7 +9,7 @@ import { setupGuard } from "../src/server/setup/guard";
 const validConfig = {
   ONELOGIN_ISSUER: "https://login.example/realm", ONELOGIN_CLIENT_ID: "client", ONELOGIN_CLIENT_SECRET: "secret",
   SERVICE_API_URL: "https://service.example", SERVICE_API_CLIENT_ID: "service-client", SERVICE_API_CLIENT_SECRET: "secret",
-  SITE_SCOPE: "Korda/Jepang", SITE_BASE_URL: "https://vote.example", SITE_NAME: "Pemilihan", SITE_LOGO_PATH: "/logo.svg", APP_MASTER_KEY: "master-key",
+  SITE_SCOPE: "/ppij/okayama", SITE_BASE_URL: "https://vote.example", SITE_NAME: "Pemilihan", SITE_LOGO_PATH: "/logo.svg", APP_MASTER_KEY: "master-key",
 };
 const site = new Hono<{Bindings: Bindings}>().use("*", setupGuard())
   .get("/", (c) => c.text("public"))
@@ -32,7 +32,7 @@ describe("operator bootstrap", () => {
     expect(await bootstrapSite(env.DB, validConfig, "member-456")).toBe(true);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM elections").first()).toMatchObject({n: 1});
     expect(await env.DB.prepare("SELECT member_id, name, is_technical FROM admin_voting").all()).toMatchObject({results: [{member_id: "member-123", name: "Technical Admin", is_technical: 1}]});
-    expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first()).toMatchObject({value: "Korda/Jepang"});
+    expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first()).toMatchObject({value: "/ppij/okayama"});
     expect(JSON.stringify(await env.DB.prepare("SELECT * FROM system_config").all())).not.toContain("master-key");
   });
 

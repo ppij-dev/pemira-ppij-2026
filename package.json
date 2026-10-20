@@ -29,28 +29,28 @@
         "description": "Rahasia klien untuk sinkronisasi daftar pemilih Service API PPIJ Portal (didapat dari admin portal PPIJ)."
       },
       "ONELOGIN_ISSUER": {
-        "description": "URL issuer OIDC OneLogin PPIJ (misal: `https://sso.ppijepang.app/realms/ppij`)."
+        "description": "URL issuer OIDC OneLogin PPIJ (contoh: `https://sso.ppijepang.app/realms/ppij`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "ONELOGIN_CLIENT_ID": {
-        "description": "Client ID OIDC OneLogin PPIJ untuk aplikasi pemilihan ini."
+        "description": "Client ID OIDC OneLogin PPIJ. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SERVICE_API_URL": {
-        "description": "URL basis endpoint Service API PPIJ Portal untuk sinkronisasi daftar anggota."
+        "description": "URL origin basis endpoint Service API PPIJ Portal tanpa path (contoh: `https://service-api.example`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SERVICE_API_CLIENT_ID": {
-        "description": "Client ID untuk autentikasi M2M Service API PPIJ Portal."
+        "description": "Client ID untuk autentikasi M2M Service API PPIJ Portal. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SITE_SCOPE": {
-        "description": "Cakupan wilayah pemilihan PPIJ, misal `Korda/Jepang`, `Korda/Kanto`, atau `Komsat/Tokyo`."
+        "description": "Jalur grup klaim `affiliation` pada token OIDC OneLogin (wajib diawali '/', tanpa spasi, contoh: `/ppij/okayama` atau `/ppij`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SITE_BASE_URL": {
-        "description": "URL basis publik tempat situs pemilihan ini diakses (misal: `https://pemilihan.ppijepang.org`). Penting: redirect URI OAuth dibentuk dari URL ini."
+        "description": "URL basis publik tempat situs pemilihan diakses (contoh: `https://pemilihan.example.org`). Penting: redirect URI OAuth dibentuk dari URL ini. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SITE_NAME": {
-        "description": "Nama instansi atau judul pemilihan (misal: `Pemilihan PPI Jepang`)."
+        "description": "Nama instansi atau judul pemilihan (contoh: `Pemilihan PPI Jepang`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       },
       "SITE_LOGO_PATH": {
-        "description": "Jalur berkas logo publik (default: `/logo.svg`)."
+        "description": "Jalur berkas logo publik di public assets (default: `/logo.svg`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
       }
     }
   },

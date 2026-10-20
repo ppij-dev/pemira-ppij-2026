@@ -37,11 +37,19 @@ perubahan 1.1 berikutnya.
      `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) yang dicantumkan di `.dev.vars.example` dan
      diminta dengan input terselubung (dimask) saat deploy. Pengaturan non-rahasia (`ONELOGIN_ISSUER`,
      `ONELOGIN_CLIENT_ID`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SITE_SCOPE`, `SITE_BASE_URL`,
-     `SITE_NAME`, `SITE_LOGO_PATH`) dikelola sebagai plain text pada blok `vars` di `wrangler.jsonc`
-     sehingga terlihat jelas dan dapat diperiksa tanpa risiko salah ketik.
+     `SITE_NAME`, `SITE_LOGO_PATH`) dikelola sebagai plain text pada blok `vars` di `wrangler.jsonc`.
+     Berkas `wrangler.jsonc` adalah *source of truth* untuk konfigurasi Workers (lihat dokumentasi Cloudflare:
+     <https://developers.cloudflare.com/workers/wrangler/configuration/>). Nilai non-rahasia harus disesuaikan
+     langsung di `wrangler.jsonc` pada fork repositori Anda lalu di-commit dan di-push ke Git; pengubahan nilai
+     pada dasbor Cloudflare akan tertimpa pada build atau deployment berikutnya. Hanya ketiga rahasia yang
+     dikelola melalui dasbor rahasia Cloudflare.
    - Konfigurasi wajib: `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`,
      `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`,
      `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/logo.svg`).
+     - `SITE_SCOPE`: wajib berupa format jalur grup diawali `/` tanpa spasi (contoh: `/ppij/okayama` atau `/ppij`),
+       sesuai dengan klaim `affiliation` pada token OneLogin.
+     - `SERVICE_API_URL`: hanya origin tanpa path (contoh: `https://service-api.example`), karena klien internal
+       menggunakan path absolut `/v1/service`.
    - Kunci master dibuat dengan `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
 4. Jalankan perintah bootstrap (setelah migrasi) dengan `member_id` Admin Voting pertama:
 
@@ -52,7 +60,10 @@ perubahan 1.1 berikutnya.
    ```
 
    Untuk D1 jarak jauh (Cloudflare / produksi):
-   Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`) dan nama basis data D1 diketahui (mis. dari `wrangler.jsonc`). Karena nilai non-rahasia kini berada pada `vars` di `wrangler.jsonc` untuk Worker runtime, CLI bootstrap jarak jauh memerlukan seluruh variabel konfigurasi wajib tersedia di lingkungan eksekusi operator (diekspor di shell env atau didefinisikan di `.dev.vars`).
+   Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`) dan nama basis data D1 diketahui (mis. dari `wrangler.jsonc`).
+
+   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika ada di direktori kerja. Jika `.dev.vars` memuat nilai lokal (misal `SITE_BASE_URL=http://localhost:4321`), nilai lokal tersebut akan tertulis ke tabel `system_config` pada D1 produksi! Nilai produksi harus diekspor di shell environment (environment variable shell mengesampingkan `.dev.vars`) dan harus sama persis dengan `vars` di `wrangler.jsonc`. Selalu jalankan dengan `--dry-run` terlebih dahulu untuk memeriksa baris `site_base_url` dan `site_scope` sebelum eksekusi ke D1 produksi.
+
    ```bash
    npm run bootstrap -- --remote --database <nama_d1> <member_id>
    ```

@@ -8,14 +8,16 @@
   "observability": {
     "enabled": true
   },
-  // Non-secret environment variables for the worker. In the Deploy to Cloudflare
-  // button flow, these are presented as visible, editable plain text fields.
+  // Non-secret environment variables. Configuration in wrangler.jsonc is the
+  // source of truth for Workers Builds: edit these values in your repository
+  // fork and commit them. Editing them in the Cloudflare dashboard will be
+  // overwritten on subsequent deployments.
   "vars": {
     "ONELOGIN_ISSUER": "https://sso.ppijepang.app/realms/ppij",
     "ONELOGIN_CLIENT_ID": "election-client",
     "SERVICE_API_URL": "https://service-api.example",
     "SERVICE_API_CLIENT_ID": "election-service",
-    "SITE_SCOPE": "Korda/Jepang",
+    "SITE_SCOPE": "/ppij/okayama",
     "SITE_BASE_URL": "https://pemilihan.example.org",
     "SITE_NAME": "Pemilihan PPI Jepang",
     "SITE_LOGO_PATH": "/logo.svg"

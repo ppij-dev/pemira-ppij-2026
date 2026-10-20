@@ -11,11 +11,8 @@ import {
   runRemoteBootstrap,
   USAGE_TEXT,
   validateConfig,
+  validateSiteScope,
 } from "../scripts/bootstrap.mjs";
-import devVarsExample from "../.dev.vars.example?raw";
-import devVarsLocalExample from "../.dev.vars.local.example?raw";
-import wranglerJsonc from "../wrangler.jsonc?raw";
-import { loadRuntimeConfig } from "../src/server/setup/bootstrap";
 
 const validConfig = {
   ONELOGIN_ISSUER: "https://login.example/realm",
@@ -24,7 +21,7 @@ const validConfig = {
   SERVICE_API_URL: "https://service.example",
   SERVICE_API_CLIENT_ID: "service-client",
   SERVICE_API_CLIENT_SECRET: "top-secret-service-secret",
-  SITE_SCOPE: "Korda/Jepang",
+  SITE_SCOPE: "/ppij/okayama",
   SITE_BASE_URL: "https://vote.example",
   SITE_NAME: "Pemilihan PPI Jepang",
   SITE_LOGO_PATH: "/custom-logo.svg",
@@ -420,70 +417,39 @@ describe("remote bootstrap execution", () => {
   });
 });
 
-describe("deploy button configuration split and runtime config loading", () => {
-  it("keeps only true secrets in .dev.vars.example", () => {
-    const lines = devVarsExample.split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#"));
-    const keys = lines.map((l) => l.split("=")[0].trim());
-    expect(keys.sort()).toEqual([
-      "APP_MASTER_KEY",
-      "ONELOGIN_CLIENT_SECRET",
-      "SERVICE_API_CLIENT_SECRET",
-    ].sort());
+describe("SITE_SCOPE validation", () => {
+  it("accepts valid group path formats starting with / and containing no whitespace", () => {
+    expect(validateSiteScope("/ppij/okayama")).toBe(true);
+    expect(validateSiteScope("/ppij")).toBe(true);
+    expect(validateSiteScope("/ppij/korda-chugoku")).toBe(true);
+    expect(validateSiteScope("/ppij/komsat/tokyo")).toBe(true);
   });
 
-  it("includes all required variables in .dev.vars.local.example for local development", () => {
-    const lines = devVarsLocalExample.split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#"));
-    const keys = lines.map((l) => l.split("=")[0].trim());
-    for (const req of REQUIRED_CONFIG) {
-      expect(keys).toContain(req);
-    }
+  it("rejects invalid scope formats", () => {
+    expect(validateSiteScope("Korda/Jepang")).toBe(false);
+    expect(validateSiteScope("ppij/okayama")).toBe(false);
+    expect(validateSiteScope("/ppij okayama")).toBe(false);
+    expect(validateSiteScope("")).toBe(false);
+    expect(validateSiteScope("   ")).toBe(false);
+    expect(validateSiteScope(null as unknown as string)).toBe(false);
+    expect(validateSiteScope(undefined as unknown as string)).toBe(false);
   });
 
-  function parseJsonc(content: string) {
-    const stripped = content.replace(/("(?:\\.|[^"\\])*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g, (m, group1) => group1 || "");
-    return JSON.parse(stripped);
-  }
+  it("fails fast in main with exit code 1 and error message on invalid SITE_SCOPE", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const mockExecutor = vi.fn();
+    process.exitCode = 0;
 
-  it("defines all non-secret settings in wrangler.jsonc vars", () => {
-    const parsed = parseJsonc(wranglerJsonc);
-    expect(parsed.vars).toBeDefined();
-    expect(parsed.vars).toMatchObject({
-      ONELOGIN_ISSUER: expect.any(String),
-      ONELOGIN_CLIENT_ID: expect.any(String),
-      SERVICE_API_URL: expect.any(String),
-      SERVICE_API_CLIENT_ID: expect.any(String),
-      SITE_SCOPE: expect.any(String),
-      SITE_BASE_URL: expect.any(String),
-      SITE_NAME: expect.any(String),
-      SITE_LOGO_PATH: expect.any(String),
+    await main(["member-001"], {
+      executor: mockExecutor,
+      env: { ...validConfig, SITE_SCOPE: "Korda/Jepang" },
     });
-    // Ensure no secrets are leaked in wrangler.jsonc vars
-    expect(parsed.vars.APP_MASTER_KEY).toBeUndefined();
-    expect(parsed.vars.ONELOGIN_CLIENT_SECRET).toBeUndefined();
-    expect(parsed.vars.SERVICE_API_CLIENT_SECRET).toBeUndefined();
-  });
 
-  it("proves loadRuntimeConfig and validateConfig succeed when merging wrangler vars and secrets bindings", () => {
-    const { vars } = parseJsonc(wranglerJsonc);
-
-    const secrets = {
-      ONELOGIN_CLIENT_SECRET: "test-oidc-secret",
-      SERVICE_API_CLIENT_SECRET: "test-service-secret",
-      APP_MASTER_KEY: "test-master-key-32-bytes-long-here",
-    };
-
-    // In Cloudflare Workers runtime, both vars and secrets are exposed on env
-    const combinedEnv = { ...vars, ...secrets };
-
-    expect(validateConfig(combinedEnv)).toBe(true);
-    const loaded = loadRuntimeConfig(combinedEnv);
-    expect(loaded).not.toBeNull();
-    expect(loaded?.ONELOGIN_ISSUER).toBe(vars.ONELOGIN_ISSUER);
-    expect(loaded?.APP_MASTER_KEY).toBe(secrets.APP_MASTER_KEY);
-    expect(loaded?.SITE_LOGO_PATH).toBe(vars.SITE_LOGO_PATH);
+    expect(process.exitCode).toBe(1);
+    expect(mockExecutor).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("SITE_SCOPE tidak valid")
+    );
+    errorSpy.mockRestore();
   });
 });

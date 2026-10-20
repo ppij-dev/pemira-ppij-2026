@@ -96,6 +96,12 @@ export function validateConfig(config) {
   return REQUIRED_CONFIG.every((key) => typeof config[key] === "string" && config[key].trim().length > 0);
 }
 
+export function validateSiteScope(scope) {
+  if (typeof scope !== "string") return false;
+  const trimmed = scope.trim();
+  return trimmed.startsWith("/") && !/\s/.test(trimmed);
+}
+
 export function extractD1Results(raw) {
   if (raw === null || raw === undefined) {
     throw new Error("Keluaran basis data D1 kosong.");
@@ -306,6 +312,12 @@ export async function main(
   const config = await loadConfig(devVarsPath, env);
   if (!validateConfig(config)) {
     console.error("Konfigurasi operator belum lengkap; bootstrap dibatalkan.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!validateSiteScope(config.SITE_SCOPE)) {
+    console.error("SITE_SCOPE tidak valid: harus diawali dengan '/' dan tidak boleh mengandung spasi (contoh: '/ppij/okayama').");
     process.exitCode = 1;
     return;
   }
