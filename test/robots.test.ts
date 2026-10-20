@@ -7,7 +7,7 @@ import robotsTxt from "../public/robots.txt?raw";
 
 // Keluaran build (dist/ di-gitignore): bila `npm run build` pernah dijalankan,
 // pemeriksaan meta robots juga dilakukan pada berkas terkompilasi.
-const compiled = import.meta.glob<string>("../dist/server/chunks/index_*.mjs", {
+const compiled = import.meta.glob<string>("../dist/server/chunks/*.mjs", {
   query: "?raw",
   import: "default",
   eager: true,
