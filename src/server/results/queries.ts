@@ -103,49 +103,73 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const excludeAdmins = election.allow_admin_voting === 0
     ? "WHERE member_id NOT IN (SELECT member_id FROM admin_voting)"
     : "";
-  const [candidates, votesByRegion, participationByPath, ballotsByPath, votersByPath, participationTotal, ballotTotal, testCounts, units, adminCount, eligibleFallback] = await Promise.all([
+  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult] = await db.batch([
     db.prepare(
       `SELECT c.id, c.number, c.nickname, c.color, COUNT(b.id) AS votes
        FROM candidates c LEFT JOIN ballots b ON b.candidate_id = c.id AND b.election_id = ? ${realOnly ? "AND b.is_test = 0" : ""}
        GROUP BY c.id ORDER BY c.number`,
-    ).bind(election.id).all<CandidateTally>(),
+    ).bind(election.id),
     db.prepare(`SELECT candidate_id, komsat_path AS path, COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")} GROUP BY candidate_id, komsat_path`)
-      .bind(election.id).all<{ candidate_id: number; path: string; n: number }>(),
+      .bind(election.id),
     db.prepare(
       `SELECT v.komsat_path AS path, COUNT(*) AS n FROM participation p JOIN voters v ON v.member_id = p.member_id
        WHERE p.election_id = ? ${testOn("p")} GROUP BY v.komsat_path`,
-    ).bind(election.id).all<{ path: string; n: number }>(),
+    ).bind(election.id),
     db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")} GROUP BY komsat_path`)
-      .bind(election.id).all<{ path: string; n: number }>(),
-    db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters ${excludeAdmins} GROUP BY komsat_path`)
-      .all<{ path: string; n: number }>(),
+      .bind(election.id),
+    db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters ${excludeAdmins} GROUP BY komsat_path`),
     db.prepare(`SELECT COUNT(*) AS n FROM participation WHERE election_id = ? ${testOn("participation")}`)
-      .bind(election.id).first<{ n: number }>(),
+      .bind(election.id),
     db.prepare(`SELECT COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")}`)
-      .bind(election.id).first<{ n: number }>(),
-    realOnly
-      ? Promise.resolve(null)
-      : db.prepare(
-          `SELECT (SELECT COUNT(*) FROM participation WHERE election_id = ? AND is_test = 1) AS participation_count,
-                  (SELECT COUNT(*) FROM ballots WHERE election_id = ? AND is_test = 1) AS ballot_count`,
-        ).bind(election.id, election.id).first<{ participation_count: number; ballot_count: number }>(),
-    db.prepare("SELECT path, name FROM units WHERE type = 'korda'").all<{ path: string; name: string }>(),
-    db.prepare("SELECT COUNT(*) AS n FROM admin_voting").first<{ n: number }>(),
-    election.frozen_hak_pilih != null
-      ? Promise.resolve(null)
-      : db.prepare(`SELECT COUNT(*) AS n FROM voters ${excludeAdmins}`).first<{ n: number }>(),
+      .bind(election.id),
+    db.prepare(
+      `SELECT (SELECT COUNT(*) FROM participation WHERE election_id = ? AND is_test = 1) AS participation_count,
+              (SELECT COUNT(*) FROM ballots WHERE election_id = ? AND is_test = 1) AS ballot_count`,
+    ).bind(election.id, election.id),
+    db.prepare("SELECT path, name FROM units WHERE type = 'korda'"),
+    db.prepare("SELECT COUNT(*) AS n FROM admin_voting"),
+    db.prepare(`SELECT COUNT(*) AS n FROM voters ${excludeAdmins}`),
   ]);
+  const candidates = candidatesResult as { results: CandidateTally[] };
+  const votesByRegion = votesByRegionResult as { results: { candidate_id: number; path: string; n: number }[] };
+  const participationByPath = participationByPathResult as { results: { path: string; n: number }[] };
+  const ballotsByPath = ballotsByPathResult as { results: { path: string; n: number }[] };
+  const votersByPath = votersByPathResult as { results: { path: string; n: number }[] };
+  const participationTotal = participationTotalResult as { results: { n: number }[] };
+  const ballotTotal = ballotTotalResult as { results: { n: number }[] };
+  const testCounts = testCountsResult as { results: { participation_count: number; ballot_count: number }[] };
+  const units = unitsResult as { results: { path: string; name: string }[] };
+  const adminCount = adminCountResult as { results: { n: number }[] };
+  const eligibleFallback = eligibleFallbackResult as { results: { n: number }[] };
 
-  const eligibleCount = election.frozen_hak_pilih ?? eligibleFallback?.n ?? 0;
-  const participationCount = participationTotal?.n ?? 0;
-  const ballotCount = ballotTotal?.n ?? 0;
+  const candidateRows = candidates.results;
+  const votesByRegionRows = votesByRegion.results;
+  const participationByPathRows = participationByPath.results;
+  const ballotsByPathRows = ballotsByPath.results;
+  const votersByPathRows = votersByPath.results;
+  const participationCountRow = participationTotal.results[0];
+  const ballotCountRow = ballotTotal.results[0];
+  const testCountRow = testCounts.results[0];
+  const unitRows = units.results;
+  const adminCountRow = adminCount.results[0];
+  const eligibleFallbackRow = eligibleFallback.results[0];
 
-  const names = new Map(units.results.map((unit) => [unit.path, unit.name]));
-  const eligibleByRegion = bucketByRegion(votersByPath.results);
-  const usedByRegion = bucketByRegion(participationByPath.results);
-  const ballotsByRegion = bucketByRegion(ballotsByPath.results);
+  const testSummary = realOnly ? null : {
+    participation_count: testCountRow?.participation_count ?? 0,
+    ballot_count: testCountRow?.ballot_count ?? 0,
+  };
+
+  // D1 batch executes these SELECTs as one transaction, so totals and breakdowns
+  // observe one consistent database snapshot even if a vote arrives concurrently.
+  const eligibleCount = election.frozen_hak_pilih ?? eligibleFallbackRow?.n ?? 0;
+  const participationCount = participationCountRow?.n ?? 0;
+  const ballotCount = ballotCountRow?.n ?? 0;
+  const names = new Map(unitRows.map((unit) => [unit.path, unit.name]));
+  const eligibleByRegion = bucketByRegion(votersByPathRows);
+  const usedByRegion = bucketByRegion(participationByPathRows);
+  const ballotsByRegion = bucketByRegion(ballotsByPathRows);
   const votesByRegionCandidate = new Map<string, Map<number, number>>();
-  for (const row of votesByRegion.results) {
+  for (const row of votesByRegionRows) {
     const key = regionKey(row.path);
     const perCandidate = votesByRegionCandidate.get(key) ?? new Map<number, number>();
     perCandidate.set(row.candidate_id, (perCandidate.get(row.candidate_id) ?? 0) + row.n);
@@ -168,7 +192,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
       suppressed,
       candidates: suppressed
         ? null
-        : candidates.results.map((candidate) => ({ ...candidate, votes: perCandidate?.get(candidate.id) ?? 0 })),
+        : candidateRows.map((candidate) => ({ ...candidate, votes: perCandidate?.get(candidate.id) ?? 0 })),
     };
   });
 
@@ -184,14 +208,15 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     participation_count: participationCount,
     ballot_count: ballotCount,
     count_matches: participationCount === ballotCount,
-    candidates: candidates.results,
+    candidates: candidateRows,
     korda,
   };
   return {
     base,
-    admin_count: adminCount?.n ?? 0,
-    test: testCounts,
+    admin_count: adminCountRow?.n ?? 0,
+    test: testSummary,
   };
+
 }
 
 /** Dasbor payload for Admin Voting; the caller records the tally-load audit entry. */

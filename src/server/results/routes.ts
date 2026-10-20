@@ -1,3 +1,4 @@
+// Integration: app.route("/", resultsRoutes) after requireAdmin-guarded mounts; /dashboard guards internally and public /results must remain public.
 // Parent mounts these routes before the wildcard admin middleware; /dashboard guards itself.
 import { Hono } from "hono";
 import type { Context } from "hono";

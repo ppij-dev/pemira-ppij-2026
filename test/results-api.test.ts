@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
-import { Hono } from "hono";
 import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
-import { resultsRoutes } from "../src/server/results/routes";
+import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
-import type { Bindings } from "../src/server/app";
 import type { DashboardPayload, ResultsPayload } from "../src/server/results/queries";
 
 declare module "*.sql?raw" {
@@ -19,9 +17,6 @@ const MASTER_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8A
 const SCOPE = "/ppij/okayama";
 const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY };
 
-type TestEnv = { Bindings: Bindings & { APP_MASTER_KEY?: string } };
-const app = new Hono<TestEnv>().basePath("/api");
-app.route("/", resultsRoutes as never);
 
 async function sessionCookie(memberId: string, name = memberId, affiliation: string | string[] | null = SCOPE) {
   const value = await sealSession(
@@ -110,6 +105,14 @@ beforeEach(async () => {
 });
 
 describe("Results API - Authorization and Guards", () => {
+  it("uses the production dispatcher for the public and guarded endpoints", async () => {
+    await seedElection({ status: "locked" });
+    const dashboard = await app.request("/api/dashboard", {}, bindings);
+    expect(dashboard.status).toBe(403);
+    const publicResults = await app.request("/api/results", {}, bindings);
+    expect(publicResults.status).toBe(409);
+    expect(await publicResults.json()).toEqual({ error: "hasil_belum_diumumkan" });
+  });
   it("rejects non-admin visitors on /api/dashboard with 403 and records no audit", async () => {
     await seedElection();
     // member-2 has a voter row within scope but is not in admin_voting.
@@ -211,6 +214,30 @@ describe("Results API - Dashboard Metrics and Freezing", () => {
     expect(data.participation_count).toBe(1);
     expect(data.ballot_count).toBe(2);
     expect(data.count_matches).toBe(false);
+  });
+  it("keeps participation and ballot totals snapshot-consistent during concurrent votes", async () => {
+    await seedElection({ status: "locked", frozen: 100 });
+    await seedCandidates();
+    for (let i = 0; i < 10; i++) {
+      const memberId = `concurrent-${i}`;
+      const path = `${SCOPE}/komsat-a`;
+      await env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at) VALUES (?, ?, ?, 'ACTIVE', ?)")
+        .bind(memberId, memberId, path, new Date().toISOString()).run();
+      const id = crypto.randomUUID();
+      const [response] = await Promise.all([
+        requestDashboard(),
+        env.DB.batch([
+          env.DB.prepare("INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, ?, ?, ?, 0)")
+            .bind(memberId, memberId, new Date().toISOString()),
+          env.DB.prepare("INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test) VALUES (?, 1, 1, ?, ?, 0)")
+            .bind(id, path, `hash-${id}`),
+        ]),
+      ]);
+      expect(response.status).toBe(200);
+      const data = (await response.json()) as DashboardPayload;
+      expect(data.count_matches).toBe(true);
+      expect(data.participation_count).toBe(data.ballot_count);
+    }
   });
 
   it("warns when committee has fewer than two Admin Voting", async () => {
