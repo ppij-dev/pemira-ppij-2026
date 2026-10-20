@@ -22,7 +22,7 @@ Klik tombol **Deploy to Cloudflare** di bagian atas README ini. Alur resmi Cloud
 1. Mengkloning repositori ini ke akun GitHub/GitLab pengguna.
 2. Meminta input 3 rahasia (`ONELOGIN_CLIENT_SECRET`, `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) yang diambil dari `.dev.vars.example` dalam keadaan terselubung (masked).
 3. Menampilkan variabel non-rahasia dari blok `vars` di `wrangler.jsonc` untuk diatur nilainya.
-4. Membuat dan menghubungkan basis data D1 (`DB`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori.
+4. Membuat dan menghubungkan basis data D1 (`DB`) baru secara otomatis dengan ID baru yang ditulis ke `wrangler.jsonc` pada klon repositori (hanya D1 yang di-provisioning; binding bawaan KV sesi dan Cloudflare Images dinonaktifkan di `astro.config.mjs` karena aplikasi menggunakan cookie tersegel dan aset gambar statis).
 5. Membangun dan merilis worker via Cloudflare Workers Builds. Skrip `deploy` di `package.json` otomatis menjalankan `wrangler d1 migrations apply DB --remote` sebelum deploy worker.
 
 *(Catatan verifikasi: Alur di atas dirancang sesuai dokumentasi resmi Cloudflare Deploy Buttons. Perilaku provisioning otomatis D1 beserta penulisan ulang ID-nya, rendering visual formulir prompt di antarmuka dasbor Cloudflare, dan pembuatan relasi fork GitHub tercatat sebagai unverified di `docs/deploy-button.md` karena belum diuji langsung pada akun Cloudflare aktif.)*

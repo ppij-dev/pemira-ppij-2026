@@ -5,7 +5,10 @@ import { defineConfig } from "astro/config";
 
 export default defineConfig({
   output: "server",
-  adapter: cloudflare(),
+  session: false,
+  adapter: cloudflare({
+    imageService: "passthrough",
+  }),
   vite: {
     plugins: [tailwindcss()],
   },
