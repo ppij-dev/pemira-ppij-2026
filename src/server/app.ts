@@ -4,6 +4,7 @@ import { setupRoutes } from "./setup/routes";
 import { createAuthRoutes } from "./auth/routes";
 import { electionRoutes } from "./election/routes";
 import { serviceApiRoutes } from "./serviceapi/routes";
+import { resultsRoutes } from "./results/routes";
 import { requireAdmin } from "./admin/routes";
 import { loadRuntimeConfig } from "./setup/bootstrap";
 export type Bindings = {
@@ -20,6 +21,12 @@ const app = new Hono<{ Bindings: Bindings }>().basePath("/api");
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/setup", setupRoutes);
+
+// /api/results harus publik: pasang SEBELUM createAuthRoutes (wildcard
+// requireAdmin panitia di dalamnya akan menutup rute ini bila dilewati).
+// /api/dashboard tetap terlindungi oleh requireAdmin internal resultsRoutes.
+app.route("/", resultsRoutes);
+
 app.route("/", createAuthRoutes({
   loadRuntime: (c) => {
     const config = loadRuntimeConfig(c.env);

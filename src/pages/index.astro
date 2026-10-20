@@ -17,8 +17,11 @@ if (session && bindings.DB) {
   const admin = await bindings.DB.prepare("SELECT is_technical FROM admin_voting WHERE member_id = ?")
     .bind(session.member_id)
     .first<{ is_technical: number }>();
-  const scope = await bindings.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
-  isAdmin = Boolean(admin && scope && affiliationInScope(session.affiliation, scope.value));
+  isAdmin = Boolean(admin);
+  if (isAdmin) {
+    const scope = await bindings.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
+    isAdmin = Boolean(scope && affiliationInScope(session.affiliation, scope.value));
+  }
   isTechnical = isAdmin && admin?.is_technical === 1;
 }
 const affiliation = session?.affiliation;
