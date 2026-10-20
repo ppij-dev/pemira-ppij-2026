@@ -7,8 +7,13 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { affiliationInScope } from "../admin/routes";
-import { buildAuditInsert } from "../lib/audit";
+import { AUDIT_GENESIS_HASH, canonicalRow, type AuditEntry } from "../lib/audit";
 import { generateReceipt } from "./receipt";
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 export class VoteError extends Error {
   constructor(
@@ -136,7 +141,12 @@ export interface VoteResult {
  * Jalankan semua pemeriksaan otorisasi lalu tulis vote secara atomik.
  * Kode bukti hanya muncul di respons; tidak pernah disimpan/dicatat.
  */
-export async function castVote(db: D1Database, session: VoteSession, body: unknown): Promise<VoteResult> {
+export async function castVote(
+  db: D1Database,
+  session: VoteSession,
+  body: unknown,
+  hooks?: { beforeBatch?: () => Promise<void> },
+): Promise<VoteResult> {
   const { election, voter } = await authorizeVoter(db, session);
 
   // Rate limit: 5 percobaan per 60 detik per sesi, dihitung setelah otorisasi
@@ -163,9 +173,7 @@ export async function castVote(db: D1Database, session: VoteSession, body: unkno
   const receipt = await generateReceipt();
   const ballotId = crypto.randomUUID();
   const votedAt = new Date().toISOString();
-
-  // Audit pemilih: tanpa kandidat dan tanpa kode bukti ("Budi Santoso memilih")
-  const auditStmt = await buildAuditInsert(db, {
+  const auditEntry: AuditEntry = {
     at: votedAt,
     actor_type: "voter",
     actor_member_id: session.member_id,
@@ -174,48 +182,68 @@ export async function castVote(db: D1Database, session: VoteSession, body: unkno
     target: null,
     komsat_path: voter.komsat_path,
     detail_json: null,
-  });
-
-  // Batch atomik: participation + ballot + audit. Kondisi "open"
-  // direvalidasi di SQL (mencegah TOCTOU saat Tutup Sekarang) dan
-  // komsat_path ballot diambil dari roll beku, bukan dari klien.
-  const OPEN_GUARD = `
+  };
+  const openGuard = `
     status_lock = 'locked'
     AND frozen_at IS NOT NULL
     AND closed_early_at IS NULL
-    AND opens_at <= ?
-    AND closes_at > ?
+    AND opens_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    AND closes_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
   `;
-  const nowIso = new Date().toISOString();
 
-  try {
-    const results = await db.batch([
-      db.prepare(
-        `INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test)
-         SELECT ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${OPEN_GUARD}`,
-      ).bind(election.id, session.member_id, voter.name, votedAt, election.id, nowIso, nowIso),
-      db.prepare(
-        `INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test)
-         SELECT ?, ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${OPEN_GUARD}`,
-      ).bind(ballotId, election.id, req.candidate_id, voter.komsat_path, receipt.hash, election.id, nowIso, nowIso),
-      auditStmt,
-    ]);
+  // All batch statements compare the audit tip observed before the batch.
+  // A concurrent append makes all three inserts no-op; retry with a fresh tip.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await authorizeVoter(db, session);
+    const tip = await db.prepare("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1").first<{ hash: string }>();
+    const previousHash = tip?.hash ?? AUDIT_GENESIS_HASH;
+    const hash = await sha256Hex(previousHash + canonicalRow({ ...auditEntry, prev_hash: previousHash }));
+    const tipGuard = "COALESCE((SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1), ?) = ?";
+    await hooks?.beforeBatch?.();
 
-    if ((results[0]?.meta?.changes ?? 0) === 0) {
-      // Pemilihan ditutup antara pemeriksaan dan penulisan
+    try {
+      const results = await db.batch([
+        db.prepare(
+          `INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test)
+           SELECT ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${openGuard} AND ${tipGuard}`,
+        ).bind(current.election.id, session.member_id, current.voter.name, votedAt, current.election.id, previousHash, previousHash),
+        db.prepare(
+          `INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test)
+           SELECT ?, ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${openGuard} AND ${tipGuard}`,
+        ).bind(ballotId, current.election.id, req.candidate_id, current.voter.komsat_path, receipt.hash, current.election.id, previousHash, previousHash),
+        db.prepare(
+          `INSERT INTO audit_log
+             (at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           FROM elections
+           WHERE id = ? AND ${openGuard} AND ${tipGuard}
+             AND EXISTS (SELECT 1 FROM participation WHERE election_id = ? AND member_id = ?)`,
+        ).bind(
+          auditEntry.at, auditEntry.actor_type, auditEntry.actor_member_id, auditEntry.actor_name,
+          auditEntry.action, auditEntry.target, auditEntry.komsat_path, auditEntry.detail_json,
+          previousHash, hash, current.election.id, previousHash, previousHash, current.election.id, session.member_id,
+        ),
+      ]);
+      if (
+        (results[0]?.meta?.changes ?? 0) === 1 &&
+        (results[1]?.meta?.changes ?? 0) === 1 &&
+        (results[2]?.meta?.changes ?? 0) === 1
+      ) return { receipt_code: receipt.code, voted_at: votedAt };
+    } catch (error) {
+      const message = String(error);
+      if (message.includes("UNIQUE") || message.includes("constraint")) {
+        throw new VoteError("Anda sudah memilih.", 409, "already_voted");
+      }
+      throw error;
+    }
+
+    const latest = await db.prepare(ELECTION_SQL).first<ElectionRow>();
+    if (!latest || !latest.frozen_at || stage(latest, new Date().toISOString()) !== "open") {
       throw new VoteError("Pemilihan sudah ditutup.", 409, "not_open");
     }
-  } catch (error) {
-    if (error instanceof VoteError) throw error;
-    const message = String(error);
-    if (message.includes("UNIQUE") || message.includes("constraint")) {
-      // PRIMARY KEY (election_id, member_id): duplikat / double submit
-      throw new VoteError("Anda sudah memilih.", 409, "already_voted");
-    }
-    throw error;
+    if (attempt === 2) throw new VoteError("Pemilihan sedang menerima suara lain. Coba lagi.", 409, "audit_tip_changed");
   }
-
-  return { receipt_code: receipt.code, voted_at: votedAt };
+  throw new VoteError("Pemilihan sedang menerima suara lain. Coba lagi.", 409, "audit_tip_changed");
 }
 
 /** GET /api/votes/me: hanya voted_at, tidak pernah kandidat/hash/kode. */

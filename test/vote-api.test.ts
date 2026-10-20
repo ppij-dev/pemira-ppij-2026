@@ -13,6 +13,8 @@ import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
+import { castVote, type VoteSession } from "../src/server/voting/vote";
+import { verifyChain, type AuditRow } from "../src/server/lib/audit";
 import type { Bindings } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
@@ -218,6 +220,41 @@ describe("POST /api/votes", () => {
     const statuses = [first.status, second.status].sort();
     expect(statuses).toEqual([201, 409]);
     expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+  });
+
+  it("409 jika pemilihan ditutup antara authorize dan batch; audit tidak berubah", async () => {
+    const session: VoteSession = {
+      member_id: "voter-1", name: "Andi Wijaya", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000),
+    };
+    const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    await expect(castVote(
+      env.DB,
+      session,
+      { candidate_id: 1, confirmation_text: "Budi" },
+      { beforeBatch: async () => {
+        await env.DB.prepare("UPDATE elections SET closed_early_at = ?").bind(new Date().toISOString()).run();
+      } },
+    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("dua pemilih konkuren mencatat audit berantai valid", async () => {
+    await seedVoter("voter-2", { name: "Sari Anggota" });
+    const cookie1 = await sessionCookie("voter-1");
+    const cookie2 = await sessionCookie("voter-2");
+    const [first, second] = await Promise.all([
+      voteRequest(cookie1, { candidate_id: 1, confirmation_text: "Budi" }),
+      voteRequest(cookie2, { candidate_id: 2, confirmation_text: "Sari" }),
+    ]);
+    expect([first.status, second.status]).toEqual([201, 201]);
+    const { results } = await env.DB.prepare(
+      "SELECT seq,at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash FROM audit_log ORDER BY seq",
+    ).all<AuditRow>();
+    expect(results).toHaveLength(2);
+    expect(await verifyChain(results)).toBeNull();
+    expect(await rowCounts()).toEqual({ participation: 2, ballots: 2 });
   });
 
   it("429 percobaan keenam dalam 60 detik", async () => {
