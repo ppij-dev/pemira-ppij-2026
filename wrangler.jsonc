@@ -8,6 +8,18 @@
   "observability": {
     "enabled": true
   },
+  // Non-secret environment variables for the worker. In the Deploy to Cloudflare
+  // button flow, these are presented as visible, editable plain text fields.
+  "vars": {
+    "ONELOGIN_ISSUER": "https://sso.ppijepang.app/realms/ppij",
+    "ONELOGIN_CLIENT_ID": "election-client",
+    "SERVICE_API_URL": "https://service-api.example",
+    "SERVICE_API_CLIENT_ID": "election-service",
+    "SITE_SCOPE": "Korda/Jepang",
+    "SITE_BASE_URL": "https://pemilihan.example.org",
+    "SITE_NAME": "Pemilihan PPI Jepang",
+    "SITE_LOGO_PATH": "/logo.svg"
+  },
   // Placeholder values: the Deploy to Cloudflare button provisions the D1
   // database and R2 bucket and rewrites the IDs in the cloned repository.
   "d1_databases": [

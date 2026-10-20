@@ -7,10 +7,15 @@ import {
   extractD1Results,
   main,
   parseBootstrapArgs,
+  REQUIRED_CONFIG,
   runRemoteBootstrap,
   USAGE_TEXT,
   validateConfig,
 } from "../scripts/bootstrap.mjs";
+import devVarsExample from "../.dev.vars.example?raw";
+import devVarsLocalExample from "../.dev.vars.local.example?raw";
+import wranglerJsonc from "../wrangler.jsonc?raw";
+import { loadRuntimeConfig } from "../src/server/setup/bootstrap";
 
 const validConfig = {
   ONELOGIN_ISSUER: "https://login.example/realm",
@@ -412,5 +417,73 @@ describe("remote bootstrap execution", () => {
     expect(loggedOutput).toContain("'admin-dry-run'");
     expect(loggedOutput).not.toContain("top-secret-client-secret");
     logSpy.mockRestore();
+  });
+});
+
+describe("deploy button configuration split and runtime config loading", () => {
+  it("keeps only true secrets in .dev.vars.example", () => {
+    const lines = devVarsExample.split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    const keys = lines.map((l) => l.split("=")[0].trim());
+    expect(keys.sort()).toEqual([
+      "APP_MASTER_KEY",
+      "ONELOGIN_CLIENT_SECRET",
+      "SERVICE_API_CLIENT_SECRET",
+    ].sort());
+  });
+
+  it("includes all required variables in .dev.vars.local.example for local development", () => {
+    const lines = devVarsLocalExample.split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    const keys = lines.map((l) => l.split("=")[0].trim());
+    for (const req of REQUIRED_CONFIG) {
+      expect(keys).toContain(req);
+    }
+  });
+
+  function parseJsonc(content: string) {
+    const stripped = content.replace(/("(?:\\.|[^"\\])*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g, (m, group1) => group1 || "");
+    return JSON.parse(stripped);
+  }
+
+  it("defines all non-secret settings in wrangler.jsonc vars", () => {
+    const parsed = parseJsonc(wranglerJsonc);
+    expect(parsed.vars).toBeDefined();
+    expect(parsed.vars).toMatchObject({
+      ONELOGIN_ISSUER: expect.any(String),
+      ONELOGIN_CLIENT_ID: expect.any(String),
+      SERVICE_API_URL: expect.any(String),
+      SERVICE_API_CLIENT_ID: expect.any(String),
+      SITE_SCOPE: expect.any(String),
+      SITE_BASE_URL: expect.any(String),
+      SITE_NAME: expect.any(String),
+      SITE_LOGO_PATH: expect.any(String),
+    });
+    // Ensure no secrets are leaked in wrangler.jsonc vars
+    expect(parsed.vars.APP_MASTER_KEY).toBeUndefined();
+    expect(parsed.vars.ONELOGIN_CLIENT_SECRET).toBeUndefined();
+    expect(parsed.vars.SERVICE_API_CLIENT_SECRET).toBeUndefined();
+  });
+
+  it("proves loadRuntimeConfig and validateConfig succeed when merging wrangler vars and secrets bindings", () => {
+    const { vars } = parseJsonc(wranglerJsonc);
+
+    const secrets = {
+      ONELOGIN_CLIENT_SECRET: "test-oidc-secret",
+      SERVICE_API_CLIENT_SECRET: "test-service-secret",
+      APP_MASTER_KEY: "test-master-key-32-bytes-long-here",
+    };
+
+    // In Cloudflare Workers runtime, both vars and secrets are exposed on env
+    const combinedEnv = { ...vars, ...secrets };
+
+    expect(validateConfig(combinedEnv)).toBe(true);
+    const loaded = loadRuntimeConfig(combinedEnv);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.ONELOGIN_ISSUER).toBe(vars.ONELOGIN_ISSUER);
+    expect(loaded?.APP_MASTER_KEY).toBe(secrets.APP_MASTER_KEY);
+    expect(loaded?.SITE_LOGO_PATH).toBe(vars.SITE_LOGO_PATH);
   });
 });

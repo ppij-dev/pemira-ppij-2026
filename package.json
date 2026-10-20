@@ -21,6 +21,36 @@
     "bindings": {
       "APP_MASTER_KEY": {
         "description": "Kunci master AES-256-GCM untuk mengenkripsi rahasia di D1. Buat dengan `openssl rand -base64 32`."
+      },
+      "ONELOGIN_CLIENT_SECRET": {
+        "description": "Rahasia klien OAuth/OIDC OneLogin PPIJ Portal (didapat dari admin portal PPIJ)."
+      },
+      "SERVICE_API_CLIENT_SECRET": {
+        "description": "Rahasia klien untuk sinkronisasi daftar pemilih Service API PPIJ Portal (didapat dari admin portal PPIJ)."
+      },
+      "ONELOGIN_ISSUER": {
+        "description": "URL issuer OIDC OneLogin PPIJ (misal: `https://sso.ppijepang.app/realms/ppij`)."
+      },
+      "ONELOGIN_CLIENT_ID": {
+        "description": "Client ID OIDC OneLogin PPIJ untuk aplikasi pemilihan ini."
+      },
+      "SERVICE_API_URL": {
+        "description": "URL basis endpoint Service API PPIJ Portal untuk sinkronisasi daftar anggota."
+      },
+      "SERVICE_API_CLIENT_ID": {
+        "description": "Client ID untuk autentikasi M2M Service API PPIJ Portal."
+      },
+      "SITE_SCOPE": {
+        "description": "Cakupan wilayah pemilihan PPIJ, misal `Korda/Jepang`, `Korda/Kanto`, atau `Komsat/Tokyo`."
+      },
+      "SITE_BASE_URL": {
+        "description": "URL basis publik tempat situs pemilihan ini diakses (misal: `https://pemilihan.ppijepang.org`). Penting: redirect URI OAuth dibentuk dari URL ini."
+      },
+      "SITE_NAME": {
+        "description": "Nama instansi atau judul pemilihan (misal: `Pemilihan PPI Jepang`)."
+      },
+      "SITE_LOGO_PATH": {
+        "description": "Jalur berkas logo publik (default: `/logo.svg`)."
       }
     }
   },

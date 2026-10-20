@@ -1,13 +1,8 @@
-# Local development: copy to .dev.vars and supply values explicitly.
-ONELOGIN_ISSUER=https://identity.example/realms/election
-ONELOGIN_CLIENT_ID=election-client
+# Nilai rahasia Worker untuk Deploy to Cloudflare button.
+# Tombol Deploy to Cloudflare memperlakukan kunci di berkas ini sebagai Worker secrets (dimask/disembunyikan saat input).
+# Pengaturan non-rahasia (URL, scope, nama situs, dsb.) berada pada blok `vars` di wrangler.jsonc.
+# Untuk pengembangan lokal lengkap, salin .dev.vars.local.example ke .dev.vars.
 ONELOGIN_CLIENT_SECRET=
-SERVICE_API_URL=https://service-api.example
-SERVICE_API_CLIENT_ID=election-service
 SERVICE_API_CLIENT_SECRET=
-SITE_SCOPE=Korda/Jepang
-SITE_BASE_URL=http://localhost:4321
-SITE_NAME=Pemilihan PPIJ
-SITE_LOGO_PATH=/logo.svg
-# 32 random bytes, e.g. `openssl rand -base64 32`
+# 32 byte acak, misal `openssl rand -base64 32`
 APP_MASTER_KEY=

@@ -28,12 +28,21 @@ perubahan 1.1 berikutnya.
 
 2. Terapkan migrasi D1 (`npx wrangler d1 migrations apply DB --local` untuk Miniflare;
    gunakan `--remote` hanya saat operator memang menyiapkan lingkungan Cloudflare).
-3. Isi `.dev.vars` dari `.dev.vars.example` untuk proses lokal, atau set nilai setara pada
-   Wrangler `vars` dan rahasia Wrangler untuk deployment. Konfigurasi wajib: `ONELOGIN_ISSUER`,
-   `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`,
-   `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`, `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`.
-   `SITE_LOGO_PATH` opsional (default `/logo.svg`). Kunci master dibuat dengan
-   `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
+3. Siapkan konfigurasi lingkungan:
+   - **Pengembangan lokal (Miniflare & bootstrap lokal)**: Salin `.dev.vars.local.example` ke
+     `.dev.vars` dan lengkapi nilainya. Berkas ini memuat seluruh konfigurasi wajib (baik variabel
+     publik seperti `SITE_BASE_URL=http://localhost:4321` maupun rahasia) sehingga skrip bootstrap
+     lokal dapat membaca seluruh kunci.
+   - **Deploy to Cloudflare button & Cloudflare deployment**: Hanya rahasia sejati (`ONELOGIN_CLIENT_SECRET`,
+     `SERVICE_API_CLIENT_SECRET`, `APP_MASTER_KEY`) yang dicantumkan di `.dev.vars.example` dan
+     diminta dengan input terselubung (dimask) saat deploy. Pengaturan non-rahasia (`ONELOGIN_ISSUER`,
+     `ONELOGIN_CLIENT_ID`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SITE_SCOPE`, `SITE_BASE_URL`,
+     `SITE_NAME`, `SITE_LOGO_PATH`) dikelola sebagai plain text pada blok `vars` di `wrangler.jsonc`
+     sehingga terlihat jelas dan dapat diperiksa tanpa risiko salah ketik.
+   - Konfigurasi wajib: `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`,
+     `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`,
+     `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/logo.svg`).
+   - Kunci master dibuat dengan `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
 4. Jalankan perintah bootstrap (setelah migrasi) dengan `member_id` Admin Voting pertama:
 
    Untuk D1 lokal (pengembangan/Miniflare):
@@ -43,8 +52,7 @@ perubahan 1.1 berikutnya.
    ```
 
    Untuk D1 jarak jauh (Cloudflare / produksi):
-   Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`), nama basis data D1 diketahui (mis. dari `wrangler.jsonc`), dan seluruh variabel konfigurasi wajib telah diekspor pada lingkungan shell atau didefinisikan di `.dev.vars`.
-
+   Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`) dan nama basis data D1 diketahui (mis. dari `wrangler.jsonc`). Karena nilai non-rahasia kini berada pada `vars` di `wrangler.jsonc` untuk Worker runtime, CLI bootstrap jarak jauh memerlukan seluruh variabel konfigurasi wajib tersedia di lingkungan eksekusi operator (diekspor di shell env atau didefinisikan di `.dev.vars`).
    ```bash
    npm run bootstrap -- --remote --database <nama_d1> <member_id>
    ```
