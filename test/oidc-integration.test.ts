@@ -57,14 +57,40 @@ describe("warm Keycloak OIDC", () => {
     expect(now - (authTime - staleAge - 1) <= staleAge).toBe(false);
   });
 
-  it.each([
-    ["election-suspended", "test-suspended", undefined],
-    ["election-out-of-scope", "test-out-of-scope", "/ppij/kyodai"],
-  ])("receives expected identity claims for %s", async (user, memberId, affiliation) => {
-    if (skipReason) return;
-    const token = await getToken(user, password);
-    const userClaims = await verifyIdToken(token, { config, jwks });
-    expect(userClaims.member_id).toBe(memberId);
-    expect(userClaims.affiliation).toEqual(affiliation === undefined ? undefined : [affiliation]);
+  it("receives expected identity claims for suspended and out-of-scope personas", async ({ skip }) => {
+    if (skipReason) return skip(skipReason);
+    for (const [user, memberId, affiliation] of [
+      ["election-suspended", "test-suspended", undefined],
+      ["election-out-of-scope", "test-out-of-scope", "/ppij/kyodai"],
+    ] as const) {
+      const token = await getToken(user, password);
+      const userClaims = await verifyIdToken(token, { config, jwks });
+      expect(userClaims.member_id).toBe(memberId);
+      expect(userClaims.affiliation).toEqual(affiliation === undefined ? undefined : [affiliation]);
+    }
+  });
+
+  it("assigns claim-bearing scopes to the browser app client", async ({ skip }) => {
+    if (skipReason) return skip(skipReason);
+    const server = issuer.replace("/realms/election-test", "");
+    const adminTokenResponse = await fetch(`${server}/realms/master/protocol/openid-connect/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "password",
+        client_id: "admin-cli",
+        username: process.env.KC_ADMIN_USER ?? "admin",
+        password: process.env.KC_ADMIN_PASSWORD ?? "admin-test",
+      }),
+    });
+    expect(adminTokenResponse.ok).toBe(true);
+    const { access_token: adminToken } = await adminTokenResponse.json() as { access_token: string };
+    const clientsResponse = await fetch(`${server}/admin/realms/election-test/clients?clientId=election-app`, {
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(clientsResponse.ok).toBe(true);
+    const clients = await clientsResponse.json() as Array<{ defaultClientScopes: string[] }>;
+    expect(clients).toHaveLength(1);
+    expect(clients[0].defaultClientScopes).toEqual(expect.arrayContaining(["ppij-member", "ppij-affiliation"]));
   });
 });
