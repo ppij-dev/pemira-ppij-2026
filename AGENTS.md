@@ -32,7 +32,7 @@ Any organization in the PPIJ ecosystem (PPIJ Pusat, a Korda, or a Komsat) can fo
 - **Lean 1.0** is `openspec/changes/add-election-mvp` (revised 2026-10-20): local-first development and rehearsal — no Wrangler push, no real Service API grant (deterministic HTTP fixture), no outgoing email. Deferred to a later 1.1 change: browser `/setup` + deploy-button rehearsal, real email/reminders, rich candidate editor/media, Leaflet map + komsat results, logo upload/crop, audit filters/CSV.
 - 1.0 deferrals are product boundaries, not optional extras: never ship a fake-success path for a deferred feature (e.g. an email button claiming delivery).
 - Start a change: `/opsx:propose "<idea>"`. Implement: `/opsx:apply`. Finish: `/opsx:archive`.
-- Copywriting: Bahasa Indonesia first; voice **friendly, helpful, secure** (see `../.agents/product-marketing.md`); no emoji; Tabler icons only. UI components/patterns: **templui**.
+- Copywriting: Bahasa Indonesia first; voice **friendly, helpful, secure** (see `../.agents/product-marketing.md`); no emoji; Tabler icons only. UI components/patterns: **shadcn-inspired local components under `src/components/ui/`** — the npm package `templui` is Go/templ-only, never add it as a dependency; "templui/shadcn-inspired" in specs means the visual language, not a package.
 - Local identity testing reuses the shared warm ppij-identity Keycloak (`127.0.0.1:38180`) with an isolated election-test realm/client and personas; never start/stop that stack or alter the shared `ppij` realm. Each session passes its own explicit config — another session's exported environment variables are not inherited.
 
 ## Roles (exact words)
