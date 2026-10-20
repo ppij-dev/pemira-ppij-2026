@@ -31,11 +31,12 @@ try {
     const existingAdmins = await db.prepare("SELECT member_id FROM admin_voting").all();
     if (existingAdmins.results.length) throw new Error("Data bootstrap parsial: admin sudah ada tanpa situs terinisialisasi; operator perlu memeriksa basis data.");
     const now = new Date().toISOString();
+    const logoPath = typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim() ? config.SITE_LOGO_PATH.trim() : "/logo.svg";
     const results = await db.batch([
       db.prepare("INSERT INTO elections (title, status_lock) SELECT ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM elections)").bind(config.SITE_NAME.trim()),
       db.prepare("INSERT INTO admin_voting (member_id, name, is_technical, created_at) VALUES (?, 'Technical Admin', 1, ?)").bind(memberId, now),
-      db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?)").bind(config.SITE_SCOPE.trim(), config.SITE_BASE_URL.trim(), config.SITE_NAME.trim(), (config.SITE_LOGO_PATH || "/logo.svg").trim()),
-      db.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1')"),
+      db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(config.SITE_SCOPE.trim(), config.SITE_BASE_URL.trim(), config.SITE_NAME.trim(), logoPath),
+      db.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1') ON CONFLICT(key) DO UPDATE SET value='1'"),
     ]);
     if (results.some((result) => result.success === false)) throw new Error("Bootstrap tidak dapat diselesaikan; basis data belum diinisialisasi.");
     console.log("Bootstrap situs selesai.");
