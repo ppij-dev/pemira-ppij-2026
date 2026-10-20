@@ -209,19 +209,19 @@ export async function castVote(
         ).bind(current.election.id, session.member_id, current.voter.name, votedAt, current.election.id, previousHash, previousHash),
         db.prepare(
           `INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test)
-           SELECT ?, ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${openGuard} AND ${tipGuard}`,
-        ).bind(ballotId, current.election.id, req.candidate_id, current.voter.komsat_path, receipt.hash, current.election.id, previousHash, previousHash),
+           SELECT ?, ?, ?, ?, ?, 0 FROM participation
+           WHERE election_id = ? AND member_id = ? AND changes() = 1`,
+        ).bind(ballotId, current.election.id, req.candidate_id, current.voter.komsat_path, receipt.hash, current.election.id, session.member_id),
         db.prepare(
           `INSERT INTO audit_log
              (at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash)
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-           FROM elections
-           WHERE id = ? AND ${openGuard} AND ${tipGuard}
-             AND EXISTS (SELECT 1 FROM participation WHERE election_id = ? AND member_id = ?)`,
+           FROM participation
+           WHERE election_id = ? AND member_id = ? AND changes() = 1 AND ${tipGuard}`,
         ).bind(
           auditEntry.at, auditEntry.actor_type, auditEntry.actor_member_id, auditEntry.actor_name,
           auditEntry.action, auditEntry.target, auditEntry.komsat_path, auditEntry.detail_json,
-          previousHash, hash, current.election.id, previousHash, previousHash, current.election.id, session.member_id,
+          previousHash, hash, current.election.id, session.member_id, previousHash, previousHash,
         ),
       ]);
       if (

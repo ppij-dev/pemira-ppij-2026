@@ -240,6 +240,35 @@ describe("POST /api/votes", () => {
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
   });
 
+  it("scheduled-close-between-statements admits no partial vote", async () => {
+    const session: VoteSession = {
+      member_id: "voter-1", name: "Andi Wijaya", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000),
+    };
+    await env.DB.prepare("UPDATE elections SET closes_at = ?")
+      .bind(new Date(Date.now() + 300).toISOString()).run();
+    const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    // Real delay is required: Miniflare's SQLite clock is independent of JS fake timers.
+    await expect(castVote(
+      env.DB,
+      session,
+      { candidate_id: 1, confirmation_text: "Budi" },
+      { beforeBatch: async () => new Promise((resolve) => setTimeout(resolve, 350)) },
+    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("scheduled close already passed leaves participation, ballot, and audit unchanged", async () => {
+    await env.DB.prepare("UPDATE elections SET closes_at = ?").bind(new Date(Date.now() - 5).toISOString()).run();
+    const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(res.status).toBe(409);
+    const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
   it("dua pemilih konkuren mencatat audit berantai valid", async () => {
     await seedVoter("voter-2", { name: "Sari Anggota" });
     const cookie1 = await sessionCookie("voter-1");
