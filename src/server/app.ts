@@ -14,11 +14,7 @@ export type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>().basePath("/api");
 
 app.get("/health", (c) => c.json({ ok: true }));
-
-// /api/setup/*: penjaga pemasangan (tugas 2.1); langkah wizard menyusul.
 app.route("/setup", setupRoutes);
-
-// /api/auth/* dan /api/me: BFF One Login (tugas 3.1).
 app.route("/", createAuthRoutes());
 
 export { app };

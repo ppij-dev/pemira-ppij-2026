@@ -26,15 +26,26 @@ perubahan 1.1 berikutnya.
    npm run dev      # server pengembangan (Miniflare: D1 & R2 lokal)
    ```
 
-2. Terapkan migrasi D1 (`wrangler d1 migrations apply DB --remote` saat ke Cloudflare; lokal otomatis
-   di Miniflare).
-3. Isi konfigurasi dan rahasia (lokal: `.dev.vars` dari `.dev.vars.example`): issuer & klien One Login,
-   endpoint & klien Service API, cakupan, base URL, nama situs, aset logo lokal, dan `APP_MASTER_KEY`
-   (32 byte acak, misalnya `openssl rand -base64 32`). Jangan mengandalkan variabel lingkungan sesi lain;
-   setiap proses membawa konfigurasinya sendiri.
-4. Jalankan perintah bootstrap operator yang aman diulang (dokumen lengkap menyusul di tugas 2.1) dengan
-   `member_id` Admin Voting pertama. Sebelum bootstrap selesai, halaman publik/API menjawab 503 dan
-   `/setup` menjawab 404. Setelah selesai, `/setup` 404 selamanya; perubahan lewat Pengaturan.
+2. Terapkan migrasi D1 (`npx wrangler d1 migrations apply DB --local` untuk Miniflare;
+   gunakan `--remote` hanya saat operator memang menyiapkan lingkungan Cloudflare).
+3. Isi `.dev.vars` dari `.dev.vars.example` untuk proses lokal, atau set nilai setara pada
+   Wrangler `vars` dan rahasia Wrangler untuk deployment. Konfigurasi wajib: `ONELOGIN_ISSUER`,
+   `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`, `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`,
+   `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`, `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`.
+   `SITE_LOGO_PATH` opsional (default `/logo.svg`). Kunci master dibuat dengan
+   `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
+4. Jalankan perintah bootstrap (setelah migrasi) dengan `member_id` Admin Voting pertama:
+
+   ```bash
+   npm run bootstrap -- <member_id>
+   ```
+
+   Untuk lokal perintah memakai `.dev.vars` dan D1 lokal; gunakan lingkungan Wrangler target
+   yang sesuai bila menginisialisasi remote. Perintah aman diulang: hanya satu pemilihan Draf
+   dibuat dan admin pertama tidak diganti. Konfigurasi wajib yang hilang membatalkan perintah.
+   Sebelum bootstrap selesai, halaman publik/API menjawab 503; `/setup` serta `/api/setup/*`
+   selalu 404. Bootstrap tidak membuat sesi login: admin tetap harus masuk lewat One Login
+   dengan afiliasi ACTIVE di dalam cakupan situs.
 
 Pengembangan lokal (Node.js 22.12+):
 

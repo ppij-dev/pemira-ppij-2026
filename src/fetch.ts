@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { getRuntimeKey } from "hono/adapter";
 import { actions, i18n, middleware, pages, sessions } from "astro/hono";
 import { app as api, type Bindings } from "./server/app";
+import { setupGuard } from "./server/setup/guard";
 import { noindex } from "./server/middleware/noindex";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -17,11 +18,12 @@ app.use("*", noindex);
 if (getRuntimeKey() === "workerd") {
   app.use(cf());
 }
+// Block reserved setup URLs and fail closed until operator bootstrap completes.
+app.use("*", setupGuard());
 
 // Hono API: /api/*
 app.route("/", api);
 
-// Astro pipeline: actions, user middleware, sessions, i18n, then page rendering.
 app.use(actions());
 app.use(middleware());
 app.use(sessions());

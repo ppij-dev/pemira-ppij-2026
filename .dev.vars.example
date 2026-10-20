@@ -1,4 +1,13 @@
-# Kunci master AES-256-GCM untuk rahasia yang disimpan di D1 (32 byte acak).
-# Contoh: openssl rand -base64 32
-# Deploy to Cloudflare button meminta nilai ini saat deploy (lihat docs/deploy-button.md).
+# Local development: copy to .dev.vars and supply values explicitly.
+ONELOGIN_ISSUER=https://identity.example/realms/election
+ONELOGIN_CLIENT_ID=election-client
+ONELOGIN_CLIENT_SECRET=
+SERVICE_API_URL=https://service-api.example
+SERVICE_API_CLIENT_ID=election-service
+SERVICE_API_CLIENT_SECRET=
+SITE_SCOPE=Korda/Jepang
+SITE_BASE_URL=http://localhost:4321
+SITE_NAME=Pemilihan PPIJ
+SITE_LOGO_PATH=/logo.svg
+# 32 random bytes, e.g. `openssl rand -base64 32`
 APP_MASTER_KEY=
