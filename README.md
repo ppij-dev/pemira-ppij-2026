@@ -36,17 +36,32 @@ perubahan 1.1 berikutnya.
    `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
 4. Jalankan perintah bootstrap (setelah migrasi) dengan `member_id` Admin Voting pertama:
 
+   Untuk D1 lokal (pengembangan/Miniflare):
+
    ```bash
    npm run bootstrap -- <member_id>
    ```
 
-   Perintah memakai D1 lokal Wrangler yang sama dengan `npm run dev`; jalankan setelah
-   migrasi lokal selesai. Bootstrap aman diulang: hanya satu pemilihan Draf dibuat dan
-   admin pertama tidak diganti. Konfigurasi wajib yang hilang membatalkan perintah.
-   Mode bootstrap jarak jauh belum didukung. Sebelum bootstrap selesai, halaman publik/API
+   Untuk D1 jarak jauh (Cloudflare / produksi):
+   Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`), nama basis data D1 diketahui (mis. dari `wrangler.jsonc`), dan seluruh variabel konfigurasi wajib telah diekspor pada lingkungan shell atau didefinisikan di `.dev.vars`.
+
+   ```bash
+   npm run bootstrap -- --remote --database <nama_d1> <member_id>
+   ```
+
+   Gunakan opsi `--dry-run` untuk mencetak pernyataan SQL tanpa mengeksekusinya:
+
+   ```bash
+   npm run bootstrap -- --remote --database <nama_d1> --dry-run <member_id>
+   ```
+
+   Perintah memakai D1 lokal Miniflare atau Cloudflare D1 jarak jauh via `wrangler d1 execute --remote`; jalankan setelah
+   migrasi selesai. Bootstrap aman diulang (idempoten): hanya satu pemilihan Draf dibuat dan
+   admin pertama tidak diganti. Jika situs sudah terinisialisasi, perintah keluar tanpa perubahan. Jika terdapat
+   data admin tanpa status terinisialisasi, perintah dibatalkan agar basis data diperiksa operator. Konfigurasi
+   wajib yang hilang membatalkan perintah. Sebelum bootstrap selesai, halaman publik/API
    menjawab 503; `/setup` serta `/api/setup/*` selalu 404. Bootstrap tidak membuat sesi login:
    admin tetap harus masuk lewat One Login dengan afiliasi ACTIVE di dalam cakupan situs.
-
 Pengembangan lokal (Node.js 22.12+):
 
 ```bash

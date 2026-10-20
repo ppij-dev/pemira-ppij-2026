@@ -37,12 +37,15 @@ local process: another session's exported environment is not inherited.
 An operator applies D1 migrations, sets the One Login issuer/client, Service API endpoint/client,
 scope, base URL, site name/logo path and `APP_MASTER_KEY` through the documented Wrangler/local
 config and secrets, then runs a repeat-safe bootstrap command with the first Admin Voting
-`member_id`. The command validates required configuration, initializes exactly one draft election,
-creates the labelled Technical Admin and marks the site initialized. The named admin still needs
-an ACTIVE, in-scope One Login session for access. A missing/partial bootstrap returns 503 on
-public and API routes; `/setup` and `/api/setup/*` return 404 in 1.0. No public endpoint can
-initialize the site. Keep secret values out of D1 plaintext and logs.
-
+`member_id`. The bootstrap command supports both local Miniflare (`npm run bootstrap -- <member_id>`)
+and remote Cloudflare D1 (`npm run bootstrap -- --remote --database <name> <member_id>`) using shared
+SQL statements executed via `wrangler d1 execute --remote --file <tmp>`. The command validates required
+configuration, initializes exactly one draft election, creates the labelled Technical Admin and marks
+the site initialized. The named admin still needs an ACTIVE, in-scope One Login session for access.
+A missing/partial bootstrap returns 503 on public and API routes; `/setup` and `/api/setup/*` return 404
+in 1.0. No public endpoint can initialize the site. Keep secret values out of D1 plaintext and logs.
+The command supports `--dry-run` to output SQL without execution, short-circuits safely when the site
+is already initialized, and aborts if an admin exists without initialized status.
 The existing browser-claim guard from task 2.1 must be cut over for 1.0, not left as an alternate
 setup route. Its tests need updating to the operator contract. Browser wizard and deploy-button
 provisioning are phase 2, not local-development prerequisites.

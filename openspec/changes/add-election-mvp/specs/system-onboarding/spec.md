@@ -21,6 +21,10 @@ plaintext D1 rows or logs. The label SHALL grant no extra permissions.
 - **WHEN** the same command is rerun or required configuration is missing
 - **THEN** it does not create a second election or expose a partially initialized public site
 
+#### Scenario: Remote bootstrap
+- **WHEN** the operator runs remote bootstrap with `--remote --database <name> <member_id>`
+- **THEN** it executes the same initialization statements against the remote D1 database via `wrangler d1 execute --remote`, safely short-circuiting if already initialized or aborting on partial state
+
 ### Requirement: No public setup in 1.0
 Before bootstrap completes, public pages and APIs SHALL return HTTP 503 with a Bahasa Indonesia
 not-ready message, except static assets. `/setup` and `/api/setup/*` SHALL return 404 both

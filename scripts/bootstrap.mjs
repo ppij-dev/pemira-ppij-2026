@@ -1,49 +1,313 @@
-import { readFile } from "node:fs/promises";
-import { getPlatformProxy } from "wrangler";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
+import { buildBootstrapStatements, escapeSqlString } from "./bootstrap-sql.mjs";
 
-const file = new URL("../.dev.vars", import.meta.url);
-let local = {};
-try {
-  for (const line of (await readFile(file, "utf8")).split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (match) local[match[1]] = match[2].replace(/^(['"])(.*)\1$/, "$2");
+export { buildBootstrapStatements, escapeSqlString };
+
+const execFileAsync = promisify(execFile);
+
+export const REQUIRED_CONFIG = [
+  "ONELOGIN_ISSUER",
+  "ONELOGIN_CLIENT_ID",
+  "ONELOGIN_CLIENT_SECRET",
+  "SERVICE_API_URL",
+  "SERVICE_API_CLIENT_ID",
+  "SERVICE_API_CLIENT_SECRET",
+  "SITE_SCOPE",
+  "SITE_BASE_URL",
+  "SITE_NAME",
+  "APP_MASTER_KEY",
+];
+
+export function parseBootstrapArgs(argv) {
+  let isRemote = false;
+  let database = "";
+  let dryRun = false;
+  let memberId = "";
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--remote") {
+      isRemote = true;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--database" || arg === "-d") {
+      i++;
+      if (i < argv.length) {
+        database = argv[i].trim();
+      }
+    } else if (arg.startsWith("--database=")) {
+      database = arg.slice("--database=".length).trim();
+    } else if (!arg.startsWith("-")) {
+      if (!memberId) {
+        memberId = arg.trim();
+      }
+    }
   }
-} catch {}
-const config = { ...local, ...process.env };
-const required = ["ONELOGIN_ISSUER", "ONELOGIN_CLIENT_ID", "ONELOGIN_CLIENT_SECRET", "SERVICE_API_URL", "SERVICE_API_CLIENT_ID", "SERVICE_API_CLIENT_SECRET", "SITE_SCOPE", "SITE_BASE_URL", "SITE_NAME", "APP_MASTER_KEY"];
-if (required.some((key) => typeof config[key] !== "string" || !config[key].trim())) {
-  console.error("Konfigurasi operator belum lengkap; bootstrap dibatalkan.");
-  process.exit(1);
+
+  return { isRemote, database, dryRun, memberId };
 }
-const memberId = process.argv[2]?.trim();
-if (!memberId) {
-  console.error("Gunakan: npm run bootstrap -- <member_id Admin Voting pertama>");
-  process.exit(1);
+
+export async function loadConfig(devVarsPath = new URL("../.dev.vars", import.meta.url), env = process.env) {
+  let local = {};
+  try {
+    const content = await readFile(devVarsPath, "utf8");
+    for (const line of content.split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (match) local[match[1]] = match[2].replace(/^(['"])(.*)\1$/, "$2");
+    }
+  } catch {}
+  return { ...local, ...env };
 }
-const proxy = await getPlatformProxy({ remoteBindings: false });
-try {
-  const db = proxy.env.DB;
-  const initialized = await db.prepare("SELECT value FROM system_config WHERE key='initialized'").first();
-  if (initialized?.value === "1") {
+
+export function validateConfig(config) {
+  if (!config || typeof config !== "object") return false;
+  return REQUIRED_CONFIG.every((key) => typeof config[key] === "string" && config[key].trim().length > 0);
+}
+
+export function extractD1Results(raw) {
+  if (!raw) return [];
+  if (typeof raw !== "string") {
+    if (Array.isArray(raw)) return raw[0]?.results ?? [];
+    return raw?.results ?? [];
+  }
+  const text = raw.trim();
+  if (!text) return [];
+  const jsonStart = text.search(/[{\[]/);
+  const jsonEnd = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  const jsonStr = jsonStart !== -1 && jsonEnd !== -1 ? text.slice(jsonStart, jsonEnd + 1) : text;
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (Array.isArray(parsed)) {
+      return parsed[0]?.results ?? [];
+    }
+    return parsed?.results ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function defaultExecutor(file, args) {
+  return await execFileAsync(file, args, { encoding: "utf8" });
+}
+
+export async function runExecutor(executor, bin, args) {
+  if (typeof executor !== "function") {
+    throw new TypeError("Executor must be a function");
+  }
+  if (executor.length === 1) {
+    return await executor(args);
+  }
+  return await executor(bin, args);
+}
+
+export async function runRemoteBootstrap({
+  database,
+  memberId,
+  config,
+  executor = defaultExecutor,
+  wranglerBin = "wrangler",
+}) {
+  if (!database || !database.trim()) {
+    throw new Error("Nama basis data D1 wajib diisi untuk mode --remote (--database <nama>).");
+  }
+  const dbName = database.trim();
+
+  // 1. Check if already initialized
+  const initCheckOutput = await runExecutor(executor, wranglerBin, [
+    "d1",
+    "execute",
+    dbName,
+    "--remote",
+    "--json",
+    "--command",
+    "SELECT value FROM system_config WHERE key='initialized'",
+  ]);
+
+  const initRows = extractD1Results(initCheckOutput?.stdout ?? initCheckOutput);
+  if (initRows.length > 0 && initRows[0]?.value === "1") {
     console.log("Situs sudah diinisialisasi; tidak ada perubahan.");
-    process.exitCode = 0;
-  } else {
-    const existingAdmins = await db.prepare("SELECT member_id FROM admin_voting").all();
-    if (existingAdmins.results.length) throw new Error("Data bootstrap parsial: admin sudah ada tanpa situs terinisialisasi; operator perlu memeriksa basis data.");
-    const now = new Date().toISOString();
-    const logoPath = typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim() ? config.SITE_LOGO_PATH.trim() : "/logo.svg";
-    const results = await db.batch([
-      db.prepare("INSERT INTO elections (title, status_lock) SELECT ?, 'draft' WHERE NOT EXISTS (SELECT 1 FROM elections)").bind(config.SITE_NAME.trim()),
-      db.prepare("INSERT INTO admin_voting (member_id, name, is_technical, created_at) VALUES (?, 'Technical Admin', 1, ?)").bind(memberId, now),
-      db.prepare("INSERT INTO system_config (key, value) VALUES ('site_scope', ?), ('site_base_url', ?), ('site_name', ?), ('site_logo_path', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(config.SITE_SCOPE.trim(), config.SITE_BASE_URL.trim(), config.SITE_NAME.trim(), logoPath),
-      db.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1') ON CONFLICT(key) DO UPDATE SET value='1'"),
-    ]);
-    if (results.some((result) => result.success === false)) throw new Error("Bootstrap tidak dapat diselesaikan; basis data belum diinisialisasi.");
-    console.log("Bootstrap situs selesai.");
+    return { alreadyInitialized: true };
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : "Bootstrap gagal.");
-  process.exitCode = 1;
-} finally {
-  await proxy.dispose();
+
+  // 2. Check if admins exist without initialization (partial state)
+  const adminCheckOutput = await runExecutor(executor, wranglerBin, [
+    "d1",
+    "execute",
+    dbName,
+    "--remote",
+    "--json",
+    "--command",
+    "SELECT member_id FROM admin_voting",
+  ]);
+
+  const adminRows = extractD1Results(adminCheckOutput?.stdout ?? adminCheckOutput);
+  if (adminRows.length > 0) {
+    throw new Error(
+      "Data bootstrap parsial: admin sudah ada tanpa situs terinisialisasi; operator perlu memeriksa basis data."
+    );
+  }
+
+  // 3. Build statements and write to temporary file
+  const now = new Date().toISOString();
+  const logoPath =
+    typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
+      ? config.SITE_LOGO_PATH.trim()
+      : "/logo.svg";
+
+  const statements = buildBootstrapStatements({
+    memberId: memberId.trim(),
+    siteName: config.SITE_NAME.trim(),
+    siteScope: config.SITE_SCOPE.trim(),
+    siteBaseUrl: config.SITE_BASE_URL.trim(),
+    siteLogoPath: logoPath,
+    now,
+  });
+
+  const sqlContent = statements.map((s) => `${s};`).join("\n") + "\n";
+  const tempDir = await mkdtemp(join(tmpdir(), "bootstrap-"));
+  const tempFile = join(tempDir, "bootstrap.sql");
+
+  try {
+    await writeFile(tempFile, sqlContent, "utf8");
+    await runExecutor(executor, wranglerBin, [
+      "d1",
+      "execute",
+      dbName,
+      "--remote",
+      "--file",
+      tempFile,
+    ]);
+    console.log("Bootstrap situs selesai.");
+    return { success: true };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function runLocalBootstrap({
+  memberId,
+  config,
+}) {
+  const { getPlatformProxy } = await import("wrangler");
+  const proxy = await getPlatformProxy({ remoteBindings: false });
+  try {
+    const db = proxy.env.DB;
+    const initialized = await db
+      .prepare("SELECT value FROM system_config WHERE key='initialized'")
+      .first();
+    if (initialized?.value === "1") {
+      console.log("Situs sudah diinisialisasi; tidak ada perubahan.");
+      return { alreadyInitialized: true };
+    }
+
+    const existingAdmins = await db.prepare("SELECT member_id FROM admin_voting").all();
+    if (existingAdmins.results?.length) {
+      throw new Error(
+        "Data bootstrap parsial: admin sudah ada tanpa situs terinisialisasi; operator perlu memeriksa basis data."
+      );
+    }
+
+    const now = new Date().toISOString();
+    const logoPath =
+      typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
+        ? config.SITE_LOGO_PATH.trim()
+        : "/logo.svg";
+
+    const statements = buildBootstrapStatements({
+      memberId: memberId.trim(),
+      siteName: config.SITE_NAME.trim(),
+      siteScope: config.SITE_SCOPE.trim(),
+      siteBaseUrl: config.SITE_BASE_URL.trim(),
+      siteLogoPath: logoPath,
+      now,
+    });
+
+    const results = await db.batch(statements.map((statement) => db.prepare(statement)));
+    if (results.some((result) => result.success === false)) {
+      throw new Error("Bootstrap tidak dapat diselesaikan; basis data belum diinisialisasi.");
+    }
+
+    console.log("Bootstrap situs selesai.");
+    return { success: true };
+  } finally {
+    await proxy.dispose();
+  }
+}
+
+export async function main(
+  argv = process.argv.slice(2),
+  {
+    executor = defaultExecutor,
+    env = process.env,
+    devVarsPath,
+    wranglerBin = "wrangler",
+  } = {}
+) {
+  const { isRemote, database, dryRun, memberId } = parseBootstrapArgs(argv);
+
+  if (!memberId) {
+    console.error(
+      "Gunakan: npm run bootstrap -- <member_id Admin Voting pertama> atau npm run bootstrap -- --remote --database <nama_d1> <member_id>"
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (isRemote && !database) {
+    console.error("Nama basis data D1 wajib diisi untuk mode --remote (--database <nama>).");
+    process.exitCode = 1;
+    return;
+  }
+
+  const config = await loadConfig(devVarsPath, env);
+  if (!validateConfig(config)) {
+    console.error("Konfigurasi operator belum lengkap; bootstrap dibatalkan.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (dryRun) {
+    const now = new Date().toISOString();
+    const logoPath =
+      typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
+        ? config.SITE_LOGO_PATH.trim()
+        : "/logo.svg";
+    const statements = buildBootstrapStatements({
+      memberId,
+      siteName: config.SITE_NAME.trim(),
+      siteScope: config.SITE_SCOPE.trim(),
+      siteBaseUrl: config.SITE_BASE_URL.trim(),
+      siteLogoPath: logoPath,
+      now,
+    });
+    console.log(statements.map((s) => `${s};`).join("\n"));
+    return;
+  }
+
+  if (isRemote) {
+    await runRemoteBootstrap({
+      database,
+      memberId,
+      config,
+      executor,
+      wranglerBin,
+    });
+  } else {
+    await runLocalBootstrap({
+      memberId,
+      config,
+    });
+  }
+}
+
+if (typeof process !== "undefined" && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : "Bootstrap gagal.");
+    process.exitCode = 1;
+  });
 }

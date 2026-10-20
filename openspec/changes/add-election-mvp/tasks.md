@@ -53,6 +53,7 @@ the shared `ppij` realm or creating another container.
 - [x] 5.3 Backend: chronological Audit API and chain-integrity check including closing snapshot; test tampered/deleted rows, later append, secret masking and admin-only access.
 - [x] 5.4 UI: read-only Audit page with integrity status, integrated against 5.3; focused UI check and parent-owned browser verification of intact/broken chain.
 - [x] 5.5 Integration owner: document operator bootstrap, explicit local settings and frozen-roll eligibility in README; run one local election rehearsal using warm Keycloak, Service API fixture, Miniflare and targeted Playwright (setup absent → candidates → Uji Coba → final sync/Kunci → three distinct voters → extend/close → publish → counts, hashes and audit). Review each worker commit and hand the owner a ready-for-gate report with branch and commands run.
+- [x] 5.6 Remote operator bootstrap: `npm run bootstrap -- --remote --database <name> <member_id>` runs the same statements as the local path through `wrangler d1 execute --remote`; shared statement builder, idempotent, `--dry-run`, README and spec wording about "--remote unsupported" updated; verify with a focused unit test using an injected executor (no real remote call).
 
 ## Deferred to a separately planned 1.1 change (not tracked as 1.0 tasks)
 
