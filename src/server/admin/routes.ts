@@ -54,7 +54,20 @@ export function createAdminRoutes() {
     const portalUnit = c.get("adminAuth")!.session.portal_admin_unit ?? null;
     return c.json({ ...admins, results: admins.results.map((admin) => ({ ...admin, portal_admin_unit: admin.member_id === c.get("adminAuth")!.session.member_id ? portalUnit : null })) });
   });
-  routes.get("/admin/invitations", async (c) => c.json(await c.env.DB.prepare("SELECT token_hash AS id, member_id, created_at, expires_at, accepted_at, cancelled_at FROM invitations ORDER BY created_at DESC").all()));
+  routes.get("/admin/invitations", async (c) => {
+    const now = new Date().toISOString();
+    const invitations = await c.env.DB.prepare(
+      "SELECT i.token_hash AS id, i.member_id, v.name AS member_name, i.created_at, i.expires_at, i.accepted_at, i.cancelled_at FROM invitations i LEFT JOIN voters v ON v.member_id = i.member_id ORDER BY i.created_at DESC",
+    ).all<{ id: string; member_id: string; member_name: string | null; created_at: string; expires_at: string; accepted_at: string | null; cancelled_at: string | null }>();
+    return c.json({
+      ...invitations,
+      results: invitations.results.map((invitation) => ({
+        ...invitation,
+        state: invitation.accepted_at ? "accepted" : invitation.cancelled_at ? "cancelled" : invitation.expires_at <= now ? "expired" : "pending",
+        portal_admin_unit: c.get("adminAuth")!.session.portal_admin_unit ?? null,
+      })),
+    });
+  });
   routes.post("/admin/invitations", async (c) => {
     const body = await c.req.json<{member_id?:string}>().catch(() => ({} as {member_id?:string}));
     const memberId = body.member_id?.trim();
@@ -122,9 +135,11 @@ export function createAdminRoutes() {
     const id = c.req.param("id");
     const now = new Date().toISOString();
     const actor = c.get("adminAuth")!;
+    const invitation = await c.env.DB.prepare("SELECT member_id FROM invitations WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(id).first<{ member_id: string }>();
+    if (!invitation) return jsonError(c, "undangan_tidak_ditemukan", 404);
     const result = await c.env.DB.prepare("UPDATE invitations SET cancelled_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(now, id).run();
     if (!result.meta.changes) return jsonError(c, "undangan_tidak_ditemukan", 404);
-    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_invitation_cancelled",target:id,komsat_path:null,detail_json:null});
+    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_invitation_cancelled",target:invitation.member_id,komsat_path:null,detail_json:null});
     await c.env.DB.batch([audit]);
     return c.json({ok:true});
   });

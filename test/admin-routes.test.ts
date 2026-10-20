@@ -77,6 +77,8 @@ describe("Admin Voting invitation routes", () => {
     expect(created.status).toBe(201);
     const token = await inviteToken(created);
     expect(await env.DB.prepare("SELECT token_hash FROM invitations").first()).toMatchObject({ token_hash: expect.any(String) });
+    const listed = await request("/api/admin/invitations", "admin-1", {}, SCOPE, "PPI Okayama");
+    expect(await listed.json()).toMatchObject({ results: [{ member_id: "member-2", member_name: "member-2", state: "pending", portal_admin_unit: "PPI Okayama" }] });
     expect((await accept(token, "member-2")).status).toBe(200);
     expect(await env.DB.prepare("SELECT member_id,is_technical FROM admin_voting WHERE member_id='member-2'").first()).toEqual({ member_id: "member-2", is_technical: 0 });
     expect(await env.DB.prepare("SELECT accepted_at FROM invitations").first()).toMatchObject({ accepted_at: expect.any(String) });
@@ -107,6 +109,32 @@ describe("Admin Voting invitation routes", () => {
     expect((await accept(token, "member-2")).status).toBe(409);
     expect(await env.DB.prepare("SELECT accepted_at FROM invitations").first()).toEqual({ accepted_at: null });
   });
+  it("lists invitations with derived states, member names, and the optional portal claim", async () => {
+    await seedVoter("pending-member");
+    await seedVoter("accepted-member");
+    await seedVoter("cancelled-member");
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO invitations (token_hash,member_id,created_at,expires_at) VALUES ('pending-hash','pending-member',?,?)").bind(now, new Date(Date.now() + 60_000).toISOString()),
+      env.DB.prepare("INSERT INTO invitations (token_hash,member_id,created_at,expires_at,accepted_at) VALUES ('accepted-hash','accepted-member',?,?,?)").bind(now, now, now),
+      env.DB.prepare("INSERT INTO invitations (token_hash,member_id,created_at,expires_at,cancelled_at) VALUES ('cancelled-hash','cancelled-member',?,?,?)").bind(now, new Date(Date.now() + 60_000).toISOString(), now),
+    ]);
+    const response = await request("/api/admin/invitations", "admin-1", {}, SCOPE, "PPI Okayama");
+    const body = await response.json() as { results: Array<{ state: string; member_name: string; portal_admin_unit: string }> };
+    expect(body.results.map(({ state, member_name, portal_admin_unit }) => [state, member_name, portal_admin_unit]).sort()).toEqual([
+      ["accepted", "accepted-member", "PPI Okayama"],
+      ["cancelled", "cancelled-member", "PPI Okayama"],
+      ["pending", "pending-member", "PPI Okayama"],
+    ].sort());
+  });
+  it("does not accept the obsolete body-token route", async () => {
+    const response = await request("/api/admin/invitations/accept", "admin-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "unused" }),
+    });
+    expect(response.status).toBe(404);
+  });
   it("cancels invitations, refuses later acceptance, and audits the cancellation", async () => {
     await seedVoter("member-2");
     const token = await inviteToken(await createInvitation("member-2"));
@@ -115,6 +143,7 @@ describe("Admin Voting invitation routes", () => {
     expect((await accept(token, "member-2")).status).toBe(409);
     expect(await env.DB.prepare("SELECT cancelled_at,accepted_at FROM invitations").first()).toMatchObject({ cancelled_at: expect.any(String), accepted_at: null });
     expect(await auditActions()).toEqual(["admin_invitation_created", "admin_invitation_cancelled"]);
+    expect(await env.DB.prepare("SELECT target FROM audit_log WHERE action='admin_invitation_cancelled'").first()).toEqual({ target: "member-2" });
   });
   it("creates a recovery invitation through the operator SQL path and accepts it with a valid audit chain", async () => {
     await seedVoter("member-recovery");
