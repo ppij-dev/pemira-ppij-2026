@@ -1,4 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { DEFAULT_LOGO_PATH } from "../lib/logo";
 
 export interface RuntimeConfig {
   ONELOGIN_ISSUER: string;
@@ -25,7 +26,7 @@ export function loadRuntimeConfig(source: Record<string, unknown>): RuntimeConfi
   const logo = source.SITE_LOGO_PATH;
   return {
     ...(Object.fromEntries(REQUIRED_CONFIG.map((key) => [key, (source[key] as string).trim()])) as Omit<RuntimeConfig, "SITE_LOGO_PATH">),
-    SITE_LOGO_PATH: typeof logo === "string" && logo.trim() ? logo.trim() : "/logo.svg",
+    SITE_LOGO_PATH: typeof logo === "string" && logo.trim() ? logo.trim() : DEFAULT_LOGO_PATH,
   };
 }
 

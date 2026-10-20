@@ -30,6 +30,10 @@ describe("isValidLogoPath", () => {
     expect(isValidLogoPath("/logo .svg")).toBe(false);
     expect(isValidLogoPath("/\\evil.com/x.png")).toBe(false);
     expect(isValidLogoPath("/http://evil.com/x.png")).toBe(false);
+    expect(isValidLogoPath("/a.png?x=.svg")).toBe(false);
+    expect(isValidLogoPath("/a.png#x")).toBe(false);
+    expect(isValidLogoPath('/x.png?a="onerror=alert(1)//.png')).toBe(false);
+    expect(isValidLogoPath("/..//x.png")).toBe(false);
   });
 
   it("menolak ekstensi yang tidak diizinkan atau tanpa ekstensi", () => {
@@ -70,6 +74,7 @@ describe("getFaviconType", () => {
     expect(getFaviconType("/logo.svg")).toBe("image/svg+xml");
     expect(getFaviconType("/ppi-okayama-logo.webp")).toBe("image/webp");
     expect(getFaviconType("/icon.png")).toBe("image/png");
+    expect(getFaviconType("/LOGO.PNG")).toBe("image/png");
     expect(getFaviconType("/icon.jpg")).toBe("image/jpeg");
     expect(getFaviconType("/icon.jpeg")).toBe("image/jpeg");
     expect(getFaviconType("/ICON.PNG")).toBe("image/png");

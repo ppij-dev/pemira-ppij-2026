@@ -41,8 +41,10 @@ perubahan 1.1 berikutnya.
      Berkas `wrangler.jsonc` adalah *source of truth* untuk konfigurasi Workers (lihat dokumentasi Cloudflare:
      <https://developers.cloudflare.com/workers/wrangler/configuration/>). Nilai non-rahasia harus disesuaikan
      langsung di `wrangler.jsonc` pada fork repositori Anda lalu di-commit dan di-push ke Git; pengubahan nilai
-     pada dasbor Cloudflare akan tertimpa pada build atau deployment berikutnya. Hanya ketiga rahasia yang
-     dikelola melalui dasbor rahasia Cloudflare.
+     pada dasbor Cloudflare akan tertimpa pada build atau deployment berikutnya. Pengecualian: `SITE_LOGO_PATH`
+     disimpan ke tabel `system_config` di D1 saat proses bootstrap berjalan, dan mengubah `vars.SITE_LOGO_PATH`
+     di `wrangler.jsonc` setelah bootstrap tidak memiliki efek; perubahan logo setelah bootstrap dilakukan melalui
+     perintah UPDATE pada D1. Hanya ketiga rahasia yang dikelola melalui dasbor rahasia Cloudflare.
    - Konfigurasi wajib: `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`,
      `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`,
      `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/logo.svg`).
@@ -54,9 +56,12 @@ perubahan 1.1 berikutnya.
        dari ekstensi. Seperti `SITE_BASE_URL` dan `SITE_SCOPE`, `system_config` di D1 adalah sumber kebenaran saat runtime.
        Jika logo diubah setelah bootstrap, perbarui tabel `system_config` di D1:
        ```bash
+       # Miniflare lokal:
        npx wrangler d1 execute DB --local --command "UPDATE system_config SET value = '/ppi-okayama-logo.webp' WHERE key = 'site_logo_path';"
+
+       # Cloudflare D1 jarak jauh (nama basis data atau binding DB adalah argumen posisional):
+       npx wrangler d1 execute <nama_d1_atau_binding_DB> --remote --command "UPDATE system_config SET value = '/ppi-okayama-logo.webp' WHERE key = 'site_logo_path';"
        ```
-       (gunakan `--remote --database <nama_d1>` untuk lingkungan Cloudflare produksi).
      - `SERVICE_API_URL`: hanya origin tanpa path (contoh: `https://service-api.example`), karena klien internal
        menggunakan path absolut `/v1/service`.
    - Kunci master dibuat dengan `openssl rand -base64 32`. Jangan masukkan nilai rahasia ke D1 atau commit `.dev.vars`.
@@ -71,7 +76,7 @@ perubahan 1.1 berikutnya.
    Untuk D1 jarak jauh (Cloudflare / produksi):
    Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`) dan nama basis data D1 diketahui (mis. dari `wrangler.jsonc`).
 
-   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika ada di direktori kerja. Jika `.dev.vars` memuat nilai lokal (misal `SITE_BASE_URL=http://localhost:4321`), nilai lokal tersebut akan tertulis ke tabel `system_config` pada D1 produksi! Nilai produksi harus diekspor di shell environment (environment variable shell mengesampingkan `.dev.vars`) dan harus sama persis dengan `vars` di `wrangler.jsonc`. Selalu jalankan dengan `--dry-run` terlebih dahulu untuk memeriksa baris `site_base_url` dan `site_scope` sebelum eksekusi ke D1 produksi.
+   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika ada di direktori kerja. Jika `.dev.vars` memuat nilai lokal (misal `SITE_BASE_URL=http://localhost:4321`), nilai lokal tersebut akan tertulis ke tabel `system_config` pada D1 produksi! Nilai produksi harus diekspor di shell environment (environment variable shell mengesampingkan `.dev.vars`) dan harus sama persis dengan `vars` di `wrangler.jsonc`. Untuk deployment cabang Okayama, operator juga wajib mengekspor `SITE_LOGO_PATH=/ppi-okayama-logo.webp` (jika tidak diekspor, skrip membaca `.dev.vars` lalu environment dan menggunakan fallback default `/logo.svg`). Selalu jalankan dengan `--dry-run` terlebih dahulu untuk memeriksa baris `site_base_url`, `site_scope`, dan `site_logo_path` sebelum eksekusi ke D1 produksi.
 
    ```bash
    npm run bootstrap -- --remote --database <nama_d1> <member_id>

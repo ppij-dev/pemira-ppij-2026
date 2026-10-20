@@ -31,7 +31,7 @@ export function isValidLogoPath(path: unknown): path is string {
   if (typeof path !== "string" || path.length === 0) {
     return false;
   }
-  if (!path.startsWith("/") || path.startsWith("//")) {
+  if (!path.startsWith("/") || path.includes("//")) {
     return false;
   }
   if (/\s/.test(path)) {
@@ -40,7 +40,10 @@ export function isValidLogoPath(path: unknown): path is string {
   if (path.includes("\\")) {
     return false;
   }
-  if (path.includes(":")) {
+  if (path.includes(":") || path.includes("?") || path.includes("#")) {
+    return false;
+  }
+  if (path.includes('"') || path.includes("'") || path.includes("<") || path.includes(">")) {
     return false;
   }
   const match = path.match(/\.([a-zA-Z0-9]+)$/);
@@ -63,7 +66,8 @@ export function resolveSiteLogoPath(path: unknown): string {
  * Defaults to "image/svg+xml" if extension is unknown or missing.
  */
 export function getFaviconType(path: string): string {
-  const match = path.match(/\.([a-zA-Z0-9]+)$/);
+  const cleanPath = path.split(/[?#]/)[0];
+  const match = cleanPath.match(/\.([a-zA-Z0-9]+)$/);
   if (!match) {
     return "image/svg+xml";
   }
