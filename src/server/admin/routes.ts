@@ -37,7 +37,7 @@ export function createAdminRoutes() {
     return { session, admin };
   };
   const requireAdmin = async (c: Context<Env>, next: () => Promise<void>) => {
-    if (c.req.path.endsWith("/admin/invitations/accept")) return next();
+    if (/\/admin\/invitations\/[^/]+\/accept$/.test(c.req.path)) return next();
     const auth = await authenticate(c);
     if (!auth) return jsonError(c, "admin_voting_tidak_aktif_atau_tidak_dalam_cakupan", 403);
     c.set("adminAuth", auth);
@@ -49,7 +49,12 @@ export function createAdminRoutes() {
     await next();
   });
   routes.use("*", requireAdmin);
-  routes.get("/admin", async (c) => c.json(await c.env.DB.prepare("SELECT member_id, name, is_technical, created_at FROM admin_voting ORDER BY created_at").all()));
+  routes.get("/admin", async (c) => {
+    const admins = await c.env.DB.prepare("SELECT member_id, name, is_technical, created_at FROM admin_voting ORDER BY created_at").all();
+    const portalUnit = c.get("adminAuth")!.session.portal_admin_unit ?? null;
+    return c.json({ ...admins, results: admins.results.map((admin) => ({ ...admin, portal_admin_unit: admin.member_id === c.get("adminAuth")!.session.member_id ? portalUnit : null })) });
+  });
+  routes.get("/admin/invitations", async (c) => c.json(await c.env.DB.prepare("SELECT token_hash AS id, member_id, created_at, expires_at, accepted_at, cancelled_at FROM invitations ORDER BY created_at DESC").all()));
   routes.post("/admin/invitations", async (c) => {
     const body = await c.req.json<{member_id?:string}>().catch(() => ({} as {member_id?:string}));
     const memberId = body.member_id?.trim();
@@ -70,41 +75,32 @@ export function createAdminRoutes() {
       await buildAuditInsert(c.env.DB, { at: now.toISOString(), actor_type:"admin", actor_member_id:actor.session.member_id, actor_name:actor.session.name, action:"admin_invitation_created", target:memberId, komsat_path:null, detail_json:null }),
     ]);
     const base = await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_base_url'").first<{value:string}>();
-    return c.json({ invitation_url: `${base?.value ?? ""}/api/admin/invitations/accept?token=${encodeURIComponent(token)}`, expires_at: expires.toISOString() }, 201);
+    return c.json({ invitation_url: `${base?.value ?? ""}/api/admin/invitations/${encodeURIComponent(token)}/accept`, expires_at: expires.toISOString() }, 201);
   });
-  routes.get("/admin/invitations/accept", async (c) => {
-    const token = c.req.query("token") ?? "";
+  routes.get("/admin/invitations/:token/accept", async (c) => {
+    const token = c.req.param("token");
     if (!token || token.length > 256) return jsonError(c, "undangan_tidak_valid", 400);
     const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
     const cookie = getCookie(c, SESSION_COOKIE);
     if (!key || !cookie || !(await openSession(cookie, key))) {
-      const target = `/api/admin/invitations/accept?token=${encodeURIComponent(token)}`;
+      const target = `/api/admin/invitations/${encodeURIComponent(token)}/accept`;
       return c.redirect(`/api/auth/login?return_to=${encodeURIComponent(target)}`);
     }
-    const escaped = token.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
-    return c.html(`<main><h1>Terima undangan Admin Voting</h1><form method="post" action="/api/admin/invitations/accept"><input type="hidden" name="token" value="${escaped}"><button type="submit">Terima undangan</button></form></main>`);
+    return c.html(`<main><h1>Terima undangan Admin Voting</h1><form method="post" action="/api/admin/invitations/${encodeURIComponent(token)}/accept"><button type="submit">Terima undangan</button></form></main>`);
   });
-  routes.post("/admin/invitations/accept", async (c) => {
+  routes.post("/admin/invitations/:token/accept", async (c) => {
     const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
     const cookie = getCookie(c, SESSION_COOKIE);
     const session = key && cookie ? await openSession(cookie, key) : null;
     if (!session || !affiliationInScope(session.affiliation, (await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>())?.value ?? "")) return jsonError(c, "undangan_tidak_valid", 403);
-    const contentType = c.req.header("content-type") ?? "";
-    let token = c.req.query("token") ?? "";
-    if (contentType.includes("application/x-www-form-urlencoded")) {
-      const form = await c.req.parseBody();
-      if (typeof form.token === "string") token = form.token;
-    } else {
-      const body = await c.req.json<{token?:string}>().catch(() => ({} as {token?:string}));
-      token = body.token ?? token;
-    }
-    if (!token) return jsonError(c,"undangan_tidak_valid",400);
+    const token = c.req.param("token");
+    if (!token || token.length > 256) return jsonError(c, "undangan_tidak_valid", 400);
     const row = await c.env.DB.prepare("SELECT member_id, expires_at FROM invitations WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(await digest(token)).first<{member_id:string;expires_at:string}>();
-    if (!row || Date.parse(row.expires_at) <= Date.now()) return jsonError(c,"undangan_tidak_valid_atau_kedaluwarsa",409);
-    if (session.member_id !== row.member_id) return jsonError(c,"undangan_untuk_anggota_lain",403);
+    if (!row || Date.parse(row.expires_at) <= Date.now()) return jsonError(c, "undangan_tidak_valid_atau_kedaluwarsa", 409);
+    if (session.member_id !== row.member_id) return jsonError(c, "undangan_untuk_anggota_lain", 403);
     const now = new Date().toISOString();
     const update = await c.env.DB.prepare("UPDATE invitations SET accepted_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL AND expires_at > ?").bind(now,await digest(token),now).run();
-    if (!update.meta.changes) return jsonError(c,"undangan_sudah_digunakan",409);
+    if (!update.meta.changes) return jsonError(c, "undangan_sudah_digunakan", 409);
     const prepared = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:session.member_id,actor_name:session.name,action:"admin_invitation_accepted",target:row.member_id,komsat_path:null,detail_json:null});
     await c.env.DB.batch([c.env.DB.prepare("INSERT INTO admin_voting (member_id,name,is_technical,created_at) VALUES (?,?,0,?) ON CONFLICT(member_id) DO NOTHING").bind(row.member_id, session.name, now), prepared]);
     return c.json({ok:true});
@@ -122,11 +118,13 @@ export function createAdminRoutes() {
     ]);
     return c.json({ok:true});
   });
-  routes.delete("/admin/invitations/:tokenHash", async (c) => {
-    const hash=c.req.param("tokenHash"); const now=new Date().toISOString(); const actor=c.get("adminAuth")!;
-    const result=await c.env.DB.prepare("UPDATE invitations SET cancelled_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(now,hash).run();
-    if (!result.meta.changes) return jsonError(c,"undangan_tidak_ditemukan",404);
-    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_invitation_cancelled",target:hash,komsat_path:null,detail_json:null});
+  routes.delete("/admin/invitations/:id", async (c) => {
+    const id = c.req.param("id");
+    const now = new Date().toISOString();
+    const actor = c.get("adminAuth")!;
+    const result = await c.env.DB.prepare("UPDATE invitations SET cancelled_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(now, id).run();
+    if (!result.meta.changes) return jsonError(c, "undangan_tidak_ditemukan", 404);
+    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_invitation_cancelled",target:id,komsat_path:null,detail_json:null});
     await c.env.DB.batch([audit]);
     return c.json({ok:true});
   });

@@ -13,13 +13,13 @@ const MASTER_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8A
 const SCOPE = "/ppij/okayama";
 const bindings = { DB: env.DB, MEDIA: {} as never, APP_MASTER_KEY: MASTER_KEY };
 
-async function sessionCookie(memberId: string, affiliation: string | string[] | null = SCOPE) {
-  const value = await sealSession({ member_id: memberId, name: memberId, affiliation, auth_time: Math.floor(Date.now() / 1000) }, MASTER_KEY);
+async function sessionCookie(memberId: string, affiliation: string | string[] | null = SCOPE, portal_admin_unit?: string) {
+  const value = await sealSession({ member_id: memberId, name: memberId, affiliation, portal_admin_unit, auth_time: Math.floor(Date.now() / 1000) }, MASTER_KEY);
   return `ppij_session=${value}`;
 }
-async function request(path: string, memberId: string, init: RequestInit = {}, affiliation: string | string[] | null = SCOPE) {
+async function request(path: string, memberId: string, init: RequestInit = {}, affiliation: string | string[] | null = SCOPE, portal_admin_unit?: string) {
   const headers = new Headers(init.headers);
-  headers.set("cookie", await sessionCookie(memberId, affiliation));
+  headers.set("cookie", await sessionCookie(memberId, affiliation, portal_admin_unit));
   return app.request(path, { ...init, headers }, bindings);
 }
 async function createInvitation(memberId: string, actor = "admin-1") {
@@ -27,10 +27,11 @@ async function createInvitation(memberId: string, actor = "admin-1") {
 }
 async function inviteToken(response: Response) {
   const body = await response.json() as { invitation_url: string };
-  return new URL(body.invitation_url).searchParams.get("token")!;
+  const url = new URL(body.invitation_url);
+  return decodeURIComponent(url.pathname.split("/").at(-2)!);
 }
 async function accept(token: string, memberId: string, affiliation: string | string[] | null = SCOPE) {
-  return request("/api/admin/invitations/accept", memberId, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }) }, affiliation);
+  return request(`/api/admin/invitations/${encodeURIComponent(token)}/accept`, memberId, { method: "POST" }, affiliation);
 }
 async function seedVoter(memberId: string, path = `${SCOPE}/komsat`) {
   await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at) VALUES (?,?,?,'ACTIVE',?)").bind(memberId, memberId, path, new Date().toISOString()).run();
@@ -149,5 +150,9 @@ describe("Admin Voting authorization and equality", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: "harus_ada_minimal_1_admin_voting" });
     expect(await env.DB.prepare("SELECT count(*) AS n FROM admin_voting").first()).toEqual({ n: 1 });
+  });
+  it("includes the optional Admin Portal unit in the committee list", async () => {
+    const response = await request("/api/admin", "admin-1", {}, SCOPE, "PPI Okayama");
+    expect((await response.json() as { results: Array<{ portal_admin_unit: string | null }> }).results[0].portal_admin_unit).toBe("PPI Okayama");
   });
 });

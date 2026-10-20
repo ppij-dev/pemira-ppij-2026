@@ -11,6 +11,7 @@ export interface SessionData {
   member_id: string;
   name: string;
   affiliation: string | string[] | null;
+  portal_admin_unit?: string;
   /** Epoch detik saat anggota masuk lewat One Login (klaim `auth_time`). */
   auth_time: number;
 }
@@ -51,6 +52,7 @@ function isSessionData(value: unknown): value is SessionData {
     value.member_id !== "" &&
     typeof value.name === "string" &&
     (value.affiliation === null || typeof value.affiliation === "string" || (Array.isArray(value.affiliation) && value.affiliation.every((item) => typeof item === "string"))) &&
+    (value.portal_admin_unit === undefined || typeof value.portal_admin_unit === "string") &&
     typeof value.auth_time === "number" &&
     Number.isFinite(value.auth_time)
   );
