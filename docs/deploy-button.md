@@ -7,7 +7,7 @@ Sources:
 
 ## Verified (documented by Cloudflare)
 
-- **Repository cloning and provisioning**: The button clones this repo into the deployer's GitHub/GitLab account, builds via Workers Builds, and deploys. Resources declared in `wrangler.jsonc` are provisioned automatically and their IDs are rewritten in the cloned copy. D1 is supported, so `DB` (D1) needs no manual creation prior to deployment. (R2 is not used in 1.0; candidate and logo images are static files under `public/` shipped with the repository).
+- **Repository cloning and provisioning**: The button clones this repo into the deployer's GitHub/GitLab account, builds via Workers Builds, and deploys. Resources declared in `wrangler.jsonc` are provisioned automatically and their IDs are rewritten in the cloned copy. D1 is supported, so `DB` (D1) needs no manual creation prior to deployment. (R2 is not used in 1.0; candidates show the shared `/placeholder-candidate.png` under `public/`, and only the site logo is configurable via `SITE_LOGO_PATH` using an absolute same-origin path starting with `/`).
 - **Deploy button badge snippet**:
   ```markdown
   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ppij-dev/ppij-election-system)

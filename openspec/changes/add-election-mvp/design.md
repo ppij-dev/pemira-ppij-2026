@@ -7,8 +7,8 @@ architecture, but overnight development and end-to-end verification run locally.
 Service API is not implemented yet. No Wrangler push or separate Keycloak container is required.
 Existing `/setup` guard, email transports, and migrations are partial groundwork, not
 evidence that their previously planned UI flows exist. R2 is not used and has been removed;
-candidate and logo images are static files under `public/` shipped with the repo. Rich media
-upload in 1.1 will require a storage decision, as R2 requires a paid plan.
+in 1.0 candidates share `/placeholder-candidate.png` under `public/` and only the logo is configurable
+via `SITE_LOGO_PATH`. Per-candidate photos and rich media upload in 1.1 will require a storage decision, as R2 requires a paid plan.
 
 ## Goals / Non-Goals
 
@@ -97,8 +97,7 @@ participation and ballots independently.
 
 The operator sets chapter name and a local logo path; the bundled default is used if absent.
 The same asset appears in the header, hero and favicon. No upload/crop or R2 media path is
-required for this scope; images are static files under `public/`. Rich media upload (1.1) will
-need a storage decision as R2 needs a paid plan. Existing email provider/template utilities stay disconnected from
+required for this scope; candidates share `/placeholder-candidate.png` and logo is configured via `SITE_LOGO_PATH` with a file under `public/`. Per-candidate photos and rich media upload (1.1) will need a storage decision as R2 needs a paid plan.
 user flows. A local-only email interaction demo may show `Email terkirim (simulasi)` after
 clicking, but must not call a delivery endpoint or imply actual sending in production.
 

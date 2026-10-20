@@ -20,7 +20,7 @@ import {
 
 const branding: EmailBranding = {
   siteName: "PPI Okayama",
-  logoUrl: "https://pemilu.ppiokayama.jp/api/media/logo-192.png",
+  logoUrl: "https://pemilu.ppiokayama.jp/ppi-okayama-logo.webp",
   websiteUrl: "https://ppiokayama.jp",
   baseUrl: "https://pemilu.ppiokayama.jp",
 };
