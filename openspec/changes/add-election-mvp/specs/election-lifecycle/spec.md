@@ -22,22 +22,28 @@ The election SHALL be in stage Draf until locked, Terjadwal after Kunci & Jadwal
 - **THEN** the election is Ditutup and the vote is rejected with "Pemungutan suara sudah ditutup"
 
 ### Requirement: Readiness checks before locking
-"Kunci & Jadwalkan" SHALL succeed only when the schedule is set with the opening time in the future, there are at least 2 candidates, nicknames are unique ignoring case, the Pemilih list has been synced at least once, and no candidate is an Admin Voting. The page SHALL list each check with its state.
+"Kunci & Jadwalkan" SHALL succeed only when the opening time is in the future, the
+schedule is valid, there are 2–10 candidates with distinct case-insensitive nicknames,
+the Pemilih list has been synced, and no candidate is Admin Voting. The page SHALL
+list each check with its state.
 
 #### Scenario: One candidate only
 - **WHEN** an Admin Voting presses "Kunci & Jadwalkan" with one candidate
-- **THEN** nothing is locked and the check "Minimal 2 kandidat" is shown as failing
+- **THEN** nothing is locked and "Minimal 2 kandidat" fails
 
 ### Requirement: Locking freezes the election
-On "Kunci & Jadwalkan" the system SHALL first run a final sync of the Pemilih list from the Service API and freeze the roll; if the final sync fails or the Service API is not granted, nothing SHALL be locked. The system SHALL then delete all Uji Coba data, draw a random color for each candidate from the palette, and freeze candidates, title, description, opening time and the setting "Admin Voting boleh ikut memilih".
+Kunci SHALL run the final Service API sync and freeze the roll before locking. If
+that sync fails, nothing SHALL lock. On success it SHALL delete all Uji Coba votes,
+assign distinct candidate colors and freeze candidates, title, description, schedule,
+scope, the Admin Voting participation setting and the Hak pilih snapshot.
 
 #### Scenario: Pemilih roll frozen at lock
-- **WHEN** an Admin Voting presses "Kunci & Jadwalkan" and the final sync succeeds
-- **THEN** the roll is frozen with the members ACTIVE in scope at that moment, and members who become ACTIVE afterwards are not added
+- **WHEN** Kunci's final sync succeeds
+- **THEN** the roll contains the members ACTIVE in scope then, with later joiners excluded
 
 #### Scenario: Test votes removed
-- **WHEN** 4 test votes exist and the election is locked
-- **THEN** participation and ballot tables are empty and the audit log records "Data uji coba dihapus: 4 suara"
+- **WHEN** four test votes exist at Kunci
+- **THEN** participation and ballots are emptied and an audit entry records their deletion
 
 ### Requirement: Uji Coba in Draf
 In Draf, Admin Voting SHALL be able to try the whole voting flow with test votes. Every voter screen SHALL show a yellow banner "Mode uji coba — suara akan dihapus saat pemilihan dikunci".

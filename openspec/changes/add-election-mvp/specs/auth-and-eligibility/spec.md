@@ -56,26 +56,25 @@ Admin Voting SHALL be ACTIVE members inside the site's scope, checked on every s
 - **THEN** her next sign-in shows no admin menu and Dasbor answers HTTP 403
 
 ### Requirement: Admin Voting have equal rights
-Every Admin Voting SHALL have the same rights over every admin page, including Pengaturan. The installer SHALL carry the label Technical Admin, which grants nothing extra.
+Every Admin Voting SHALL have the same rights over admin election pages. The operator-
+bootstrapped first admin carries the Technical Admin label without extra rights.
 
-#### Scenario: Committee member changes email settings
-- **WHEN** Rina, an Admin Voting who did not install the site, changes the email provider
-- **THEN** the change is saved and audit-logged
+#### Scenario: Committee member edits a candidate
+- **WHEN** Rina, who was not the first Admin Voting, edits a candidate in Draf
+- **THEN** the change succeeds and is audit-logged under the same rules as for the first admin
 
 ### Requirement: Inviting Admin Voting
-An Admin Voting SHALL invite others by picking a person from the Pemilih list. The system SHALL create a single-use link valid for 72 hours, bound to that `member_id`, send the Undangan Admin Voting email and offer "Salin Tautan".
+An Admin Voting SHALL invite an ACTIVE, in-scope member from the Pemilih list with a
+single-use link valid for 72 hours, bound to that `member_id`. The UI SHALL offer
+"Salin Tautan"; no invitation email is sent in 1.0.
 
 #### Scenario: Invitation accepted
-- **WHEN** Andi opens his invitation link within 72 hours and signs in as himself
-- **THEN** Andi becomes Admin Voting, the link is consumed, and the action is audit-logged
+- **WHEN** Andi opens his link within 72 hours and signs in as himself
+- **THEN** he becomes Admin Voting, the link is consumed and the action is audit-logged
 
 #### Scenario: Forwarded link
-- **WHEN** someone other than Andi opens Andi's invitation and signs in
+- **WHEN** someone other than Andi signs in through Andi's link
 - **THEN** the invitation is refused and stays unused
-
-#### Scenario: Email not configured
-- **WHEN** email delivery is not configured
-- **THEN** the invitation is still created and only "Salin Tautan" is offered
 
 ### Requirement: Who cannot be Admin Voting
 A candidate SHALL NOT be or become Admin Voting. A person who is also an Admin Portal SHALL be allowed and SHALL be shown with the label "Admin Portal <unit>".
@@ -89,14 +88,17 @@ A candidate SHALL NOT be or become Admin Voting. A person who is also an Admin P
 - **THEN** the Admin Voting list shows "Admin Portal PPI Okayama" next to her name
 
 ### Requirement: Removing Admin Voting
-Any Admin Voting SHALL be able to remove any other Admin Voting or cancel an invitation at any time. The last Admin Voting SHALL NOT be removable. The removed person SHALL receive an email when email is configured.
+Any Admin Voting SHALL be able to remove another Admin Voting or cancel an invitation.
+The last Admin Voting SHALL NOT be removable. No removal email is sent in 1.0.
 
 #### Scenario: Removing the last one
 - **WHEN** only Dimas remains and someone tries to remove him
 - **THEN** the system refuses with "Harus ada minimal 1 Admin Voting"
 
 ### Requirement: Admin Voting may vote by setting
-When "Admin Voting boleh ikut memilih" is on (the default), an Admin Voting who is eligible SHALL vote like any member through Mode Pemilih. When it is off, Admin Voting SHALL NOT vote and SHALL be excluded from the eligible count.
+When "Admin Voting boleh ikut memilih" is on (the default), an eligible Admin Voting
+SHALL vote like any member. When off, Admin Voting SHALL NOT vote and those who were
+Admin Voting at lock SHALL be excluded from the frozen Hak pilih count.
 
 #### Scenario: Setting off
 - **WHEN** the setting is off and Rina opens Pilih Suara

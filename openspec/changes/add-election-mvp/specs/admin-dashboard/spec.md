@@ -1,9 +1,8 @@
 # Spec Delta
 
 ## Purpose
-
-Gives Admin Voting one screen with the countdown, regional map, live tally and voter statistics,
-refreshed only when they ask, so the committee can follow the election without background traffic.
+Gives Admin Voting a manually refreshed countdown, overall tally, korda-level results
+and fixed-electorate statistics without background traffic.
 
 ## ADDED Requirements
 
@@ -21,33 +20,35 @@ Dasbor SHALL show a large countdown in days, hours, minutes and seconds to the o
 - **WHEN** voting closes in 2 days 14 hours
 - **THEN** Dasbor shows "Pemungutan suara ditutup dalam 02 : 14 : mm : ss" ticking every second
 
-### Requirement: Regional map
-Dasbor SHALL show a map of Japan (Leaflet, OpenStreetMap) with korda circles that split into komsat circles when zoomed in, showing turnout per region and, from the tally, the leading candidate's color per region.
+### Requirement: Korda-level regional results
+Dasbor SHALL show a table aggregated by korda, not a komsat map. A korda with fewer than
+10 ballots SHALL show turnout and "Data terlalu sedikit" instead of candidate counts.
+The same suppression SHALL apply to public results after publication.
 
-#### Scenario: Zoom into a korda
-- **WHEN** an Admin Voting zooms into Korda Kansai
-- **THEN** each komsat of Kansai shows its own circle with turnout and leading color
+#### Scenario: Small korda
+- **WHEN** a korda has four ballots
+- **THEN** its row shows turnout and "Data terlalu sedikit", with no candidate breakdown
 
-### Requirement: Small regions folded into the korda
-A komsat with fewer than 10 ballots SHALL have no result of its own: its ballots count toward its korda, and its circle shows "Data terlalu sedikit".
+#### Scenario: Larger korda
+- **WHEN** a korda has 12 ballots
+- **THEN** its row shows candidate counts for that korda
 
-#### Scenario: Komsat with 4 ballots
-- **WHEN** PPI Tottori has 4 ballots
-- **THEN** its circle shows turnout and "Data terlalu sedikit", and its 4 ballots are included in the korda's result
-
-### Requirement: Live tally for Admin Voting
-Dasbor SHALL show candidate chips (number, nickname, color) and a bar chart of votes per candidate to Admin Voting in every stage, including while voting is open. Each load of the tally SHALL be audit-logged as "<nama> membuka perolehan suara".
+### Requirement: Overall tally for Admin Voting
+Dasbor SHALL show candidate number, nickname, color and overall vote count to Admin Voting
+in every stage, including while voting is open. Each tally load SHALL be audit-logged.
 
 #### Scenario: Tally viewed during voting
-- **WHEN** Rina refreshes Dasbor at 02.40 JST during voting
-- **THEN** she sees the current tally and the audit log gains "Rina Putri membuka perolehan suara, 02.40 JST"
+- **WHEN** Rina refreshes Dasbor during voting
+- **THEN** she sees current overall and permitted korda results and an audit entry records her tally view
 
 ### Requirement: Voter statistics
-Dasbor SHALL show Hak pilih fixed at the size of the frozen Pemilih roll, Sudah digunakan, Belum digunakan and turnout percentage.
+Dasbor SHALL show Hak pilih fixed at the eligible size of the frozen Pemilih roll,
+Sudah digunakan, Belum digunakan and turnout percentage. When the locked setting
+excludes Admin Voting, they SHALL be excluded from Hak pilih.
 
 #### Scenario: Statistics against the frozen roll
-- **WHEN** the frozen roll holds 1.240 members and 710 of them have voted
-- **THEN** Dasbor shows "Hak pilih 1.240", "Sudah digunakan 710", "Belum digunakan 530"
+- **WHEN** the frozen roll holds 1,240 members, 10 are excluded Admin Voting and 710 have voted
+- **THEN** Dasbor shows "Hak pilih 1.230", "Sudah digunakan 710", "Belum digunakan 520"
 
 ### Requirement: Count check
 Dasbor SHALL compare "Surat Suara Terkirim" (participation rows) with "Jumlah Suara di Kotak" (ballot rows) and show "Sesuai" in green when equal or "Tidak sesuai" in red otherwise.

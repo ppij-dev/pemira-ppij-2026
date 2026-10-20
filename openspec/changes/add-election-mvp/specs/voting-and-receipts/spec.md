@@ -48,36 +48,46 @@ A valid vote SHALL write, in one D1 batch, a participation row (`member_id`, nam
 - **THEN** no column, ordering or timestamp in ballots connects a ballot to a member
 
 ### Requirement: Receipt code
-Each ballot SHALL get a random 128-bit receipt code shown as `XXXX-XXXX-XXXX-XXXX`. Only its SHA-256 hash SHALL be stored. The code SHALL be shown once on the success screen with "Salin" and "Buka Bukti Suara", kept in the browser's local storage, and sent in the Bukti Suara email when email is configured.
+Each ballot SHALL get a random 128-bit receipt encoded as 26 Crockford Base32 characters.
+The UI MAY group the characters for readability; normalization SHALL remove separators
+and ignore letter case before hashing. Only SHA-256 of the canonical code SHALL be stored.
+The code SHALL be shown once on the success screen with "Salin" and "Buka Bukti Suara"
+and kept in this browser's local storage. No outgoing receipt email is sent in 1.0.
 
 #### Scenario: After voting
 - **WHEN** Budi's vote is recorded
-- **THEN** he sees `ABCD-1234-EFGH-5678`, can copy it, and receives the Bukti Suara email with the link
+- **THEN** he can copy the 26-character code and open the proof page without the code reaching a request path
 
 ### Requirement: Receipt page keeps the code out of the URL sent to the server
-`/surat-suara#<code>` SHALL read the code in the browser, send only its hash to the server, and show whether that ballot is in the ballot box of this election, never the candidate chosen.
+`/surat-suara#<code>` SHALL normalize and hash the code in the browser, send only
+the hash to the server, and show whether that ballot exists, never the candidate chosen.
 
 #### Scenario: Valid receipt
-- **WHEN** Budi opens his `/surat-suara#ABCD-1234-EFGH-5678` link
-- **THEN** the page says the ballot is recorded in the ballot box of the election and that the choice stays secret
+- **WHEN** Budi opens a valid code in the fragment
+- **THEN** the page confirms his ballot is in the box without revealing his choice
 
 #### Scenario: Unknown code
 - **WHEN** a code that matches no ballot is checked
-- **THEN** the page says the code was not found and suggests checking for typing mistakes
+- **THEN** the page says it was not found and suggests checking typing
 
 ### Requirement: Bukti Suara tab
-The Bukti Suara tab SHALL show when the voter voted (from participation), the receipt code if it is stored on this device, a note that the code is in the Bukti Suara email, and a field to check any code. The server SHALL NOT be able to return a voter's code.
+The Bukti Suara tab SHALL show when the voter voted (from participation), the code if
+stored on this device, and a field to check any code. The server SHALL NOT return a
+voter's raw code or promise an email copy in 1.0.
 
 #### Scenario: Different device
 - **WHEN** Budi opens Bukti Suara on a new phone
-- **THEN** he sees "Anda sudah memilih pada 2 Des 2026, 14.05 JST", no code, and "Kode ada di email Bukti Suara Anda"
+- **THEN** he sees when he voted and a field to enter his saved code, but no code is returned
 
-### Requirement: Public receipt board after close
-From Ditutup onward, a public page SHALL list every receipt code of the election in random order without candidates, with the count check (participation count and ballot count) and the final audit-chain hash.
+### Requirement: Public receipt-hash board after close
+From Ditutup onward, a public page SHALL list every ballot's receipt hash in random
+ballot-ID order without candidates, with participation/ballot counts and the fixed
+closing audit snapshot hash. A browser SHALL hash a code locally to highlight its
+matching entry. Raw receipt codes SHALL never be published or stored.
 
 #### Scenario: Voter checks the board
-- **WHEN** Budi searches his code on the board after close
-- **THEN** his code is highlighted and the totals show the same number of participations and ballots
+- **WHEN** Budi enters his code after close
+- **THEN** its hash is highlighted locally, totals are shown, and no code is sent to the server
 
 ### Requirement: Rate limits on voting and receipt checks
 Vote requests SHALL be limited to 5 per minute per session and receipt checks to 30 per minute per IP, answering HTTP 429 beyond that.

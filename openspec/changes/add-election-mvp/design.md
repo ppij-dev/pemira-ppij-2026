@@ -1,126 +1,118 @@
-# Design: Self-Hostable PPIJ Election System MVP
+# Design: Local-first election MVP (1.0)
 
 ## Context
 
-Greenfield repository; see `proposal.md` for motivation. Constraints:
-- Volunteer committees rotate yearly with little budget: the site must run on Cloudflare's free tier
-  (Workers, D1, R2) and be deployable by a non-developer.
-- Identity and membership live in `ppij-identity`: One Login (`sso.ppijepang.app`, realm `ppij`) and the
-  Service API (`api.ppijepang.app/v1/service`, change `add-service-api`, Phase 1.3). Per `sso-contract.md`
-  the `affiliation` claim is present only while membership is ACTIVE.
-- A fresh deploy is public on `*.pages.dev` / `*.workers.dev` before anyone configures it.
+The proposal defines the lean 1.0 journey. Cloudflare Worker, D1 and One Login remain the production
+architecture, but overnight development and end-to-end verification run locally. The ppij-identity
+Service API is not implemented yet. No Wrangler push or separate Keycloak container is required.
+Existing `/setup` guard, email transports, R2 binding and migrations are partial groundwork, not
+evidence that their previously planned UI flows exist.
 
 ## Goals / Non-Goals
 
-**Goals:**
-- One-button deploy, browser-only setup, no background jobs, no WebSockets.
-- Secret ballot by construction: no stored link between member and ballot.
-- Cheap on Worker CPU and D1: manual refresh, browser-side image processing and CSV export.
+**Goals:** one complete locally rehearsed election; fixed electorate and fresh ACTIVE sign-in;
+secret ballot with public hash proof; operator bootstrap; templui-based mobile-first UI with
+Tabler icons; deterministic local test dependencies; manual refresh and no background jobs.
 
-**Non-Goals:**
-- Several elections per site, paired candidates, blank ("kotak kosong") option, ranked voting.
-- Bulk email, scheduled reminders, 2FA for Admin Voting, two-person approval.
-- Hiding the live tally from Admin Voting (accepted risk, see below).
-- Editable landing-page HTML (later change).
+**Non-Goals for 1.0:** browser `/setup`, real outgoing email, reminders, photo/media upload,
+arbitrary candidate HTML/CKEditor, interactive map, komsat-level results, browser logo crop,
+advanced settings and audit CSV. These belong to a separately planned 1.1 change; do not leave
+fake-success versions of them in the public product.
 
 ## Decisions
 
-### 1. Stack: Astro + Hono in one Worker, D1, R2
-Astro (SSR, Cloudflare adapter) renders pages with a templui/shadcn-inspired Tailwind theme and
-`@tabler/icons`; Hono serves `/api/*` in the same Worker with bindings `DB` (D1) and `MEDIA` (R2).
-Leaflet + OpenStreetMap for the map, Chart.js for the tally, CKEditor 5 for candidate content.
-- *Alternative:* Go + Postgres on a VPS. Rejected: costs money and maintenance per chapter.
+### 1. Runtime and local verification
 
-### 2. Deploy button and `/setup`
-The README's "Deploy to Cloudflare" button provisions D1 (migrations) and R2 from `wrangler.jsonc`.
-`APP_MASTER_KEY` (AES-256-GCM for secrets in D1) is requested by the button as a Worker secret if the
-button supports secrets (to verify in task 1.1). If it does not, the Worker generates a key on first boot
-and keeps it in `system_config`; that only loses protection against a leak of the D1 database alone.
-Setup state lives in `system_config`. The claim cookie holds a random token whose hash is stored; the
-window is 60 minutes from `first_boot_at`; recovery is
-`npx wrangler d1 execute DB --remote --command "UPDATE system_config SET first_boot_at = NULL WHERE initialized = 0"`.
-- *Alternative:* a setup token printed by a CLI script. Rejected: not usable by non-developers; the
-  residual risk is low because `workers.dev`/`pages.dev` names are covered by wildcard certificates and
-  do not appear in certificate logs.
+Astro SSR and Hono share one Cloudflare Worker; D1 stores election data. Miniflare runs D1
+tests locally and Playwright drives the built local preview. Reuse ppij-identity's warm test
+Keycloak (`http://127.0.0.1:38180`) for real OIDC browser flows. Provision an election-specific
+realm/client and disposable personas; never alter the shared `ppij` realm or start/stop the warm
+stack. A deterministic HTTP Service API fixture implements the same client-facing responses
+(cursor paging, `changed_since`, scope and `no_grant`) until the sibling service is available.
+Do not read its Postgres tables as an application shortcut. Config and secrets are explicit per
+local process: another session's exported environment is not inherited.
 
-### 3. Eligibility from the token and the frozen Pemilih roll
-Voting accepts a member only when their `member_id` is on the frozen Pemilih roll **and** the session
-passes the token checks: `auth_time` within 600 s and `affiliation` under the scope path. The Service API
-feeds `voters` (member_id, name, nickname, komsat_path, status, synced_at) through `changed_since` syncs;
-"sync" runs only in Draf, and "Kunci & Jadwalkan" performs one final sync and freezes the roll as the
-snapshot of ACTIVE members in scope at that moment. After the lock there is no sync in any stage.
-Units and map points come from `organisasi`. Contacts are fetched per click with
-`on_behalf_of = <Admin Voting member_id>` and never written to D1.
-- *Alternative:* a live roll kept in sync during voting. Rejected: the committee wants a fixed electorate,
-  so the roll is frozen at Kunci instead and members who become ACTIVE later cannot vote this election.
+### 2. Operator bootstrap
 
-### 4. Stage computed from the clock
-`elections(status_lock: draft|locked|published, opens_at, closes_at, closed_early_at NULL)`. Stage =
-draft → Draf; locked and now < opens_at → Terjadwal; locked and opens_at ≤ now < closes_at and no
-early close → Dibuka; otherwise Ditutup; published → Diumumkan. Every handler calls one `stage(now)`
-function; there is no cron.
+An operator applies D1 migrations, sets the One Login issuer/client, Service API endpoint/client,
+scope, base URL, site name/logo path and `APP_MASTER_KEY` through the documented Wrangler/local
+config and secrets, then runs a repeat-safe bootstrap command with the first Admin Voting
+`member_id`. The command validates required configuration, initializes exactly one draft election,
+creates the labelled Technical Admin and marks the site initialized. The named admin still needs
+an ACTIVE, in-scope One Login session for access. A missing/partial bootstrap returns 503 on
+public and API routes; `/setup` and `/api/setup/*` return 404 in 1.0. No public endpoint can
+initialize the site. Keep secret values out of D1 plaintext and logs.
 
-### 5. Ballot secrecy in D1
-```text
-participation(election_id, member_id, member_name, voted_at, is_test, PRIMARY KEY(election_id, member_id))
-ballots(id TEXT PRIMARY KEY, election_id, candidate_id, komsat_path, receipt_hash UNIQUE, is_test) WITHOUT ROWID
-```
-`env.DB.batch([insertParticipation, insertBallot])` runs as one transaction; a duplicate member fails the
-whole batch. `ballots.id` is a random UUID and the table has no rowid and no timestamp, so neither
-insertion order nor time links a ballot to a participation row. Results and the public board order by
-`id` (random). Receipt: 16 random bytes, Crockford base32 grouped `XXXX-XXXX-XXXX-XXXX`; stored as
-SHA-256. `/surat-suara#code` hashes in the browser (Web Crypto) and calls `GET /api/receipts/:hash`.
+The existing browser-claim guard from task 2.1 must be cut over for 1.0, not left as an alternate
+setup route. Its tests need updating to the operator contract. Browser wizard and deploy-button
+provisioning are phase 2, not local-development prerequisites.
 
-### 6. Regional results with a 10-ballot floor
-Ballots store the voter's komsat path from the session. Aggregation per komsat; komsats under 10 ballots
-are merged into their korda and flagged. Applied identically on Dasbor and in published results.
+### 3. Frozen roll and eligibility
 
-### 7. Candidate content isolation
-Content is stored as-is and served from `/kandidat/:slug/konten` with
-`Content-Security-Policy: sandbox allow-scripts allow-popups`, embedded by an iframe with the same sandbox
-attribute. Without `allow-same-origin` the frame has an opaque origin: `SameSite=Lax` session cookies are
-not sent from it and it cannot read the parent. Height is reported with `postMessage` and accepted only
-from that frame.
-- *Alternative:* HTML sanitizing with an allowlist. Rejected: the committee wants arbitrary embeds.
+In Draf, an Admin Voting explicitly syncs ACTIVE members and units through the Service API.
+Kunci & Jadwalkan performs a final successful sync and atomically freezes the in-scope ACTIVE
+roll before locking. A failed `no_grant`/transport/page blocks the lock. Later stages never sync.
+At vote submission, both membership of that roll and `auth_time` no older than 600 seconds with
+an in-scope `affiliation` are required; Admin Voting obey the locked participation setting.
+Use the frozen roll's komsat path for the ballot, not a mutable client parameter.
 
-### 8. Images in the browser
-Logo and candidate photos are cropped and resized with a canvas in the browser; the server only checks
-type from magic bytes and size, then writes to R2 and serves through `/api/media/:key` with long caching.
+### 4. Election stages and candidates
 
-### 9. Audit chain
-`audit_log(seq INTEGER PRIMARY KEY, at, actor_type, actor_member_id, actor_name, action, target, komsat_path,
-detail_json, prev_hash, hash)` with `hash = SHA-256(prev_hash || canonical row)`. Inserted in the same batch
-as the action it records where possible. The page verifies the chain in pages of 500. CSV export calls the
-same JSON endpoint with a cursor and assembles the file in the browser.
+`status_lock` is draft, locked or published; the clock derives Terjadwal, Dibuka and Ditutup.
+Uji Coba data in Draf is deleted at lock. Extend, close early and publish are audited actions.
+Candidate records are selected from the Pemilih list, excluding Admin Voting, with unique
+number and case-insensitive nickname. Cap candidates at ten to fit the existing unique-color
+palette. The 1.0 public sample page renders structured text fields only (plain description,
+never interpreted as HTML) and a downloaded local placeholder image; no editor, iframe or
+remote image request is necessary.
 
-### 10. Email
-One HTML layout (table-based, inline styles, logo as 192×192 PNG URL, no tracking pixel) rendered by the
-Worker for four templates. HTTP providers via `fetch`; SMTP via `cloudflare:sockets` on 465/587. Reminder
-throttle: `reminders(member_id, channel, sent_at)` with one email per 24 h.
+### 5. Ballot and receipt
 
-## Risks / Trade-offs
+`participation(election_id, member_id, member_name, voted_at, is_test)` has a unique
+`(election_id, member_id)` key. `ballots(id, election_id, candidate_id, komsat_path,
+receipt_hash, is_test) WITHOUT ROWID` has a random UUID id, no member or timestamp. A D1
+batch writes both or neither. Never log choice or raw code. Generate 128 random bits and
+encode as 26 Crockford Base32 characters (last character uses only the remaining three bits);
+display in groups for readability, but normalize separators/case before hashing. Only SHA-256
+of the canonical code is persisted. The success page shows it once and keeps it on the device.
+`/surat-suara#code` hashes in the browser; the server sees only the hash. After close, the
+public board lists receipt hashes sorted by random ballot ID, count check and closing audit
+snapshot. Browser-side matching highlights a hash without publishing the code.
 
-- [Live tally plus the who-voted list can reveal a single vote when votes are sparse] → Accepted as a
-  committee-trust issue; every tally view is audit-logged so comparisons leave a trail.
-- [An Admin Portal can create members between the last sync and the lock] → Kunci runs a final sync before
-  freezing, so everyone ACTIVE at lock is on the roll; anyone added after the lock cannot vote this
-  election, and no panel tracks them in v1.0.
-- [An Admin Portal can suspend or move members to keep them from voting, or slow renewals] → A member
-  suspended during voting still cannot vote: the frozen roll alone grants nothing, and the affiliation
-  check refuses them. There is no membership-change panel in v1.0.
-- [The Cloudflare account owner can edit D1 directly] → The count check and the audit chain detect edits;
-  the final chain hash is published at close.
-- [A stranger reaches a fresh `.dev` URL first] → 60-minute window, single-browser claim, and the last step
-  requires an in-scope One Login account.
-- [Service API not granted yet] → Kunci cannot run the final sync and freeze the roll, so the election
-  cannot be locked; setup, Draf preparation and sign-in still work, and the readiness check names the
-  missing grant.
-- [Phone number not on WhatsApp] → WhatsApp shows its own error; the email icon is used when no phone exists.
+### 6. Results and privacy
 
-## Migration Plan
+Admin Voting see an overall tally and a table aggregated by korda, manually refreshed and
+audit-logged per tally load. No komsat breakdown or map in 1.0. Suppress a korda row's
+candidate counts when it has fewer than ten ballots; the overall tally and turnout totals
+remain available. Public tally and korda table appear only after Diumumkan. Hak pilih is the
+frozen roll size (minus Admin Voting excluded by the locked setting); count check compares
+participation and ballots independently.
 
-1. Chapter asks the PPIJ Portal admin for a One Login client (redirect URI from setup) and a Service API grant.
-2. Deploy with the button, open `/setup` within 60 minutes, configure and sign in as the first Admin Voting.
-3. Prepare candidates, run Uji Coba, sync the Pemilih list in Draf, then Kunci & Jadwalkan, whose final
-   sync freezes the roll.
-Rollback: before Kunci, delete and redeploy; after Kunci, close early and publish nothing.
+### 7. Static branding and email demonstration
+
+The operator sets chapter name and a local logo path; the bundled default is used if absent.
+The same asset appears in the header, hero and favicon. No upload/crop or R2 media path is
+required for this scope. Existing email provider/template utilities stay disconnected from
+user flows. A local-only email interaction demo may show `Email terkirim (simulasi)` after
+clicking, but must not call a delivery endpoint or imply actual sending in production.
+
+### 8. Audit and close snapshot
+
+Audit entries are append-only and SHA-256 chained, with an Admin Voting integrity view. All
+admin mutations and tally reads, voting and relevant system events are logged without secrets,
+phones, choices or receipt codes. Because closing may be schedule-derived without cron, the
+first post-close request finalizes a single idempotent close event/snapshot before serving
+other actions; early close finalizes it in the close transaction. Persist the hash of that
+event as the closing snapshot, not the perpetually growing audit chain tip. Later audit
+entries continue the chain without changing the published snapshot. A repeated concurrent
+first read must expose the same snapshot.
+
+## Dependencies and release gates
+
+Local tests use the shared warm Keycloak, fixture Service API, Miniflare and Playwright; they
+must cover setup absence, frozen roll, eligibility, concurrent double vote, receipt privacy,
+scheduled/early close, published results and audit integrity. Keep one serialized owner gate
+after worker-focused checks; do not start duplicate Docker stacks. Real Service API grants,
+actual Cloudflare deploy-button provisioning, and a staging election with real identity and
+membership data remain explicit release gates before claiming deployability. README and
+project context must be reconciled with this temporary operator-first scope.

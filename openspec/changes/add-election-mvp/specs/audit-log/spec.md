@@ -1,50 +1,45 @@
 # Spec Delta
 
 ## Purpose
-
-Records what Admin Voting, voters and the system do on the site in a log that cannot be edited through
-the app and shows tampering, and lets Admin Voting search and export it.
+Records election actions in a tamper-evident chain and lets Admin Voting verify its
+integrity while publishing a stable closing snapshot.
 
 ## ADDED Requirements
 
-### Requirement: What is recorded
-The audit log SHALL record Admin Voting actions (settings, candidates, stage changes, syncs, invitations, removals, reminders, tally views, exports), voter actions (sign-in, eligibility refused, voted, receipt checked) and system actions (Uji Coba deletion, schedule transitions), with time, actor, action, target and changes, and without IP address or device.
+### Requirement: Recorded actions
+The audit log SHALL record Admin Voting mutations, syncs and tally views; voter sign-in,
+eligibility refusals, votes and receipt checks; and system stage transitions and Uji Coba
+deletion. Entries SHALL include time, actor and action, but never a choice, raw receipt
+code, secret, phone, IP address or device.
 
-#### Scenario: Settings change
-- **WHEN** Rina switches the email provider from Resend to ZeptoMail
-- **THEN** an entry reads "Rina Putri mengubah Email: penyedia Resend → ZeptoMail" with no key values
+#### Scenario: Vote entry
+- **WHEN** Budi votes
+- **THEN** an entry records that Budi voted without candidate or receipt code
 
-### Requirement: Append-only with a hash chain
-Entries SHALL only be added. Each entry SHALL store the SHA-256 hash of the previous entry together with its own content, so that any edit or deletion in D1 breaks the chain from that point.
+### Requirement: Append-only hash chain
+Each entry SHALL store a hash of the previous entry and its own canonical content.
+Entries SHALL only be appended through the application. Verification SHALL detect an
+edited or deleted D1 row and identify the first broken sequence.
 
 #### Scenario: Row deleted in D1
 - **WHEN** someone deletes an audit row directly in D1
-- **THEN** the chain check reports the first entry after the gap as broken
+- **THEN** the integrity check reports the first broken sequence
 
-### Requirement: Audit page
-The Audit page SHALL be read-only for Admin Voting and SHALL filter by name, actor type (Admin Voting, Pemilih, Sistem), action type, komsat and JST date range, keep filters in the URL, load more on request, and expand entries to show before and after values with secrets masked.
-
-#### Scenario: Shared filter link
-- **WHEN** Rina filters "Jenis: Pengaturan" for 1–7 Dec and sends the URL to Dimas
-- **THEN** Dimas sees the same filtered entries
-
-### Requirement: Chain check on the page
-Opening the Audit page SHALL verify the chain and show "Rantai log utuh" with the time, or in red the first broken entry.
+### Requirement: Admin integrity view
+Admin Voting SHALL have a read-only chronological Audit page showing entries and the
+chain-integrity result. The 1.0 page need not offer advanced filters or CSV export.
 
 #### Scenario: Intact log
-- **WHEN** no entry was changed outside the app
-- **THEN** the page shows "Rantai log utuh (diperiksa 14.05 JST)"
+- **WHEN** an Admin Voting opens Audit with no tampering
+- **THEN** the page shows "Rantai log utuh" and the check time in JST
 
-### Requirement: CSV export built in the browser
-"Ekspor CSV" SHALL page through the filtered audit API at 500 entries per request and build the CSV in the browser, starting with a UTF-8 byte order mark. Starting an export SHALL be audit-logged with the filters and row count.
+### Requirement: Stable closing audit snapshot
+At early close or the first request after scheduled close, the system SHALL append an
+idempotent closing event and persist its chain hash as the election's closing snapshot
+before serving post-close data. Concurrent first requests SHALL expose the same hash.
+Later audit entries SHALL continue the chain without changing this snapshot. The
+public receipt board SHALL display the persisted closing hash, not the current tip.
 
-#### Scenario: Export
-- **WHEN** Rina exports entries filtered to Pengaturan with 42 rows
-- **THEN** she downloads a CSV with 42 rows that opens correctly in Excel, and the log gains "Rina Putri mengekspor CSV Audit (Jenis: Pengaturan, 42 baris)"
-
-### Requirement: Final chain hash published
-When voting closes, the hash of the last audit entry SHALL be fixed and shown on the public receipt board.
-
-#### Scenario: Board after close
-- **WHEN** a visitor opens the board after close
-- **THEN** it shows the final audit hash, which matches the hash on the Audit page at closing time
+#### Scenario: Scheduled close followed by later audit
+- **WHEN** the first post-close request fixes a closing hash and an Admin Voting later views a tally
+- **THEN** the board keeps the same closing hash while the Audit page shows a newer chain tip
