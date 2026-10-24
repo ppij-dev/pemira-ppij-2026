@@ -5,7 +5,7 @@ interface Props {
   type?: "button" | "submit";
 }
 const { href, variant = "primary", type = "button" } = Astro.props;
-const base = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600";
-const variantClass = variant === "primary" ? "bg-brand-700 text-white hover:bg-brand-900" : "border border-slate-300 text-slate-700 hover:bg-slate-50";
+const base = "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50";
+const variantClass = variant === "primary" ? "bg-primary text-primary-foreground hover:bg-primary-hover" : "border border-border bg-card text-card-foreground hover:bg-accent";
 ---
 {href ? <a href={href} class:list={[base, variantClass]}><slot /></a> : <button type={type} class:list={[base, variantClass]}><slot /></button>}

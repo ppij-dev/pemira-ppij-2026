@@ -20,7 +20,7 @@
     "SITE_SCOPE": "/ppij/okayama",
     "SITE_BASE_URL": "https://pemira2026.ppijepang.app",
     "SITE_NAME": "Pemilu Raya PPI Jepang 2026",
-    "SITE_LOGO_PATH": "/logo.svg"
+    "SITE_LOGO_PATH": "/pemira-2026-logo.png"
   },
   // Placeholder values: the Deploy to Cloudflare button provisions the D1
   // database and rewrites the IDs in the cloned repository.

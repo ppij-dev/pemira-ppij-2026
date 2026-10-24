@@ -1,9 +1,81 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-900: #1e3a8a;
+/* PPIJ identity: local Latin font files; Japanese text uses the platform fallback. */
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/plus-jakarta-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/plus-jakarta-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/plus-jakarta-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/plus-jakarta-sans-latin-700-normal.woff2") format("woff2"); }
+
+:root {
+  color-scheme: light;
+  --brand-red: #c8102e;
+  --brand-red-dark: #a50d26;
+  --brand-ink: #1c1f23;
+  --brand-muted: #5b6168;
+  --brand-border: #e3e5e8;
+  --brand-bg: #f6f6f4;
+  --background: var(--brand-bg);
+  --foreground: var(--brand-ink);
+  --card: #ffffff;
+  --card-foreground: var(--brand-ink);
+  --primary: var(--brand-red);
+  --primary-hover: var(--brand-red-dark);
+  --primary-foreground: #ffffff;
+  --secondary: #eceef0;
+  --secondary-foreground: var(--brand-ink);
+  --muted: #eceef0;
+  --muted-foreground: var(--brand-muted);
+  --accent: #eceef0;
+  --accent-foreground: var(--brand-ink);
+  --destructive: #b42318;
+  --border: var(--brand-border);
+  --input: var(--brand-border);
+  --ring: var(--brand-red);
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", "Noto Sans JP", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-brand-50: #fff1f3;
+  --color-brand-100: #ffe3e8;
+  --color-brand-400: #e95a72;
+  --color-brand-600: #c8102e;
+  --color-brand-700: #c8102e;
+  --color-brand-800: #a50d26;
+  --color-brand-900: #7f0a1e;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * { border-color: var(--border); }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline-color: var(--ring); }
 }

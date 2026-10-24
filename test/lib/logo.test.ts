@@ -55,9 +55,9 @@ describe("isValidLogoPath", () => {
 });
 
 describe("resolveSiteLogoPath", () => {
-  it("mengembalikan path jika valid dan fallback /logo.svg jika tidak valid", () => {
-    expect(resolveSiteLogoPath("/ppi-okayama-logo.webp")).toBe("/ppi-okayama-logo.webp");
-    expect(resolveSiteLogoPath("/logo.svg")).toBe("/logo.svg");
+  it("mengembalikan path valid, memigrasikan default lama, dan memakai logo Pemira 2026 sebagai fallback", () => {
+    expect(resolveSiteLogoPath("/ppi-okayama-logo.webp")).toBe(DEFAULT_LOGO_PATH);
+    expect(resolveSiteLogoPath("/logo.svg")).toBe("/pemira-2026-logo.png");
     expect(resolveSiteLogoPath("//evil.com/x.png")).toBe(DEFAULT_LOGO_PATH);
     expect(resolveSiteLogoPath("https://x/y.png")).toBe(DEFAULT_LOGO_PATH);
     expect(resolveSiteLogoPath("javascript:")).toBe(DEFAULT_LOGO_PATH);
@@ -89,20 +89,20 @@ describe("getFaviconType", () => {
 describe("getSiteLogo", () => {
   it("mengembalikan objek src dan faviconType tervalidasi", () => {
     expect(getSiteLogo("/ppi-okayama-logo.webp")).toEqual({
-      src: "/ppi-okayama-logo.webp",
-      faviconType: "image/webp",
+      src: "/pemira-2026-logo.png",
+      faviconType: "image/png",
     });
     expect(getSiteLogo("/logo.svg")).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/pemira-2026-logo.png",
+      faviconType: "image/png",
     });
     expect(getSiteLogo("//evil.com/x.png")).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/pemira-2026-logo.png",
+      faviconType: "image/png",
     });
     expect(getSiteLogo(undefined)).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/pemira-2026-logo.png",
+      faviconType: "image/png",
     });
   });
 });

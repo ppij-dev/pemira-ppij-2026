@@ -1,4 +1,6 @@
-export const DEFAULT_LOGO_PATH = "/logo.svg";
+export const DEFAULT_LOGO_PATH = "/pemira-2026-logo.png";
+// Former bundled defaults of this deployment; both resolve to the Pemira logo.
+const LEGACY_DEFAULT_LOGO_PATHS = ["/logo.svg", "/ppi-okayama-logo.webp"];
 
 export const ALLOWED_LOGO_EXTENSIONS = [
   ".svg",
@@ -55,9 +57,11 @@ export function isValidLogoPath(path: unknown): path is string {
 }
 
 /**
- * Returns the validated same-origin logo path, or falls back to DEFAULT_LOGO_PATH ("/logo.svg").
+ * Returns the validated same-origin logo path. Former bundled defaults
+ * resolve to the bundled Pemira 2026 logo for already bootstrapped instances.
  */
 export function resolveSiteLogoPath(path: unknown): string {
+  if (typeof path === "string" && LEGACY_DEFAULT_LOGO_PATHS.includes(path)) return DEFAULT_LOGO_PATH;
   return isValidLogoPath(path) ? path : DEFAULT_LOGO_PATH;
 }
 

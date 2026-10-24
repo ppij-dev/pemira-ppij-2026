@@ -1,0 +1,45 @@
+---
+import "../styles/global.css";
+import { IconComponents, IconLayoutDashboard, IconRosetteDiscountCheck, IconUsers } from "@tabler/icons-astro";
+interface Props { title: string; description: string; }
+const { title, description } = Astro.props;
+const enabled = import.meta.env.DEV;
+if (!enabled) Astro.response.status = 404;
+const current = Astro.url.pathname.replace(/\/$/, "");
+const nav = [
+  { href: "/dev/design-system", label: "Kitchen sink", icon: IconComponents },
+  { href: "/dev/design-system/pemilih", label: "Alur pemilih", icon: IconUsers },
+  { href: "/dev/design-system/admin", label: "Admin Voting", icon: IconLayoutDashboard },
+  { href: "/dev/design-system/hasil", label: "Hasil & bukti", icon: IconRosetteDiscountCheck },
+];
+---
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content={description} />
+    <title>{title} · Sistem Desain PPIJ Pemilu</title>
+    <link rel="icon" href="/pemira-2026-logo.png" type="image/png" />
+    <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+  </head>
+  <body class="min-h-dvh bg-background text-foreground antialiased">
+    {enabled ? <>
+      <header class="border-b border-border bg-card">
+        <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div class="flex items-center gap-3"><img src="/pemira-2026-logo.png" alt="" class="h-11 w-auto object-contain" /><div><p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">PPIJ Pemilu</p><p class="font-semibold">Sistem Desain</p></div></div>
+          <span class="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">Pratinjau lokal · data contoh</span>
+        </div>
+        <nav aria-label="Halaman pratinjau" class="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-3 sm:px-6">
+          {nav.map(({ href, label, icon: Icon }) => <a href={href} aria-current={current === href ? "page" : undefined} class:list={["inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-ring", current === href ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:bg-accent hover:text-foreground"]}><Icon size={18} stroke={1.8} aria-hidden="true" />{label}</a>)}
+        </nav>
+      </header>
+      <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
+        <div class="mb-8 max-w-3xl"><p class="text-sm font-semibold text-primary">REFERENSI ANTARMUKA</p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1><p class="mt-3 text-muted-foreground">{description}</p></div>
+        <slot />
+      </main>
+      <footer class="border-t border-border bg-card"><div class="mx-auto max-w-7xl px-4 py-5 text-sm text-muted-foreground sm:px-6">Contoh visual saja. Tidak terhubung ke data pemilihan atau layanan lain.</div></footer>
+    </> : <main class="mx-auto max-w-2xl p-8"><h1 class="text-2xl font-bold">Halaman tidak ditemukan</h1></main>}
+  </body>
+</html>

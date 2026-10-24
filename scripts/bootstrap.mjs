@@ -207,7 +207,7 @@ export async function runRemoteBootstrap({
   const logoPath =
     typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
       ? config.SITE_LOGO_PATH.trim()
-      : "/logo.svg";
+      : "/pemira-2026-logo.png";
 
   const statements = buildBootstrapStatements({
     memberId: memberId.trim(),
@@ -266,7 +266,7 @@ export async function runLocalBootstrap({
     const logoPath =
       typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
         ? config.SITE_LOGO_PATH.trim()
-        : "/logo.svg";
+        : "/pemira-2026-logo.png";
 
     const statements = buildBootstrapStatements({
       memberId: memberId.trim(),
@@ -327,7 +327,7 @@ export async function main(
     const logoPath =
       typeof config.SITE_LOGO_PATH === "string" && config.SITE_LOGO_PATH.trim()
         ? config.SITE_LOGO_PATH.trim()
-        : "/logo.svg";
+        : "/pemira-2026-logo.png";
     const statements = buildBootstrapStatements({
       memberId,
       siteName: config.SITE_NAME.trim(),

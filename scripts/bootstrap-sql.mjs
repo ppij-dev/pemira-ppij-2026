@@ -8,7 +8,7 @@ export function buildBootstrapStatements({
   siteName,
   siteScope,
   siteBaseUrl,
-  siteLogoPath = "/logo.svg",
+  siteLogoPath = "/pemira-2026-logo.png",
   now = new Date().toISOString(),
 }) {
   const qTitle = escapeSqlString(siteName);
