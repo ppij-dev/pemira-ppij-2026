@@ -17,6 +17,19 @@ Tabler icons.
 - **WHEN** a visitor opens the landing page while Terjadwal
 - **THEN** they see candidate cards, countdown and local branding
 
+### Requirement: Preview mode notice
+When `preview_mode = 1`, Beranda SHALL show a warning between the timer panel and
+candidate list: "Mode uji coba aktif" and "Semua pilihan hanya untuk tes."
+The notice SHALL be absent when preview mode is disabled.
+
+#### Scenario: Preview mode active
+- **WHEN** a visitor opens Beranda while preview mode is enabled
+- **THEN** the warning is visible after the timer panel and before the candidates
+
+#### Scenario: Preview mode disabled
+- **WHEN** a visitor opens Beranda while preview mode is disabled
+- **THEN** the preview warning is not rendered
+
 ### Requirement: Call-to-action follows the voter's state
 The button SHALL read "Pilih Sekarang" (to Pilih Suara) while voting is open, "Lihat Bukti Suara" for a signed-in member who already voted, and SHALL be hidden after voting closes.
 
