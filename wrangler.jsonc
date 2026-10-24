@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pemira-ppij-2026",
+  // The adapter's unified entrypoint handles astro dev and production deploys.
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // Non-secret environment variables. Configuration in wrangler.jsonc is the
+  // source of truth for Workers Builds: edit these values in your repository
+  // fork and commit them. Editing them in the Cloudflare dashboard will be
+  // overwritten on subsequent deployments.
+  "vars": {
+    "ONELOGIN_ISSUER": "https://sso.ppijepang.app/realms/ppij",
+    "ONELOGIN_CLIENT_ID": "pemira-ppij-2026",
+    "SERVICE_API_URL": "https://api.ppijepang.app",
+    "SERVICE_API_CLIENT_ID": "pemira-ppij-2026-service",
+    "SITE_SCOPE": "/ppij/okayama",
+    "SITE_BASE_URL": "https://pemira2026.ppijepang.app",
+    "SITE_NAME": "Pemilu Raya PPI Jepang 2026",
+    "SITE_LOGO_PATH": "/logo.svg"
+  },
+  // Placeholder values: the Deploy to Cloudflare button provisions the D1
+  // database and rewrites the IDs in the cloned repository.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pemira-ppij-2026",
+      "database_id": "c442f638-4234-4719-b3ab-15922cc263f9",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

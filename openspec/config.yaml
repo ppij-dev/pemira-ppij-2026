@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Public open-source repository: git@github.com:ppij-dev/ppij-election-system.git
+  Standalone, forkable, self-installable election product: PPIJ national and any satellite
+  (korda/komsat) can fork and self-host their own instance on Cloudflare (Workers/Pages + D1).
+  Stack: Hono (API & OIDC BFF on Cloudflare Worker) + Astro (mobile-first UI with bottom navigation,
+  templui/shadcn-inspired styling, Tabler icons only, no emoji) + Cloudflare D1 (SQLite).
+  Lean 1.0 (change add-election-mvp, revised 2026-10-20): local-first development and rehearsal —
+  operator bootstrap (migrations + Wrangler/local config/secrets + repeat-safe bootstrap command with
+  the first Admin Voting member_id) replaces the browser /setup, which is deferred to 1.1 together with
+  the deploy-button rehearsal. Until bootstrap completes, public pages/APIs return 503; /setup and
+  /api/setup/* return 404. Development uses the shared warm ppij-identity Keycloak (127.0.0.1:38180,
+  isolated election-test realm/client, personas — never start/stop that stack or edit realm ppij), a
+  deterministic Service API HTTP fixture (no real grant yet, never read its Postgres directly), and
+  Miniflare D1; no Wrangler push. No outgoing email in 1.0 (email transport exists, unwired; a local
+  demo toast must say "Email terkirim (simulasi)" and send nothing). README tells installers:
+  "Kontak PPIJ Portal admin untuk meminta realm config untuk service".
+  Roles (use these exact words):
+    - Admin Voting: the election committee, all with equal rights, each an ACTIVE member inside the site's scope;
+      the operator-bootstrapped first admin is labelled Technical Admin (no extra rights). A candidate can never be Admin Voting.
+    - Admin Portal: admins of the membership portal (ppij-identity); never an admin of this site.
+    - Pemilih (voter): eligible when on the Pemilih roll frozen at Kunci & Jadwalkan and a fresh One
+      Login sign-in (<= 10 min) shows them ACTIVE inside the scope. Confirms by typing the candidate's
+      nickname; one atomic secret ballot; receipt checked at /surat-suara#<code>.
+  Data: The Pemilih roll comes from the ppij-identity Service API (add-service-api; local fixture until
+  it ships). Sync runs in Draf and once more as the final sync that freezes the roll at Kunci; after the
+  lock there is no sync and no contact lookups/reminders in 1.0 (no phone/email stored, ever). Receipts:
+  128 random bits as 26 Crockford Base32 chars, only SHA-256 stored, browser hashes before lookup,
+  post-close public board lists hashes + closing audit snapshot hash. Candidates: 2–10 structured basic
+  records (number, name, nickname, komsat, escaped plain description, assigned color, bundled local
+  placeholder image); rich editor/media in 1.1. Results: overall tally + korda-level table suppressed
+  under 10 ballots, public only after Diumumkan. One election per site. No polling, no WebSockets,
+  no bulk email, no background jobs; Dasbor refreshes by button. Whole site is noindex.
+  User-facing copy: Bahasa Indonesia first, friendly/helpful/secure voice, JST timestamps, Tabler icons only.
+
+rules:
+  specs:
+    - Use EARS-style SHALL statements; every requirement has at least one WHEN/THEN scenario
+  tasks:
+    - Each task group lands its own tests

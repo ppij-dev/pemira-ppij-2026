@@ -1,0 +1,50 @@
+{
+  "realm": "election-test",
+  "enabled": true,
+  "displayName": "Election OIDC Integration Test",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "election-app",
+      "name": "Election app integration client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${APP_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:4321/api/auth/callback", "http://127.0.0.1:4321/api/auth/callback", "http://127.0.0.1:4399/api/auth/callback"],
+      "defaultClientScopes": ["profile", "ppij-member", "ppij-affiliation"]
+    },
+    {
+      "clientId": "election-test-direct",
+      "name": "Test-only Direct Access Grants client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {"name": "member_id", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "consentRequired": false, "config": {"userinfo.token.claim": "true", "user.attribute": "member_id", "id.token.claim": "true", "access.token.claim": "false", "claim.name": "member_id", "jsonType.label": "String"}},
+        {"name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper", "consentRequired": false, "config": {"full.path": "true", "userinfo.token.claim": "false", "id.token.claim": "true", "access.token.claim": "false", "claim.name": "affiliation", "jsonType.label": "String"}}
+      ]
+    }
+  ],
+  "groups": [
+    {"name": "ppij", "path": "/ppij", "subGroups": [{"name": "okayama", "path": "/ppij/okayama"}, {"name": "kyodai", "path": "/ppij/kyodai"}]}
+  ],
+  "users": [
+    {"username": "election-active", "email": "election-active@example.test", "enabled": true, "emailVerified": true, "firstName": "Election", "lastName": "Active", "requiredActions": [], "attributes": {"member_id": ["test-active"]}, "credentials": [{"type": "password", "value": "test-password", "temporary": false}], "groups": ["/ppij/okayama"]},
+    {"username": "election-suspended", "email": "election-suspended@example.test", "enabled": true, "emailVerified": true, "firstName": "Election", "lastName": "Suspended", "requiredActions": [], "attributes": {"member_id": ["test-suspended"]}, "credentials": [{"type": "password", "value": "test-password", "temporary": false}]},
+    {"username": "election-out-of-scope", "email": "election-out-of-scope@example.test", "enabled": true, "emailVerified": true, "firstName": "Election", "lastName": "Out Of Scope", "requiredActions": [], "attributes": {"member_id": ["test-out-of-scope"]}, "credentials": [{"type": "password", "value": "test-password", "temporary": false}], "groups": ["/ppij/kyodai"]}
+  ],
+  "protocolMappers": [],
+  "clientScopes": [
+    {"name": "ppij-member", "protocol": "openid-connect", "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}, "protocolMappers": [
+      {"name": "member_id", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "consentRequired": false, "config": {"userinfo.token.claim": "true", "user.attribute": "member_id", "id.token.claim": "true", "access.token.claim": "false", "claim.name": "member_id", "jsonType.label": "String"}}
+    ]},
+    {"name": "ppij-affiliation", "protocol": "openid-connect", "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}, "protocolMappers": [
+      {"name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper", "consentRequired": false, "config": {"full.path": "true", "userinfo.token.claim": "false", "id.token.claim": "true", "access.token.claim": "false", "claim.name": "affiliation", "jsonType.label": "String"}}
+    ]}
+  ]
+}

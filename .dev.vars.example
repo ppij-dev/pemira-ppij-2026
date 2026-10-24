@@ -1,0 +1,8 @@
+# Nilai rahasia Worker untuk Deploy to Cloudflare button.
+# Tombol Deploy to Cloudflare memperlakukan kunci di berkas ini sebagai Worker secrets (dimask/disembunyikan saat input).
+# Pengaturan non-rahasia (URL, scope, nama situs, dsb.) berada pada blok `vars` di wrangler.jsonc.
+# Untuk pengembangan lokal lengkap, salin .dev.vars.local.example ke .dev.vars.
+ONELOGIN_CLIENT_SECRET=
+SERVICE_API_CLIENT_SECRET=
+# 32 byte acak, misal `openssl rand -base64 32`
+APP_MASTER_KEY=

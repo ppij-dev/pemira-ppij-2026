@@ -1,0 +1,60 @@
+---
+import { IconArrowRight, IconLogout } from "@tabler/icons-astro";
+import Base from "../layouts/Base.astro";
+import { SESSION_COOKIE, openSession } from "../server/auth/session";
+import type { SessionData } from "../server/auth/session";
+import { env } from "cloudflare:workers";
+import type { Bindings } from "../server/app";
+import { affiliationInScope } from "../server/admin/routes";
+import { stage as getStage } from "../server/lib/stage";
+import { getSiteLogo } from "../server/lib/logo";
+const bindings = env as unknown as Bindings;
+const db = bindings.DB;
+const rawCookie = Astro.cookies.get(SESSION_COOKIE)?.value;
+const masterKey = bindings.APP_MASTER_KEY;
+const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
+let isAdmin = false;
+if (session && db) {
+  const admin = await db.prepare("SELECT member_id FROM admin_voting WHERE member_id = ?").bind(session.member_id).first();
+  const scope = await db.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
+  isAdmin = Boolean(admin && scope && affiliationInScope(session.affiliation, scope.value));
+}
+const config = await db?.prepare("SELECT key,value FROM system_config WHERE key IN ('site_name','site_logo_path')").all<{key:string;value:string}>();
+const values = Object.fromEntries((config?.results ?? []).map((row) => [row.key,row.value]));
+const siteName = values.site_name || "PPIJ Pemilu";
+const logo = getSiteLogo(values.site_logo_path);
+const election = await db?.prepare("SELECT title,description,opens_at,closes_at,closed_early_at,status_lock FROM elections ORDER BY id LIMIT 1").first<{title:string|null;description:string|null;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;status_lock:"draft"|"locked"|"published"}>();
+const currentStage = election?.status_lock && election.opens_at && election.closes_at ? getStage(election as {status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}, Date.now()) : "draft";
+const candidates = (await db?.prepare("SELECT number,name,nickname,komsat_path,description,color FROM candidates ORDER BY number").all<{number:number;name:string;nickname:string;komsat_path:string;description:string|null;color:string|null}>())?.results ?? [];
+const showHasil = currentStage === "published";
+let voted = false;
+if (session && currentStage === "open") {
+  try { const response = await fetch(new URL("/api/votes/me", Astro.url), { headers: { cookie: Astro.request.headers.get("cookie") ?? "" } }); voted = response.ok && Boolean((await response.json() as {voted_at:string|null}).voted_at); } catch { voted = false; }
+}
+let extensionNotice = false;
+if (currentStage === "open" && election?.closed_early_at == null && db) {
+  try { extensionNotice = Boolean(await db.prepare("SELECT seq FROM audit_log WHERE action = ? ORDER BY seq DESC LIMIT 1").bind("Waktu penutupan diperpanjang").first()); } catch { extensionNotice = false; }
+}
+const formatJst = (value:string) => new Intl.DateTimeFormat("id-ID", { timeZone:"Asia/Tokyo", dateStyle:"medium", timeStyle:"short" }).format(new Date(value)) + " JST";
+---
+<Base title={`${siteName} · Pemilihan`} siteName={siteName} siteLogoPath={logo.src} showHasil={showHasil}>
+  <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div class="bg-gradient-to-br from-brand-900 via-brand-700 to-brand-600 px-6 py-8 text-white sm:px-10 sm:py-10">
+      <div class="flex items-center gap-4"><img src={logo.src} alt="" class="size-14 rounded-full bg-white p-1" /><div><p class="text-sm font-semibold text-blue-100">{siteName}</p><h1 class="mt-1 text-3xl font-bold tracking-tight">{election?.title || "Pemilihan"}</h1></div></div>
+      {election?.description && <p class="mt-4 max-w-prose leading-7 text-blue-50">{election.description}</p>}
+      <p class="mt-4 inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-sm font-medium">{({draft:"Draf",scheduled:"Terjadwal",open:"Dibuka",closed:"Ditutup",published:"Diumumkan"} as const)[currentStage]}</p>
+    </div>
+    <div class="space-y-6 p-6 sm:p-8">
+      {currentStage === "draft" && <p class="rounded-xl bg-slate-100 p-4 font-medium text-slate-700">Persiapan sedang berlangsung.</p>}
+      {currentStage === "scheduled" && <><div class="rounded-xl bg-brand-50 p-5 text-center"><p class="font-semibold text-brand-900">Pemungutan suara dibuka dalam</p><p class="mt-2 font-mono text-3xl font-bold text-brand-800" data-countdown data-target={election?.opens_at}>-- : -- : -- : --</p></div><p class="rounded-xl border border-slate-200 p-4 text-center font-medium text-slate-600">Pilih Sekarang — pemungutan suara belum dibuka.</p></>}
+      {currentStage === "open" && <><div class="rounded-xl bg-brand-50 p-5 text-center"><p class="font-semibold text-brand-900">Pemungutan suara ditutup dalam</p><p class="mt-2 font-mono text-3xl font-bold text-brand-800" data-countdown data-target={election?.closes_at}>-- : -- : -- : --</p></div>{extensionNotice && election?.closes_at && <p class="text-sm font-semibold text-amber-800">Diperpanjang hingga {formatJst(election.closes_at)}</p>}<a class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-brand-700 px-5 py-3 font-semibold text-white sm:w-auto" href={voted?"/surat-suara":"/pilih-suara"}>{voted?"Lihat Bukti Suara":"Pilih Sekarang"}<IconArrowRight size={19}/></a></>}
+      {currentStage === "closed" && <p class="rounded-xl border border-slate-200 p-4 font-medium text-slate-700">Pemungutan suara sudah ditutup. Hasil akan diumumkan panitia.</p>}
+      {currentStage === "published" && <a href="/hasil" class="inline-flex min-h-12 items-center gap-2 rounded-lg bg-brand-700 px-5 py-3 font-semibold text-white">Lihat Hasil<IconArrowRight size={19}/></a>}
+      {session && <div class="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-5"><span class="text-sm text-slate-600">Masuk sebagai {session.name}</span>{isAdmin && <a class="font-semibold text-brand-700 underline" href="/admin">Mode Admin</a>}<form id="logout-form" action="/api/auth/logout" method="post"><button class="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3 font-medium text-slate-700" type="submit"><IconLogout size={18}/>Keluar</button></form></div>}
+    </div>
+  </section>
+  <section class="mt-8"><h2 class="text-2xl font-bold tracking-tight">Kandidat</h2><p class="mt-1 text-slate-600">Kenali para kandidat sebelum memberikan suara.</p>{candidates.length ? <div class="mt-4 grid gap-4 sm:grid-cols-2">{candidates.map((candidate)=><a href={`/kandidat/${candidate.number}-${encodeURIComponent(candidate.nickname)}`} class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-brand-400"><div class="flex items-center gap-4"><span class="flex size-12 items-center justify-center rounded-full text-lg font-bold text-white" style={`background-color:${candidate.color||'#334155'}`}>{candidate.number}</span><div><h3 class="text-xl font-bold">{candidate.nickname}</h3><p class="text-sm text-slate-600">{candidate.name}</p></div></div>{candidate.description && <p class="mt-3 text-sm leading-6 text-slate-600">{candidate.description}</p>}</a>)}</div> : <p class="mt-4 rounded-xl border border-slate-200 bg-white p-5 text-slate-600">Informasi kandidat belum tersedia.</p>}</section>
+  {showHasil && <section id="hasil" class="mt-8 rounded-2xl border border-slate-200 bg-white p-6"><h2 class="text-xl font-bold">Hasil pemilihan</h2><p class="mt-2 text-slate-600">Hasil resmi telah diumumkan.</p><a href="/hasil" class="mt-4 inline-flex font-semibold text-brand-700 underline">Lihat hasil dan statistik</a></section>}
+  <script is:inline>document.querySelectorAll('[data-countdown]').forEach((el)=>{const tick=()=>{const seconds=Math.max(0,Math.floor((Date.parse(el.dataset.target)-Date.now())/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;el.textContent=[d,h,m,s].map((v)=>String(v).padStart(2,'0')).join(' : ')};tick();setInterval(tick,1000)});</script>
+  <script is:inline>const form=document.querySelector('#logout-form');form?.addEventListener('submit',async event=>{event.preventDefault();await fetch('/api/auth/logout',{method:'POST'});window.location.assign('/')});</script>
+</Base>

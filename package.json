@@ -1,0 +1,75 @@
+{
+  "name": "pemira-ppij-2026",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro sync && astro check && tsc --noEmit",
+    "test": "vitest run",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "recovery-invite": "node scripts/recovery-invite.mjs",
+    "provision:oidc-test": "node scripts/provision-election-test.mjs",
+    "e2e": "playwright test",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
+  },
+  "cloudflare": {
+    "bindings": {
+      "APP_MASTER_KEY": {
+        "description": "Kunci master AES-256-GCM untuk mengenkripsi rahasia di D1. Buat dengan `openssl rand -base64 32`."
+      },
+      "ONELOGIN_CLIENT_SECRET": {
+        "description": "Rahasia klien OAuth/OIDC OneLogin PPIJ Portal (didapat dari admin portal PPIJ)."
+      },
+      "SERVICE_API_CLIENT_SECRET": {
+        "description": "Rahasia klien untuk sinkronisasi daftar pemilih Service API PPIJ Portal (didapat dari admin portal PPIJ)."
+      },
+      "ONELOGIN_ISSUER": {
+        "description": "URL issuer OIDC OneLogin PPIJ (contoh: `https://sso.ppijepang.app/realms/ppij`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "ONELOGIN_CLIENT_ID": {
+        "description": "Client ID OIDC OneLogin PPIJ. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SERVICE_API_URL": {
+        "description": "URL origin basis endpoint Service API PPIJ Portal tanpa path (contoh: `https://service-api.example`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SERVICE_API_CLIENT_ID": {
+        "description": "Client ID untuk autentikasi M2M Service API PPIJ Portal. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SITE_SCOPE": {
+        "description": "Jalur grup klaim `affiliation` pada token OIDC OneLogin (wajib diawali '/', tanpa spasi, contoh: `/ppij/okayama` atau `/ppij`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SITE_BASE_URL": {
+        "description": "URL basis publik tempat situs pemilihan diakses (contoh: `https://pemilihan.example.org`). Penting: redirect URI OAuth dibentuk dari URL ini. Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SITE_NAME": {
+        "description": "Nama instansi atau judul pemilihan (contoh: `Pemilihan PPI Jepang`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      },
+      "SITE_LOGO_PATH": {
+        "description": "Jalur berkas logo publik di public assets (default: `/logo.svg`). Nilai non-rahasia: edit di `wrangler.jsonc` fork dan commit; perubahan di dasbor akan ditimpa deploy berikutnya."
+      }
+    }
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "~14.3.0",
+    "@tabler/icons-astro": "^3.49.0",
+    "astro": "~7.3.0",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@cloudflare/vitest-plugin": "^1.4.4",
+    "@cloudflare/workers-types": "^5.20261018.1",
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.151.1"
+  }
+}

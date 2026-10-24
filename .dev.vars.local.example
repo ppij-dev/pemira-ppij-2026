@@ -1,0 +1,14 @@
+# Salin berkas ini ke .dev.vars untuk pengembangan lokal (Miniflare & bootstrap lokal).
+# Berkas ini mendefinisikan seluruh variabel lingkungan dan rahasia yang diperlukan.
+ONELOGIN_ISSUER=https://identity.example/realms/election
+ONELOGIN_CLIENT_ID=election-client
+ONELOGIN_CLIENT_SECRET=
+SERVICE_API_URL=https://service-api.example
+SERVICE_API_CLIENT_ID=election-service
+SERVICE_API_CLIENT_SECRET=
+SITE_SCOPE=/ppij/okayama
+SITE_BASE_URL=http://localhost:4321
+SITE_NAME=Pemilihan PPIJ
+SITE_LOGO_PATH=/logo.svg
+# 32 byte acak, misal `openssl rand -base64 32`
+APP_MASTER_KEY=
