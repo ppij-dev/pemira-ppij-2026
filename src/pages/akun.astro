@@ -1,6 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import { IconLogout, IconRosetteDiscountCheck, IconShieldCheck, IconSpeakerphone } from "@tabler/icons-astro";
+import { IconLogout, IconRosetteDiscountCheck, IconShieldCheck, IconSpeakerphone, IconUserCircle } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
 import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
 import { isAdminPageAuthorized, type AdminBindings } from "./admin/admin-auth";
@@ -27,7 +27,6 @@ if (session) {
 }
 
 const affiliationPath = Array.isArray(session?.affiliation) ? session!.affiliation[0] : session?.affiliation ?? null;
-const initial = (session?.name ?? "?").trim().charAt(0).toUpperCase() || "?";
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", dateStyle: "long", timeStyle: "short" }).format(new Date(value)) + " JST";
 ---
 
@@ -42,7 +41,7 @@ const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone
     <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <h2 class="text-lg font-semibold">Identitas</h2>
       <div class="mt-4 flex items-center gap-4">
-        <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xl font-bold text-brand-800" aria-hidden="true">{initial}</span>
+        <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-800" aria-hidden="true"><IconUserCircle size={34} stroke={1.5} /></span>
         <div class="min-w-0">
           <p class="break-words text-lg font-semibold">{session.name}</p>
           <p class="mt-0.5 break-all font-mono text-xs text-muted-foreground">{session.member_id}</p>
