@@ -3,6 +3,7 @@ import { IconArrowLeft } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import { stage } from "../../server/lib/stage";
+import { formatKomsatPath } from "../../lib/formatKomsat";
 
 const slug = Astro.params.slug ?? "";
 const match = /^(\d+)-(.+)$/.exec(slug);
@@ -36,29 +37,26 @@ const paragraphs = candidate?.description?.trim().split(/\n\s*\n/).filter(Boolea
   </a>
 
   {candidate ? <article>
-    <header class="border-b border-border pb-7 sm:pb-9">
-      <div class="flex flex-wrap items-center gap-3 text-sm font-semibold">
-        <span class="inline-flex size-10 items-center justify-center rounded-full text-base font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}>{candidate.number}</span>
-        <span class="uppercase tracking-[0.12em] text-primary">Profil kandidat</span>
-      </div>
-      <h1 class="mt-5 break-words text-4xl font-bold leading-tight tracking-tight sm:text-5xl">{candidate.name}</h1>
-      <p class="mt-3 break-words text-xl font-semibold text-muted-foreground sm:text-2xl">{candidate.nickname}</p>
-      <p class="mt-5 text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{candidate.komsat_path}</span></p>
-    </header>
+    <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-x-8">
+      <figure class="col-start-1 row-start-1 sm:col-start-2 sm:row-span-2">
+        <img src="/placeholder-candidate.png" alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
+        <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">Foto belum tersedia</figcaption>
+      </figure>
+      <header class="col-start-2 row-start-1 min-w-0 sm:col-start-1">
+        <span class="inline-flex size-8 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
+        <h1 class="mt-4 break-words text-3xl font-bold leading-tight tracking-tight sm:text-5xl">{candidate.name}</h1>
+        <p class="mt-2 break-words text-lg font-medium text-muted-foreground sm:text-xl">{candidate.nickname}</p>
+        <p class="mt-4 break-words text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{formatKomsatPath(candidate.komsat_path)}</span></p>
+      </header>
+      <section aria-labelledby="profile-heading" class="col-span-2 row-start-2 mt-8 border-t border-border pt-7 sm:col-span-1 sm:col-start-1 sm:mt-6 sm:pt-6">
+        <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>
+        {paragraphs.length
+          ? <div class="mt-4 max-w-[70ch] space-y-5 text-base leading-8 text-foreground sm:text-lg sm:leading-9">{paragraphs.map((paragraph) => <p class="whitespace-pre-line break-words">{paragraph}</p>)}</div>
+          : <p class="mt-4 text-muted-foreground">Deskripsi kandidat belum tersedia.</p>}
+      </section>
+    </div>
 
-    <figure class="mx-auto mt-7 max-w-sm sm:mt-9">
-      <img src="/placeholder-candidate.png" alt="" class="aspect-[3/4] w-full rounded-xl bg-muted object-cover" />
-      <figcaption class="mt-2 text-xs text-muted-foreground">Ilustrasi kandidat</figcaption>
-    </figure>
-
-    <section aria-labelledby="profile-heading" class="mx-auto max-w-2xl py-9 sm:py-12">
-      <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>
-      {paragraphs.length
-        ? <div class="mt-5 space-y-5 text-base leading-8 text-foreground sm:text-lg sm:leading-9">{paragraphs.map((paragraph) => <p class="whitespace-pre-line break-words">{paragraph}</p>)}</div>
-        : <p class="mt-5 text-muted-foreground">Deskripsi kandidat belum tersedia.</p>}
-    </section>
-
-    {isOpen && <footer class="border-t border-border pt-6 sm:pt-8">
+    {isOpen && <footer class="mt-9 border-t border-border pt-6 sm:pt-8">
       <p class="text-sm text-muted-foreground">Sudah mengenal kandidat ini? Periksa kembali pilihan Anda sebelum mengirim suara.</p>
       <a href="/pilih-suara" class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Pilih Sekarang</a>
     </footer>}
