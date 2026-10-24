@@ -23,15 +23,15 @@ const excerpt = candidate.description ? markdownToPlain(candidate.description, 1
 <a
   href={`/kandidat/${candidate.number}-${encodeURIComponent(candidate.nickname)}`}
   aria-label={`Lihat profil ${candidate.name}`}
-  class="group grid min-h-52 grid-cols-[7.5rem_minmax(0,1fr)] overflow-hidden rounded-lg border-2 border-foreground bg-card shadow-[4px_4px_0_0_rgba(28,31,35,0.08)] transition hover:-translate-y-0.5 hover:border-primary hover:shadow-[4px_6px_0_0_rgba(200,16,46,0.14)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:grid-cols-[11rem_minmax(0,1fr)]"
+  class="group grid min-h-52 grid-cols-[6.5rem_minmax(0,1fr)] gap-4 rounded-lg border-2 border-foreground bg-card p-2 shadow-[4px_4px_0_0_rgba(28,31,35,0.08)] transition hover:-translate-y-0.5 hover:border-primary hover:shadow-[4px_6px_0_0_rgba(200,16,46,0.14)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-5 sm:p-3"
 >
-  <div class="relative min-h-52 border-r-2 border-foreground bg-muted group-hover:border-primary">
+  <div class="relative min-h-52 overflow-hidden rounded-sm border-2 border-foreground bg-muted group-hover:border-primary">
     <img src="/placeholder-candidate.png" alt="" loading="lazy" decoding="async" width="600" height="800" class="absolute inset-0 size-full object-cover" />
     <span class="absolute inset-x-0 bottom-0 border-t-4 bg-card px-3 py-1.5 text-2xl font-bold leading-none text-primary" style={`border-top-color:${candidate.color || '#c8102e'}`}>
       <span class="sr-only">Nomor urut </span>{String(candidate.number).padStart(2, "0")}
     </span>
   </div>
-  <div class="flex min-w-0 flex-col px-4 py-4 sm:px-6 sm:py-5">
+  <div class="flex min-w-0 flex-col py-2 pr-2 sm:py-2 sm:pr-3">
     <Heading class="break-words text-xl font-bold leading-tight tracking-tight group-hover:text-primary sm:text-2xl">{candidate.nickname}</Heading>
     <p class="mt-1 break-words text-sm font-medium text-foreground sm:text-base">{candidate.name}</p>
     <p class="mt-1 break-words text-sm text-muted-foreground">{unit}</p>
