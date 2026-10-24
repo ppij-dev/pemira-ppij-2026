@@ -1,0 +1,41 @@
+---
+import { IconArrowUpRight } from "@tabler/icons-astro";
+import { formatUnitPath } from "../lib/formatKomsat";
+import { markdownToPlain } from "../server/lib/markdown";
+
+interface Props {
+  headingLevel?: 2 | 3;
+  candidate: {
+    number: number;
+    name: string;
+    nickname: string;
+    komsat_path: string;
+    description: string | null;
+    color: string | null;
+  };
+}
+
+const { candidate, headingLevel = 3 } = Astro.props;
+const Heading = headingLevel === 2 ? "h2" : "h3";
+const unit = formatUnitPath(candidate.komsat_path).split(" · ")[0] || "PPI Jepang";
+const excerpt = candidate.description ? markdownToPlain(candidate.description, 100) : "";
+---
+<a
+  href={`/kandidat/${candidate.number}-${encodeURIComponent(candidate.nickname)}`}
+  aria-label={`Lihat profil ${candidate.name}`}
+  class="group grid min-h-52 grid-cols-[7.5rem_minmax(0,1fr)] overflow-hidden rounded-lg border-2 border-foreground bg-card shadow-[4px_4px_0_0_rgba(28,31,35,0.08)] transition hover:-translate-y-0.5 hover:border-primary hover:shadow-[4px_6px_0_0_rgba(200,16,46,0.14)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:grid-cols-[11rem_minmax(0,1fr)]"
+>
+  <div class="relative min-h-52 border-r-2 border-foreground bg-muted group-hover:border-primary">
+    <img src="/placeholder-candidate.png" alt="" loading="lazy" decoding="async" width="600" height="800" class="absolute inset-0 size-full object-cover" />
+    <span class="absolute inset-x-0 bottom-0 border-t-4 bg-card px-3 py-1.5 text-2xl font-bold leading-none text-primary" style={`border-top-color:${candidate.color || '#c8102e'}`}>
+      <span class="sr-only">Nomor urut </span>{String(candidate.number).padStart(2, "0")}
+    </span>
+  </div>
+  <div class="flex min-w-0 flex-col px-4 py-4 sm:px-6 sm:py-5">
+    <Heading class="break-words text-xl font-bold leading-tight tracking-tight group-hover:text-primary sm:text-2xl">{candidate.nickname}</Heading>
+    <p class="mt-1 break-words text-sm font-medium text-foreground sm:text-base">{candidate.name}</p>
+    <p class="mt-1 break-words text-sm text-muted-foreground">{unit}</p>
+    {excerpt && <p class="mt-4 break-words text-sm leading-5 text-foreground">{excerpt}</p>}
+    <span class="mt-auto inline-flex min-h-11 items-center gap-1 self-end pt-3 text-sm font-semibold text-primary underline underline-offset-4">Lihat selengkapnya <IconArrowUpRight size={17} stroke={1.8} aria-hidden="true" /></span>
+  </div>
+</a>

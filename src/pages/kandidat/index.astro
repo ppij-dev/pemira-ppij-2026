@@ -1,31 +1,14 @@
 ---
 import { env } from "cloudflare:workers";
-import { IconArrowUpRight } from "@tabler/icons-astro";
 import Base from "../../layouts/Base.astro";
-import { formatKomsatPath } from "../../lib/formatKomsat";
-import { markdownToPlain } from "../../server/lib/markdown";
+import CandidateCard from "../../components/CandidateCard.astro";
 const db=(env as unknown as {DB?:D1Database}).DB;
-let candidates:any[]=[];
-try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,description,color FROM candidates ORDER BY number").all()).results??[]; } catch { candidates=[]; }
+let candidates:Array<{number:number;nickname:string;name:string;komsat_path:string;description:string|null;color:string|null}>=[];
+try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,description,color FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results??[]; } catch { candidates=[]; }
 ---
 <Base title="Kandidat · PPIJ Pemilu">
-  <div class="mb-6"><p class="text-sm font-semibold text-primary">PEMILIHAN</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Kandidat</h1><p class="mt-2 text-muted-foreground">Kenali para kandidat sebelum memberikan suara.</p></div>
-  {candidates.length ? <div class="grid gap-4 sm:grid-cols-2">{candidates.map((c) => {
-    const intro = c.description?.trim() ? markdownToPlain(c.description) : "Perkenalan kandidat belum tersedia.";
-    return <article class="group overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary/50">
-      <a href={`/kandidat/${c.number}-${encodeURIComponent(c.nickname)}`} class="flex h-full flex-col p-4 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring sm:p-5" aria-label={`Baca profil ${c.name}`}>
-        <div class="grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-4">
-          <img src="/placeholder-candidate.png" alt="" loading="lazy" decoding="async" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
-          <div class="min-w-0">
-            <span class="inline-flex size-7 items-center justify-center rounded-full text-xs font-bold text-white" style={`background-color:${c.color || '#334155'}`}><span class="sr-only">Nomor urut </span>{c.number}</span>
-            <h2 class="mt-2 break-words text-xl font-bold tracking-tight group-hover:text-primary">{c.name}</h2>
-            <p class="mt-1 break-words text-sm text-muted-foreground">{c.nickname}</p>
-            <p class="mt-3 break-words text-xs text-muted-foreground">Komsat {formatKomsatPath(c.komsat_path)}</p>
-          </div>
-        </div>
-        <p class="mt-4 line-clamp-2 break-words text-sm leading-6 text-foreground">{intro}</p>
-        <span class="mt-3 inline-flex min-h-11 items-center gap-1 self-start font-semibold text-primary">Baca profil <IconArrowUpRight size={18} stroke={1.8} aria-hidden="true" /></span>
-      </a>
-    </article>;
-  })}</div> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
+  <h1 class="mb-6 text-3xl font-bold tracking-tight">Kandidat</h1>
+  {candidates.length
+    ? <div class="grid gap-5">{candidates.map((candidate) => <CandidateCard candidate={candidate} headingLevel={2} />)}</div>
+    : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
 </Base>
