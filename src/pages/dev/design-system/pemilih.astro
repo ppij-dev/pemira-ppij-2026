@@ -4,7 +4,8 @@ import Alert from "../../../components/ui/Alert.astro";
 import Badge from "../../../components/ui/Badge.astro";
 import Button from "../../../components/ui/Button.astro";
 import Card from "../../../components/ui/Card.astro";
-import { IconArrowRight, IconArrowUpRight, IconCheck, IconLock, IconUser } from "@tabler/icons-astro";
+import CandidateCard from "../../../components/CandidateCard.astro";
+import { IconArrowRight, IconCheck, IconLock, IconUser } from "@tabler/icons-astro";
 const candidates = [
   { number: 1, name: "Nadia Putri", nickname: "Nadia", region: "Komsat Okayama", color: "#99531f" },
   { number: 2, name: "Rizky Pratama", nickname: "Rizky", region: "Komsat Hiroshima", color: "#315f88" },
@@ -19,10 +20,7 @@ const candidates = [
 
     <section aria-labelledby="candidate-title">
       <div class="mb-4"><h2 id="candidate-title" class="text-xl font-bold">Kandidat</h2><p class="text-sm text-muted-foreground">Potret 3:4, nomor urut, identitas, dan perkenalan singkat.</p></div>
-      <div class="grid gap-4 sm:grid-cols-2">{candidates.map((candidate) => <article class="rounded-xl border border-border bg-card p-4 sm:p-5">
-        <div class="grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-4"><img src="/placeholder-candidate.png" alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md object-cover"/><div><span class="inline-flex size-7 items-center justify-center rounded-full text-xs font-bold text-white" style={`background-color: ${candidate.color}`}>{candidate.number}</span><h3 class="mt-2 text-xl font-bold">{candidate.name}</h3><p class="mt-1 text-sm text-muted-foreground">{candidate.nickname}</p><p class="mt-3 text-xs text-muted-foreground">{candidate.region}</p></div></div>
-        <p class="mt-4 text-sm leading-6">Saya ingin memperkuat layanan anggota dan keterbukaan kerja organisasi.</p><span class="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary">Baca profil <IconArrowUpRight size={18} aria-hidden="true" /></span>
-      </article>)}</div>
+      <div class="grid max-w-3xl gap-4">{candidates.map((candidate) => <CandidateCard candidate={{...candidate,komsat_path:"/ppij/chugoku/okayama",short_intro:"Saya ingin memperkuat layanan anggota dan keterbukaan kerja organisasi."}} />)}</div>
       <article class="mt-6 border-t border-border pt-6"><div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-8"><figure class="sm:order-2"><img src="/placeholder-candidate.png" alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md object-cover"/><figcaption class="mt-2 text-xs text-muted-foreground">Foto belum tersedia</figcaption></figure><div class="sm:order-1"><Badge tone="brand">Nomor 1</Badge><h3 class="mt-4 text-3xl font-bold">Nadia Putri</h3><p class="mt-2 text-muted-foreground">Nadia · Komsat Okayama</p><p class="mt-3 text-xs text-muted-foreground">Contoh artikel dengan data fiktif.</p></div></div><div class="mt-8 space-y-7 border-t border-border pt-7"><section><h4 class="text-2xl font-semibold">Visi</h4><p class="mt-3 leading-7">Menjadikan organisasi lebih terbuka dan dekat dengan setiap anggota.</p></section><section><h4 class="text-2xl font-semibold">Misi</h4><p class="mt-3 leading-7">Menyediakan informasi kerja yang jelas, memperluas ruang partisipasi, dan menindaklanjuti masukan anggota.</p></section></div></article>
     </section>
 

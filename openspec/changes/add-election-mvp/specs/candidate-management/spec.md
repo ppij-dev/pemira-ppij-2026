@@ -20,6 +20,19 @@ case, and a plain-text description. A candidate SHALL have no arbitrary HTML fie
 1.0 public rendering. At most ten candidates SHALL be locked so each can receive a distinct
 color from the fixed ten-color white-text-safe palette.
 
+Admin Voting MAY set a separate plain-text `short_intro` of at most 100 characters.
+This field SHALL be shown only on candidate cards on Beranda and the Kandidat list;
+the full candidate profile SHALL continue to use the description. Empty introductions
+SHALL remain empty rather than falling back to an article excerpt. Candidate portrait
+slots SHALL keep a 3:4 aspect ratio independently of the adjacent text height, with the
+candidate number overlaid within that slot. Cards SHALL use the existing PPIJ semantic
+border, radius, typography and color tokens.
+
+#### Scenario: Separate card introduction
+- **WHEN** an Admin Voting saves a short introduction and a different description in Draf
+- **THEN** candidate cards show the introduction and the profile shows the description
+- **AND** an introduction longer than 100 characters is rejected with HTTP 400
+
 #### Scenario: Duplicate nickname
 - **WHEN** two candidates are saved with nicknames "Budi" and "budi"
 - **THEN** the second save is refused without changing either candidate
