@@ -1,12 +1,11 @@
 ---
-import { IconArrowRight, IconLogout } from "@tabler/icons-astro";
+import { IconArrowRight } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
 import { SESSION_COOKIE, openSession } from "../server/auth/session";
 import type { SessionData } from "../server/auth/session";
 import { env } from "cloudflare:workers";
 import { markdownToPlain } from "../server/lib/markdown";
 import type { Bindings } from "../server/app";
-import { affiliationInScope } from "../server/admin/routes";
 import { stage as getStage } from "../server/lib/stage";
 import { getSiteLogo } from "../server/lib/logo";
 import { formatKomsatPath } from "../lib/formatKomsat";
@@ -15,12 +14,6 @@ const db = bindings.DB;
 const rawCookie = Astro.cookies.get(SESSION_COOKIE)?.value;
 const masterKey = bindings.APP_MASTER_KEY;
 const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
-let isAdmin = false;
-if (session && db) {
-  const admin = await db.prepare("SELECT member_id FROM admin_voting WHERE member_id = ?").bind(session.member_id).first();
-  const scope = await db.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
-  isAdmin = Boolean(admin && scope && affiliationInScope(session.affiliation, scope.value));
-}
 const config = await db?.prepare("SELECT key,value FROM system_config WHERE key IN ('site_name','site_logo_path')").all<{key:string;value:string}>();
 const values = Object.fromEntries((config?.results ?? []).map((row) => [row.key,row.value]));
 const siteName = values.site_name || "PPIJ Pemilu";
@@ -52,11 +45,9 @@ const formatJst = (value:string) => new Intl.DateTimeFormat("id-ID", { timeZone:
       {currentStage === "open" && <><div class="rounded-md bg-brand-50 p-5"><p class="font-semibold text-brand-900">Pemungutan suara ditutup dalam</p><p class="mt-2 break-words font-mono text-2xl font-bold text-brand-800 sm:text-3xl" data-countdown data-target={election?.closes_at}>—</p></div>{extensionNotice && election?.closes_at && <p class="text-sm font-semibold text-amber-800">Diperpanjang hingga {formatJst(election.closes_at)}</p>}<a class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring sm:w-auto" href={voted?"/surat-suara":"/pilih-suara"}>{voted?"Lihat Bukti Suara":"Pilih Sekarang"}<IconArrowRight size={19} aria-hidden="true" /></a></>}
       {currentStage === "closed" && <p class="rounded-md bg-muted p-4 font-medium">Pemungutan suara sudah ditutup. Hasil akan diumumkan panitia.</p>}
       {currentStage === "published" && <a href="/hasil" class="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-5 py-3 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Lihat Hasil<IconArrowRight size={19} aria-hidden="true" /></a>}
-      {session && <div class="flex flex-wrap items-center gap-3 border-t border-border pt-5"><span class="text-sm text-muted-foreground">Masuk sebagai <strong class="font-semibold text-foreground">{session.name}</strong></span>{isAdmin && <a class="min-h-11 py-2 font-semibold text-primary underline" href="/admin">Mode Admin</a>}<form id="logout-form" action="/api/auth/logout" method="post"><button class="inline-flex min-h-11 items-center gap-2 rounded-md border border-border px-3 font-semibold hover:bg-accent" type="submit"><IconLogout size={18} aria-hidden="true" />Keluar</button></form></div>}
     </div>
   </section>
   <section class="mt-8"><div class="mb-4"><h2 class="text-xl font-semibold">Kandidat</h2><p class="mt-1 text-sm text-muted-foreground">Kenali para kandidat sebelum memberikan suara.</p></div>{candidates.length ? <div class="grid gap-4 sm:grid-cols-2">{candidates.map((candidate)=><a href={`/kandidat/${candidate.number}-${encodeURIComponent(candidate.nickname)}`} class="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline-2 focus-visible:outline-ring"><div class="flex gap-4 p-4 sm:p-5"><img src="/placeholder-candidate.png" alt="" class="h-20 w-15 shrink-0 rounded-md bg-background object-cover" /><div class="min-w-0"><span class="inline-flex size-9 items-center justify-center rounded-full font-bold text-white" style={`background-color:${candidate.color||'#334155'}`}>{candidate.number}</span><h3 class="mt-2 text-lg font-semibold group-hover:text-primary">{candidate.nickname}</h3><p class="text-sm text-muted-foreground">{candidate.name}</p><p class="mt-1 text-xs text-muted-foreground">{`Komsat ${formatKomsatPath(candidate.komsat_path)}`}</p></div></div>{candidate.description && <p class="border-t border-border px-4 py-3 text-sm leading-6 text-muted-foreground sm:px-5">{markdownToPlain(candidate.description)}</p>}</a>)}</div> : <p class="rounded-xl border border-border bg-card p-6 text-muted-foreground">Informasi kandidat belum tersedia.</p>}</section>
   {showHasil && <section id="hasil" class="mt-8 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-6"><h2 class="text-xl font-semibold">Hasil pemilihan</h2><p class="mt-2 text-muted-foreground">Hasil resmi telah diumumkan.</p><a href="/hasil" class="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline">Lihat hasil dan statistik</a></section>}
   <script is:inline>document.querySelectorAll('[data-countdown]').forEach((el)=>{const tick=()=>{const seconds=Math.max(0,Math.floor((Date.parse(el.dataset.target)-Date.now())/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;const clock=[h,m,s].map((v)=>String(v).padStart(2,'0')).join(':');el.textContent=d>0?`${d} hari ${clock}`:clock};tick();setInterval(tick,1000)});</script>
-  <script is:inline>const form=document.querySelector('#logout-form');form?.addEventListener('submit',async event=>{event.preventDefault();await fetch('/api/auth/logout',{method:'POST'});window.location.assign('/')});</script>
 </Base>
