@@ -17,9 +17,9 @@
     "ONELOGIN_CLIENT_ID": "pemira-ppij-2026",
     "SERVICE_API_URL": "https://api.ppijepang.app",
     "SERVICE_API_CLIENT_ID": "pemira-ppij-2026-service",
-    "SITE_SCOPE": "/ppij/okayama",
+    "SITE_SCOPE": "/ppij",
     "SITE_BASE_URL": "https://pemira2026.ppijepang.app",
-    "SITE_NAME": "Pemilu Raya PPI Jepang 2026",
+    "SITE_NAME": "Pemilihan Raya PPI Jepang 2026",
     "SITE_LOGO_PATH": "/pemira-2026-logo.png"
   },
   // Placeholder values: the Deploy to Cloudflare button provisions the D1
