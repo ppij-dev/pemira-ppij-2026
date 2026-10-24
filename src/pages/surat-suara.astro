@@ -23,7 +23,7 @@ const votedAtJst=votedAt?new Intl.DateTimeFormat("id-ID",{timeZone:"Asia/Tokyo",
         <p class="mt-1 text-sm font-semibold text-emerald-800"><span id="choice-text" class="blur-[5px] select-none transition-[filter] duration-150"></span></p>
         <button id="reveal-choice" type="button" aria-pressed="false" class="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-ring">Lihat pilihan</button>
         {votedAtJst && <p class="mt-1 text-sm text-emerald-800/80">Dikirim pada {votedAtJst}.</p>}
-        <p class="mt-2 text-xs leading-5 text-emerald-800/70">Catatan pilihan tersimpan hanya di perangkat ini; server tidak pernah menyimpan pilihan Anda.</p>
+        <p class="mt-2 text-xs leading-5 text-emerald-800/70">Server hanya mencatat bahwa Anda sudah memilih dan kapan — tidak pernah mencatat kandidat pilihan Anda. Baris pilihan di atas berasal dari penyimpanan lokal perangkat ini, ditulis saat Anda memilih.</p>
       </div>
     </div>
   </section>
