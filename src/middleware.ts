@@ -13,7 +13,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (pathname === "/admin" || pathname.startsWith("/admin/")) {
     const acceptsHtml = (context.request.headers.get("accept") ?? "").includes("text/html");
     if (acceptsHtml) {
-      const cookie = context.cookies.get(SESSION_COOKIE)?.value;
+      const cookie = context.request.headers.get("cookie") ?? context.cookies.get(SESSION_COOKIE)?.value;
       const bindings = env as unknown as AdminBindings;
       const session = await openAdminSession(cookie, bindings);
       if (!session) {

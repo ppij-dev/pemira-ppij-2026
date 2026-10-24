@@ -24,7 +24,7 @@ function jsonError(c: Context<Env>, error: string, status: 400 | 401 | 403 | 404
 }
 const authenticate = async (c: Context<Env>) => {
   const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
-  const cookie = getCookie(c, SESSION_COOKIE);
+  const cookie = c.req.header("cookie") ?? getCookie(c, SESSION_COOKIE);
   if (!key || !cookie) return null;
   const session = await openSession(cookie, key);
   if (!session) return null;

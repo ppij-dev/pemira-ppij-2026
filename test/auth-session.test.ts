@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { createAuthRoutes, type AuthEnv, type AuthRuntime } from "../src/server/auth/routes";
-import { AUTH_TX_COOKIE, SESSION_COOKIE, openAuthTx, openSession } from "../src/server/auth/session";
+import { AUTH_TX_COOKIE, SESSION_COOKIE, normalizeAuthCookies, openAuthTx, openSession } from "../src/server/auth/session";
 import { codeChallenge } from "../src/server/auth/oidc";
 
 const ISSUER = "https://sso.ppijepang.test/realms/ppij";
@@ -339,5 +339,73 @@ describe("Autentikasi One Login (BFF)", () => {
     const res = await bare.request("/auth/login");
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "one_login_belum_dikonfigurasi" });
+  });
+
+  it("login dengan prompt=login meneruskan parameter prompt ke One Login", async () => {
+    const res = await reqStoring("/auth/login?prompt=login&return_to=/pilih-suara");
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location") as string);
+    expect(loc.searchParams.get("prompt")).toBe("login");
+  });
+
+  it("permintaan login kedua (klik ganda/prefetch Chrome) tidak membatalkan transaksi pertama", async () => {
+    const first = await reqStoring("/auth/login?return_to=/pilih");
+    const firstLoc = new URL(first.headers.get("location") as string);
+    const firstState = firstLoc.searchParams.get("state") as string;
+    const firstNonce = firstLoc.searchParams.get("nonce") as string;
+
+    // Permintaan kedua (mis. prefetch/tab lain) menimpa cookie ppij_auth_tx,
+    // tetapi transaksi pertama tetap tersimpan di prev.
+    await reqStoring("/auth/login?return_to=/akun");
+    stub.state.nonce = firstNonce;
+
+    const res = await reqStoring(callbackUrl(firstState));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/pilih?masuk=ulang");
+    expect(jar[SESSION_COOKIE]).toBeTruthy();
+  });
+
+  it("mengabaikan cookie ppij_session lama yang membayangi cookie sesi baru (RFC 6265)", async () => {
+    const { state } = await startLogin();
+    await reqStoring(callbackUrl(state));
+    const validCookie = encodeURIComponent(jar[SESSION_COOKIE] as string);
+    const shadowedHeader = `ppij_session=v1%3Aiv-lama%3Acipher-rusak; ${SESSION_COOKIE}=${validCookie}`;
+
+    const meRes = await app.request("/me", { headers: { cookie: shadowedHeader } });
+    expect(meRes.status).toBe(200);
+    expect(await meRes.json()).toMatchObject({ member_id: "member-001" });
+
+    const normalizedReq = await normalizeAuthCookies(
+      new Request("https://pemilu.test/pilih-suara", { headers: { cookie: shadowedHeader } }),
+      MASTER_KEY,
+    );
+    expect(normalizedReq.headers.get("cookie")).toBe(`${SESSION_COOKIE}=${validCookie}`);
+  });
+
+  it("memangkas auth_time yang sedikit di masa depan akibat selisih jam server", async () => {
+    stub.state.iatOffset = -30;
+    stub.state.authTimeOffset = -30;
+    const { state } = await startLogin();
+    const res = await reqStoring(callbackUrl(state));
+    expect(res.status).toBe(302);
+    const session = await openSession(jar[SESSION_COOKIE] as string, MASTER_KEY);
+    expect(session).toBeTruthy();
+    expect(session!.auth_time).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+  });
+
+  it("navigasi peramban (Accept: text/html) pada callback gagal dialihkan ke /akun atau tujuan bila sudah masuk", async () => {
+    const failedHtml = await app.request("/auth/callback?code=x&state=kadaluarsa", {
+      headers: { accept: "text/html,application/xhtml+xml" },
+    });
+    expect(failedHtml.status).toBe(302);
+    expect(failedHtml.headers.get("location")).toBe("/akun?masuk=ulang");
+
+    const { state } = await startLogin();
+    await reqStoring(callbackUrl(state));
+    const replayHtml = await req("/auth/callback?code=x&state=kadaluarsa", {
+      headers: { accept: "text/html,application/xhtml+xml" },
+    });
+    expect(replayHtml.status).toBe(302);
+    expect(replayHtml.headers.get("location")).toBe("/");
   });
 });

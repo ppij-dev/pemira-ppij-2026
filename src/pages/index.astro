@@ -13,7 +13,7 @@ import { stage as getStage } from "../server/lib/stage";
 import { getSiteLogo } from "../server/lib/logo";
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
-const rawCookie = Astro.cookies.get(SESSION_COOKIE)?.value;
+const rawCookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
 const masterKey = bindings.APP_MASTER_KEY;
 const session: SessionData | null = rawCookie && masterKey ? await openSession(rawCookie, masterKey) : null;
 const config = await db?.prepare("SELECT key,value FROM system_config WHERE key IN ('site_name','site_logo_path')").all<{key:string;value:string}>();

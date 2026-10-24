@@ -10,7 +10,7 @@ import { formatUnitPath } from "../lib/formatKomsat";
 import type { Bindings } from "../server/app";
 
 const bindings = env as unknown as Bindings;
-const raw = Astro.cookies.get(SESSION_COOKIE)?.value;
+const raw = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
 const session: SessionData | null = raw && bindings.APP_MASTER_KEY ? await openSession(raw, bindings.APP_MASTER_KEY) : null;
 
 let isAdmin = false;

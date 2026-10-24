@@ -3,7 +3,7 @@ import "../styles/global.css";
 import { env } from "cloudflare:workers";
 import { getSiteLogo } from "../server/lib/logo";
 import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
-const cookie = Astro.cookies.get(SESSION_COOKIE)?.value;
+const cookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
 const bindings = env as unknown as AdminBindings;
 // Tamu tanpa sesi sudah dialihkan middleware ke One Login; halaman ini hanya
 // menangani sesi yang masuk tetapi bukan Admin Voting (403).

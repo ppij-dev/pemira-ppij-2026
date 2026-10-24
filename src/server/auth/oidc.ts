@@ -131,7 +131,7 @@ export async function fetchJwks(jwksUri: string, fetchImpl: typeof fetch = fetch
 export function buildAuthorizationUrl(
   discovery: OidcDiscovery,
   config: AuthConfig,
-  params: { state: string; nonce: string; codeChallenge: string; maxAgeSeconds: number | null },
+  params: { state: string; nonce: string; codeChallenge: string; maxAgeSeconds: number | null; prompt?: "login" | null },
 ): string {
   const url = new URL(discovery.authorization_endpoint);
   const q = url.searchParams;
@@ -144,6 +144,7 @@ export function buildAuthorizationUrl(
   q.set("code_challenge", params.codeChallenge);
   q.set("code_challenge_method", "S256");
   if (params.maxAgeSeconds != null) q.set("max_age", String(params.maxAgeSeconds));
+  if (params.prompt === "login") q.set("prompt", "login");
   return url.toString();
 }
 
