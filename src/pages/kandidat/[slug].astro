@@ -5,7 +5,7 @@ import Base from "../../layouts/Base.astro";
 import { stage } from "../../server/lib/stage";
 import { formatKomsatPath } from "../../lib/formatKomsat";
 import { renderMarkdown } from "../../server/lib/markdown";
-import { candidatePhotoSrc } from "../../lib/candidatePhoto";
+import { candidatePhotoSrc, PLACEHOLDER_CANDIDATE_PHOTO } from "../../lib/candidatePhoto";
 
 const slug = Astro.params.slug ?? "";
 const match = /^(\d+)-(.+)$/.exec(slug);
@@ -44,7 +44,7 @@ const photoSrc = candidatePhotoSrc(candidate?.photo_key);
     <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-x-8">
       <figure class="col-start-1 row-start-1 sm:col-start-2 sm:row-span-2">
         <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
-        <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">Foto belum tersedia</figcaption>
+        {photoSrc === PLACEHOLDER_CANDIDATE_PHOTO && <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">Foto belum tersedia</figcaption>}
       </figure>
       <header class="col-start-2 row-start-1 min-w-0 sm:col-start-1">
         <span class="inline-flex size-8 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
