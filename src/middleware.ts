@@ -17,6 +17,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
       const bindings = env as unknown as AdminBindings;
       const session = await openAdminSession(cookie, bindings);
       if (!session) {
+        // Penanda masuk=ulang berarti callback barusan namun sesi tidak
+        // menempel: hentikan kemungkinan lingkaran alih dengan mengarahkan
+        // ke halaman akun yang menjelaskan masalah cookie.
+        if (context.url.searchParams.has("masuk")) {
+          return context.redirect("/akun?masuk=ulang");
+        }
         return context.redirect(`/api/auth/login?return_to=${encodeURIComponent(pathname + search)}`);
       }
     }

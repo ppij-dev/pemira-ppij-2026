@@ -216,7 +216,7 @@ describe("Autentikasi One Login (BFF)", () => {
     const tx = await openAuthTx(jar[AUTH_TX_COOKIE] as string, MASTER_KEY);
     expect(await codeChallenge(tx?.codeVerifier as string)).toBe(challenge);
     expect(tx?.nonce).toBe(nonce);
-    expect(tx?.returnTo).toBe("/pilih");
+    expect(tx?.returnTo).toBe("/pilih?masuk=ulang");
     const line = cookieLine(res, AUTH_TX_COOKIE) ?? "";
     expect(line).toContain("HttpOnly");
     expect(line).toContain("Secure");
@@ -235,7 +235,7 @@ describe("Autentikasi One Login (BFF)", () => {
     const { loc, state } = await startLogin();
     const res = await reqStoring(callbackUrl(state));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/pilih");
+    expect(res.headers.get("location")).toBe("/pilih?masuk=ulang");
     // Token endpoint menerima kode dan code_verifier yang cocok dengan challenge.
     const tokenReq = stub.state.tokenRequests.at(-1) as Record<string, string>;
     expect(tokenReq.grant_type).toBe("authorization_code");

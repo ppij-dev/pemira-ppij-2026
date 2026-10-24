@@ -51,6 +51,8 @@ const session: SessionData | null =
     ? await openSession(rawSessionCookie, ((env as unknown as { APP_MASTER_KEY?: string }).APP_MASTER_KEY)!)
     : null;
 const accountInitial = (session?.name ?? "").trim().charAt(0).toUpperCase() || "?";
+// Percobaan masuk yang tidak menghasilkan sesi = peramban menolak cookie.
+const loginRetry = !session && Astro.url.searchParams.has("masuk");
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
 const path = Astro.url.pathname;
@@ -78,6 +80,11 @@ const path = Astro.url.pathname;
       </div>
     </header>
     <main class="mx-auto w-full max-w-3xl px-4 py-8 pb-28 sm:px-6 sm:py-10 sm:pb-32">
+      {loginRetry && <section class="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900" role="alert">
+        <h2 class="text-base font-semibold">Sesi masuk tidak tersimpan</h2>
+        <p class="mt-2 text-sm leading-6">Masuk Anda berhasil, tetapi peramban ini menolak menyimpan cookie sesi untuk situs ini. Periksa izin cookie (ikon di bilah alamat → Cookie → izinkan pemira2026.ppijepang.app), matikan sementara ekstensi pemblokir, atau gunakan jendela penjelajahan pribadi, lalu masuk kembali.</p>
+        <a href="/api/auth/login" class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Coba masuk lagi</a>
+      </section>}
       <slot />
     </main>
     <nav aria-label="Navigasi pemilih" class="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-20px_rgba(28,31,35,0.4)] backdrop-blur">

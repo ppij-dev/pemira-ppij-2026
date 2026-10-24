@@ -106,6 +106,11 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
       return badRequest(c, "max_age_tidak_valid", "Nilai max_age harus bilangan bulat 1 sampai 3600 detik.");
     }
     const returnTo = sanitizeReturnTo(c.req.query("return_to"));
+    // Penanda percobaan masuk: bila sesi gagal menempel setelah callback,
+    // halaman tujuan dapat menampilkan panduan alih-alih berkedip diam-diam.
+    const markedReturnTo = returnTo.includes("masuk=ulang")
+      ? returnTo
+      : returnTo + (returnTo.includes("?") ? "&" : "?") + "masuk=ulang";
 
     let discovery: OidcDiscovery;
     try {
@@ -118,11 +123,12 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
       state: randomToken(),
       nonce: randomToken(),
       codeVerifier: newCodeVerifier(),
-      returnTo,
+      returnTo: markedReturnTo,
       maxAge,
       createdAt: Math.floor(Date.now() / 1000),
     };
     setCookie(c, AUTH_TX_COOKIE, await sealAuthTx(tx, runtime.masterKey), cookieOptions(AUTH_TX_PATH, AUTH_TX_MAX_AGE));
+    c.header("Cache-Control", "no-store");
     return c.redirect(
       buildAuthorizationUrl(discovery, runtime.config, {
         state: tx.state,
@@ -202,6 +208,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
 
     setCookie(c, SESSION_COOKIE, await sealSession(session, runtime.masterKey), cookieOptions(SESSION_PATH, SESSION_MAX_AGE));
     deleteCookie(c, AUTH_TX_COOKIE, { path: AUTH_TX_PATH });
+    c.header("Cache-Control", "no-store");
     return c.redirect(tx.returnTo);
   });
 
