@@ -73,16 +73,18 @@ const votedAtJst = votedAt ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/
     </div>
   </details>
 
-  <section class="mt-6 rounded-xl bg-brand-50 p-5 text-brand-900 sm:p-6" aria-labelledby="privacy-title">
+  <section class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 sm:p-6" aria-labelledby="privacy-title">
     <div class="flex items-start gap-3">
-      <IconInfoCircle size={22} stroke={1.8} class="mt-0.5 shrink-0" aria-hidden="true" />
+      <IconInfoCircle size={22} stroke={1.8} class="mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
       <div>
-        <h2 id="privacy-title" class="text-base font-semibold">Privasi pilihan Anda</h2>
-        <ul class="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 marker:text-brand-600">
-          <li>Tampilan ulang pilihan memakai data yang tersimpan di perangkat ini.</li>
-          <li>Catatan bahwa Anda memilih disimpan terpisah dari surat suara. Tidak ada catatan nama Anda beserta kandidat pilihan.</li>
-          <li>Surat suara menyimpan kandidat dan hash kode bukti, bukan kode aslinya.</li>
+        <h2 id="privacy-title" class="text-base font-semibold">Informasi untuk anda</h2>
+        <p class="mt-3 text-sm leading-6">Demi melaksanakan pemilihan yang Langsung Umum Bebas dan Rahasia, Sistem menerapkan mekanisme surat suara tanpa nama pemilih, terenkripsi dan terhitung jelas.</p>
+        <p class="mt-3 text-sm leading-6">Namun ada beberapa hal sebagai informasi anda:</p>
+        <ul class="mt-2 list-disc space-y-2 pl-5 text-sm leading-6 marker:text-amber-600">
+          <li>Server tidak mengetahui anda memilih kandidat apa, nama kandidat yang anda lihat di halaman ini, tersimpan di perangkat anda (Login di perangkat baru akan menunjukkan kandidat kosong).</li>
+          <li>Surat suara terenkripsi di database. Pencarian Kode bukti hanya berlaku di halaman ini.</li>
         </ul>
+        <p class="mt-3 text-sm font-semibold">Terimakasih sudah berpartisipasi!</p>
       </div>
     </div>
   </section>
