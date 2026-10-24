@@ -1,13 +1,69 @@
 ---
+import { IconArrowLeft } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import { stage } from "../../server/lib/stage";
-const slug=Astro.params.slug??'';const match=/^(\d+)-(.+)$/.exec(slug);const db=(env as unknown as {DB?:D1Database}).DB;
-const candidate=match?await db?.prepare('SELECT number,name,nickname,komsat_path,description,color FROM candidates WHERE number=? AND nickname=?').bind(Number(match[1]),decodeURIComponent(match[2])).first<any>():null;
-const e=await db?.prepare('SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1').first<any>();
-let isOpen=false;if(e?.opens_at&&e?.closes_at){try{isOpen=stage(e,new Date().toISOString())==='open'}catch{isOpen=false}}
+
+const slug = Astro.params.slug ?? "";
+const match = /^(\d+)-(.+)$/.exec(slug);
+const db = (env as unknown as { DB?: D1Database }).DB;
+const candidate = match
+  ? await db?.prepare("SELECT number,name,nickname,komsat_path,description,color FROM candidates WHERE number=? AND nickname=?")
+      .bind(Number(match[1]), decodeURIComponent(match[2])).first<{
+        number: number;
+        name: string;
+        nickname: string;
+        komsat_path: string;
+        description: string | null;
+        color: string | null;
+      }>()
+  : null;
+const election = await db?.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<any>();
+let isOpen = false;
+if (election?.opens_at && election?.closes_at) {
+  try {
+    isOpen = stage(election, new Date().toISOString()) === "open";
+  } catch {
+    isOpen = false;
+  }
+}
+const paragraphs = candidate?.description?.trim().split(/\n\s*\n/).filter(Boolean) ?? [];
 ---
-<Base title={candidate?`${candidate.nickname} · Kandidat`:"Kandidat tidak ditemukan"}>
-  <a href="/kandidat" class="mb-5 inline-flex min-h-11 items-center font-semibold text-primary underline">Kembali ke Kandidat</a>
-  {candidate ? <article class="overflow-hidden rounded-xl border border-border bg-card shadow-sm"><div class="grid md:grid-cols-2"><img src="/placeholder-candidate.png" alt="Ilustrasi kandidat" class="h-full max-h-[32rem] min-h-64 w-full bg-background object-cover"/><div class="p-5 sm:p-8"><span class="inline-flex size-12 items-center justify-center rounded-full text-lg font-bold text-white" style={`background-color:${candidate.color||'#334155'}`}>{candidate.number}</span><h1 class="mt-4 text-3xl font-bold tracking-tight">{candidate.name}</h1><p class="mt-1 text-lg font-semibold text-muted-foreground">{candidate.nickname}</p><p class="mt-2 text-sm text-muted-foreground">{candidate.komsat_path}</p><div class="mt-5 border-t border-border pt-5"><h2 class="text-sm font-semibold">Tentang kandidat</h2><p class="mt-2 whitespace-pre-wrap leading-7 text-muted-foreground">{candidate.description || "Deskripsi kandidat belum tersedia."}</p></div>{isOpen && <a href="/pilih-suara" class="mt-6 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Pilih Sekarang</a>}</div></div></article> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h1 class="text-2xl font-bold">Kandidat tidak ditemukan</h1><p class="mt-2 text-muted-foreground">Data kandidat yang diminta tidak tersedia.</p></section>}
+
+<Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"}>
+  <a href="/kandidat" class="mb-8 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+    <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" /> Semua Kandidat
+  </a>
+
+  {candidate ? <article>
+    <header class="border-b border-border pb-7 sm:pb-9">
+      <div class="flex flex-wrap items-center gap-3 text-sm font-semibold">
+        <span class="inline-flex size-10 items-center justify-center rounded-full text-base font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}>{candidate.number}</span>
+        <span class="uppercase tracking-[0.12em] text-primary">Profil kandidat</span>
+      </div>
+      <h1 class="mt-5 break-words text-4xl font-bold leading-tight tracking-tight sm:text-5xl">{candidate.name}</h1>
+      <p class="mt-3 break-words text-xl font-semibold text-muted-foreground sm:text-2xl">{candidate.nickname}</p>
+      <p class="mt-5 text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{candidate.komsat_path}</span></p>
+    </header>
+
+    <figure class="mt-7 sm:mt-9">
+      <img src="/placeholder-candidate.png" alt="" class="aspect-[16/10] w-full rounded-xl bg-muted object-cover sm:aspect-video" />
+      <figcaption class="mt-2 text-xs text-muted-foreground">Ilustrasi kandidat</figcaption>
+    </figure>
+
+    <section aria-labelledby="profile-heading" class="mx-auto max-w-2xl py-9 sm:py-12">
+      <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>
+      {paragraphs.length
+        ? <div class="mt-5 space-y-5 text-base leading-8 text-foreground sm:text-lg sm:leading-9">{paragraphs.map((paragraph) => <p class="whitespace-pre-line break-words">{paragraph}</p>)}</div>
+        : <p class="mt-5 text-muted-foreground">Deskripsi kandidat belum tersedia.</p>}
+    </section>
+
+    {isOpen && <footer class="border-t border-border pt-6 sm:pt-8">
+      <p class="text-sm text-muted-foreground">Sudah mengenal kandidat ini? Periksa kembali pilihan Anda sebelum mengirim suara.</p>
+      <a href="/pilih-suara" class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Pilih Sekarang</a>
+    </footer>}
+  </article> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm">
+    <h1 class="text-2xl font-bold">Kandidat tidak ditemukan</h1>
+    <p class="mt-2 text-muted-foreground">Data kandidat yang diminta tidak tersedia.</p>
+  </section>}
 </Base>
