@@ -2,9 +2,16 @@
 import "../styles/global.css";
 import { env } from "cloudflare:workers";
 import { getSiteLogo } from "../server/lib/logo";
-import { SESSION_COOKIE, isAdminPageAuthorized, type AdminBindings } from "../pages/admin/admin-auth";
+import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
 const cookie = Astro.cookies.get(SESSION_COOKIE)?.value;
 const bindings = env as unknown as AdminBindings;
+// Belum masuk → arahkan langsung ke One Login dan kembali ke halaman admin
+// yang dituju; sudah masuk tetapi bukan Admin Voting → 403.
+const session = await openAdminSession(cookie, bindings);
+if (!session) {
+  const returnTo = Astro.url.pathname + Astro.url.search;
+  return Astro.redirect(`/api/auth/login?return_to=${encodeURIComponent(returnTo)}`);
+}
 const authorized = await isAdminPageAuthorized(cookie, bindings);
 if (!authorized) Astro.response.status = 403;
 const title = Astro.props.title ?? "Admin Voting";
