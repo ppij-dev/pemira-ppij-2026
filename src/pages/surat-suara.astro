@@ -20,7 +20,8 @@ const votedAtJst=votedAt?new Intl.DateTimeFormat("id-ID",{timeZone:"Asia/Tokyo",
       <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800"><IconRosetteDiscountCheck size={26} stroke={1.7} aria-hidden="true" /></span>
       <div class="min-w-0">
         <h2 class="text-lg font-semibold text-emerald-900">Pilihan Anda sudah terekam</h2>
-        <p id="choice-line" class="mt-1 text-sm font-semibold text-emerald-800"></p>
+        <p class="mt-1 text-sm font-semibold text-emerald-800"><span id="choice-text" class="blur-[5px] select-none transition-[filter] duration-150"></span></p>
+        <button id="reveal-choice" type="button" aria-pressed="false" class="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-ring">Lihat pilihan</button>
         {votedAtJst && <p class="mt-1 text-sm text-emerald-800/80">Dikirim pada {votedAtJst}.</p>}
         <p class="mt-2 text-xs leading-5 text-emerald-800/70">Catatan pilihan tersimpan hanya di perangkat ini; server tidak pernah menyimpan pilihan Anda.</p>
       </div>
@@ -65,7 +66,13 @@ if(hash)input.value=hash;else if(saved)input.value=saved||'';
 prefilled=Boolean(input.value);
 if(saved){document.querySelector('#saved-code').textContent=saved;savedCodeCard.hidden=false}
 const savedChoice=JSON.parse(localStorage.getItem('ppij_receipt_choice')||'null');
-if(savedChoice&&typeof savedChoice.nickname==='string'){document.querySelector('#choice-line').textContent=`Pilihan Anda untuk ${savedChoice.nickname} (no. ${savedChoice.number}) sudah terekam.`;recordedCard.hidden=false;savedCodeCard.hidden=false}
+if(savedChoice&&typeof savedChoice.nickname==='string'){
+const choiceText=document.querySelector('#choice-text'),revealBtn=document.querySelector('#reveal-choice');
+const shownText=`Pilihan Anda untuk ${savedChoice.nickname} (no. ${savedChoice.number}) sudah terekam.`;
+const maskedText=`Pilihan Anda untuk ••••••• (no. •) sudah terekam.`;
+choiceText.textContent=maskedText;recordedCard.hidden=false;savedCodeCard.hidden=false;
+revealBtn.addEventListener('click',()=>{const revealed=revealBtn.getAttribute('aria-pressed')==='true';revealBtn.setAttribute('aria-pressed',String(!revealed));revealBtn.textContent=revealed?'Lihat pilihan':'Sembunyikan pilihan';choiceText.classList.toggle('blur-[5px]',revealed);choiceText.textContent=revealed?maskedText:shownText;choiceText.classList.toggle('select-none',revealed)});
+}
 }catch{}
 if(prefilled)runCheck();
 document.querySelector('#copy-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(document.querySelector('#saved-code').textContent);document.querySelector('#copy-code').textContent='Tersalin'}catch{document.querySelector('#copy-code').textContent='Salin manual'}});
