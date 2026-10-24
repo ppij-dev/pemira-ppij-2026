@@ -53,7 +53,7 @@ const formatJst = (value:string) => new Intl.DateTimeFormat("id-ID", { timeZone:
   <section class="mt-8" aria-labelledby="candidates-heading">
     <h2 id="candidates-heading" class="mb-4 text-xl font-semibold">Kandidat</h2>
     {candidates.length
-      ? <div class="grid gap-5">{candidates.map((candidate) => <CandidateCard candidate={candidate} />)}</div>
+      ? <div class="grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} />)}</div>
       : <p class="rounded-xl border border-border bg-card p-6 text-muted-foreground">Informasi kandidat belum tersedia.</p>}
   </section>
   {showHasil && <section id="hasil" class="mt-8 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-6"><h2 class="text-xl font-semibold">Hasil pemilihan</h2><p class="mt-2 text-muted-foreground">Hasil resmi telah diumumkan.</p><a href="/hasil" class="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline">Lihat hasil dan statistik</a></section>}

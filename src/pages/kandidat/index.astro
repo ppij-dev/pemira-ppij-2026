@@ -9,6 +9,6 @@ try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,sho
 <Base title="Kandidat · PPIJ Pemilu">
   <h1 class="mb-6 text-3xl font-bold tracking-tight">Kandidat</h1>
   {candidates.length
-    ? <div class="grid gap-5">{candidates.map((candidate) => <CandidateCard candidate={candidate} headingLevel={2} />)}</div>
+    ? <div class="grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} headingLevel={2} />)}</div>
     : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
 </Base>

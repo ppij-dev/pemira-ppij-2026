@@ -24,8 +24,10 @@ Admin Voting MAY set a separate plain-text `short_intro` of at most 100 characte
 This field SHALL be shown only on candidate cards on Beranda and the Kandidat list;
 the full candidate profile SHALL continue to use the description. Empty introductions
 SHALL remain empty rather than falling back to an article excerpt. Candidate portrait
-slots SHALL keep a 3:4 aspect ratio independently of the adjacent text height, with the
-candidate number overlaid within that slot. Cards SHALL use the existing PPIJ semantic
+slots SHALL fill the card width and keep a 3:4 aspect ratio. The candidate number SHALL
+appear in a separate horizontal strip directly below the photo, with the same width as
+the photo. Candidate details and the short introduction SHALL appear below that strip.
+Cards SHALL use one column on phones and two columns from 640px. Cards SHALL use the existing PPIJ semantic
 border, radius, typography and color tokens.
 
 #### Scenario: Separate card introduction
