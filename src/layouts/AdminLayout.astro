@@ -15,6 +15,15 @@ if (authorized && bindings.DB) {
   } catch { /* The bundled logo remains available. */ }
 }
 const logo = getSiteLogo(configuredLogo);
+const path = Astro.url.pathname;
+const nav = [
+  { href: "/admin/dasbor", label: "Dasbor" },
+  { href: "/admin", label: "Panitia" },
+  { href: "/admin/pemilih", label: "Pemilih" },
+  { href: "/admin/kandidat", label: "Kandidat" },
+  { href: "/admin/pemilihan", label: "Pemilihan" },
+  { href: "/admin/audit", label: "Audit" },
+];
 ---
 <!doctype html>
 <html lang="id">
@@ -28,19 +37,16 @@ const logo = getSiteLogo(configuredLogo);
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class="min-h-dvh bg-background text-foreground antialiased">
-    <header class="border-b border-border bg-card">
-      <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <a href="/admin" class="inline-flex min-h-11 items-center gap-2 font-semibold tracking-tight text-foreground"><img src={logo.src} alt="" class="h-8 w-auto max-w-12 object-contain" />PPIJ Pemilu · Admin</a>
-        <nav aria-label="Navigasi admin" class="flex flex-wrap gap-1 sm:gap-2">
-          <a href="/admin" class="inline-flex min-h-11 items-center rounded-lg px-3 font-medium text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Panitia</a>
-          <a href="/admin/pemilih" class="inline-flex min-h-11 items-center rounded-lg px-3 font-medium text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Pemilih</a>
-          <a href="/admin/kandidat" class="inline-flex min-h-11 items-center rounded-lg px-3 font-medium text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Kandidat</a>
-          <a href="/admin/pemilihan" class="inline-flex min-h-11 items-center rounded-lg px-3 font-medium text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Pemilihan</a>
-          <a href="/" class="inline-flex min-h-11 items-center rounded-lg border border-border px-3 font-medium text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Mode Pemilih</a>
-        </nav>
+    <header class="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <a href="/admin/dasbor" class="inline-flex min-h-11 items-center gap-3 rounded-md font-semibold tracking-tight text-foreground focus-visible:outline-2 focus-visible:outline-ring"><img src={logo.src} alt="" class="h-9 w-auto max-w-14 object-contain" /><span><span class="block text-xs font-semibold uppercase tracking-wider text-primary">Admin Voting</span><span>PPIJ Pemilu</span></span></a>
+        <a href="/" class="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm font-semibold text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Mode Pemilih</a>
       </div>
+      <nav aria-label="Navigasi admin" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2 sm:px-6">
+        {nav.map((item) => <a href={item.href} aria-current={path === item.href ? "page" : undefined} class:list={["inline-flex min-h-11 shrink-0 items-center rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-ring", path === item.href ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:bg-accent hover:text-foreground"]}>{item.label}</a>)}
+      </nav>
     </header>
-    <main class="mx-auto w-full max-w-5xl px-4 py-6 sm:py-8">
+    <main class="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       {authorized ? <slot /> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8"><h1 class="text-xl font-bold">Akses khusus Admin Voting</h1><p class="mt-2 text-muted-foreground">Anda tidak memiliki akses ke halaman ini.</p></section>}
     </main>
   </body>
