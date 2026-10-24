@@ -40,8 +40,8 @@ const formatJst = (value:string) => new Intl.DateTimeFormat("id-ID", { timeZone:
 <Base title={`${siteName} · Pemilihan`} siteName={siteName} siteLogoPath={logo.src} showHasil={showHasil}>
   <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div class="bg-gradient-to-br from-brand-900 via-brand-700 to-brand-600 px-6 py-8 text-white sm:px-10 sm:py-10">
-      <div class="flex items-center gap-4"><img src={logo.src} alt="" class="size-14 rounded-full bg-white p-1" /><div><p class="text-sm font-semibold text-blue-100">{siteName}</p><h1 class="mt-1 text-3xl font-bold tracking-tight">{election?.title || "Pemilihan"}</h1></div></div>
-      {election?.description && <p class="mt-4 max-w-prose leading-7 text-blue-50">{election.description}</p>}
+      <div class="flex items-center gap-4"><img src={logo.src} alt="" class="size-14 rounded-full bg-white p-1" /><div><p class="text-sm font-semibold text-white/85">{siteName}</p><h1 class="mt-1 text-3xl font-bold tracking-tight">{election?.title || "Pemilihan"}</h1></div></div>
+      {election?.description && <p class="mt-4 max-w-prose leading-7 text-white/90">{election.description}</p>}
       <p class="mt-4 inline-flex rounded-full border border-white/25 bg-white/10 px-3 py-1 text-sm font-medium">{({draft:"Draf",scheduled:"Terjadwal",open:"Dibuka",closed:"Ditutup",published:"Diumumkan"} as const)[currentStage]}</p>
     </div>
     <div class="space-y-6 p-6 sm:p-8">
