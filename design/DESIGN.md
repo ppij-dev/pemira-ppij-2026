@@ -39,6 +39,8 @@ Use the Tailwind spacing scale. Panels have `p-4` on phones and `sm:p-6` where s
 
 The vote flow must keep the candidate's number, nickname and color recognizable while preserving ballot secrecy. Receipt codes and hash proof use a fixed-width face and allow wrapping or scrolling without clipping. Color never carries stage or eligibility meaning alone. Status labels remain in Bahasa Indonesia: Draf, Terjadwal, Dibuka, Ditutup and Diumumkan. Public results remain hidden until publication and small regional counts remain suppressed as specified in OpenSpec.
 
+Candidate portrait slots use a **3:4 aspect ratio** on the listing and profile page. The bundled 600×800 placeholder already has this ratio. A listing card shows the candidate number, name, nickname, komsat, and a short plain-text introduction; until a separate introduction field exists, use the first paragraph of the existing description. The profile is an article layout. Separate Visi and Misi content and a full Markdown authoring input are later content-model work; do not show invented sections or accept rich content in the lean 1.0 flow.
+
 Use Bahasa Indonesia first, with a friendly, helpful and secure tone. Error copy states what happened and the next action. Do not add copy that suggests a deferred 1.1 feature is active.
 
 ## Review checklist

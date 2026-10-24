@@ -1,11 +1,30 @@
 ---
 import { env } from "cloudflare:workers";
+import { IconArrowUpRight } from "@tabler/icons-astro";
 import Base from "../../layouts/Base.astro";
 const db=(env as unknown as {DB?:D1Database}).DB;
 let candidates:any[]=[];
-try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,color FROM candidates ORDER BY number").all()).results??[]; } catch { candidates=[]; }
+try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,description,color FROM candidates ORDER BY number").all()).results??[]; } catch { candidates=[]; }
 ---
 <Base title="Kandidat · PPIJ Pemilu">
   <div class="mb-6"><p class="text-sm font-semibold text-primary">PEMILIHAN</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Kandidat</h1><p class="mt-2 text-muted-foreground">Kenali para kandidat sebelum memberikan suara.</p></div>
-  {candidates.length ? <div class="grid gap-4 sm:grid-cols-2">{candidates.map((c)=><a href={`/kandidat/${c.number}-${encodeURIComponent(c.nickname)}`} class="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline-2 focus-visible:outline-ring"><img src="/placeholder-candidate.png" alt="" class="h-40 w-full bg-background object-cover" /><div class="flex items-start gap-3 p-4 sm:p-5"><span class="flex size-11 shrink-0 items-center justify-center rounded-full font-bold text-white" style={`background-color:${c.color||'#334155'}`}>{c.number}</span><div><h2 class="text-xl font-semibold group-hover:text-primary">{c.nickname}</h2><p class="text-sm text-muted-foreground">{c.name}</p><p class="mt-2 text-xs text-muted-foreground">{c.komsat_path}</p></div></div></a>)}</div> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
+  {candidates.length ? <div class="grid gap-5 sm:grid-cols-2">{candidates.map((c) => {
+    const intro = c.description?.trim().split(/\n\s*\n/)[0] || "Perkenalan kandidat belum tersedia.";
+    return <article class="group overflow-hidden rounded-xl border border-border bg-card shadow-sm transition hover:border-brand-400 hover:shadow-md">
+      <a href={`/kandidat/${c.number}-${encodeURIComponent(c.nickname)}`} class="flex h-full flex-col focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring" aria-label={`Baca profil ${c.name}`}>
+        <div class="relative overflow-hidden bg-muted">
+          <img src="/placeholder-candidate.png" alt="" loading="lazy" decoding="async" class="aspect-[3/4] w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
+          <span class="absolute left-4 top-4 inline-flex size-11 items-center justify-center rounded-full border-2 border-card font-bold text-white shadow-sm" style={`background-color:${c.color || '#334155'}`} aria-label={`Nomor urut ${c.number}`}>{c.number}</span>
+        </div>
+        <div class="flex flex-1 flex-col p-5 sm:p-6">
+          <p class="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Kandidat nomor {c.number}</p>
+          <h2 class="mt-2 break-words text-2xl font-bold tracking-tight group-hover:text-primary">{c.nickname}</h2>
+          <p class="mt-1 break-words font-medium text-foreground">{c.name}</p>
+          <p class="mt-2 break-words text-xs text-muted-foreground">{c.komsat_path}</p>
+          <div class="mt-5 border-t border-border pt-4"><p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Perkenalan singkat</p><p class="mt-2 line-clamp-3 whitespace-pre-line break-words text-sm leading-6 text-foreground">{intro}</p></div>
+          <span class="mt-5 inline-flex min-h-11 items-center gap-2 self-start font-semibold text-primary">Baca profil <IconArrowUpRight size={18} stroke={1.8} aria-hidden="true" /></span>
+        </div>
+      </a>
+    </article>;
+  })}</div> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
 </Base>
