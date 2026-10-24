@@ -59,9 +59,9 @@ describe("preview mode", () => {
     expect(voter.komsat_path).toBe("/ppij/kansai");
   });
 
-  it("still rejects unregistered members when preview is off", async () => {
+  it("still rejects unregistered members when preview is off, without re-login requirement", async () => {
     await env.DB.prepare("UPDATE elections SET preview_mode = 0").run();
-    const session = { member_id: "member-other", name: "Other", affiliation: "/ppij", auth_time: Math.floor(Date.now() / 1000) };
+    const session = { member_id: "member-other", name: "Other", affiliation: "/ppij", auth_time: Math.floor(Date.now() / 1000) - 7200 };
     await expect(authorizeVoter(env.DB, session)).rejects.toThrow("tidak terdaftar");
   });
 
@@ -71,5 +71,13 @@ describe("preview mode", () => {
     await authorizeVoter(env.DB, session);
     const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id = 'member-again'").first<{ n: number }>();
     expect(row?.n).toBe(1);
+  });
+
+  it("accepts an old session in preview mode but rejects future auth_time", async () => {
+    const old = { member_id: "member-old", name: "Old Session", affiliation: "/ppij", auth_time: Math.floor(Date.now() / 1000) - 3600 };
+    const { voter } = await authorizeVoter(env.DB, old);
+    expect(voter.status).toBe("ACTIVE");
+    const future = { member_id: "member-future", name: "Future", affiliation: "/ppij", auth_time: Math.floor(Date.now() / 1000) + 120 };
+    await expect(authorizeVoter(env.DB, future)).rejects.toThrow("tidak valid");
   });
 });

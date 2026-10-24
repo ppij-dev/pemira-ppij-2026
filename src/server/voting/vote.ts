@@ -35,8 +35,6 @@ export interface VoteSession {
 
 const VOTE_LIMIT = 5;
 const VOTE_WINDOW_SEC = 60;
-/** Usia auth_time maksimum untuk memilih: 10 menit (inklusif). */
-const FRESH_AUTH_MAX_SEC = 600;
 
 export interface ElectionRow {
   id: number;
@@ -116,21 +114,22 @@ export async function authorizeVoter(
   db: D1Database,
   session: VoteSession,
 ): Promise<{ election: ElectionRow; voter: VoterRow }> {
-  // Sesi harus segar (0..600 detik)
-  const age = sessionAgeSec(session);
-  if (age < 0 || age > FRESH_AUTH_MAX_SEC) {
-    throw new VoteError("Sesi masuk telah kedaluwarsa. Silakan masuk kembali.", 401, "stale_session");
-  }
-
-  // Afiliasi sesi harus di dalam cakupan situs
+  // Tahap harus tersedia dan afiliasi sesi di dalam cakupan situs
+  const election = await db.prepare(ELECTION_SQL).first<ElectionRow>();
+  if (!election) throw new VoteError("Pemilihan tidak ditemukan.", 404, "no_election");
   const scope = await db.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{ value: string }>();
   if (!scope || !affiliationInScope(session.affiliation, scope.value)) {
     throw new VoteError("Anda tidak berada dalam cakupan pemilihan ini.", 403, "out_of_scope");
   }
 
-  // Tahap harus Dibuka dan roll sudah dibekukan
-  const election = await db.prepare(ELECTION_SQL).first<ElectionRow>();
-  if (!election) throw new VoteError("Pemilihan tidak ditemukan.", 404, "no_election");
+  // Sesi sah mengikuti umur cookie sesi (maksimum 7 hari); fork ini tidak
+  // memaksa masuk ulang sebelum memilih. auth_time dari masa depan tetap
+  // ditolak karena menandakan cookie yang tidak sah.
+  const age = sessionAgeSec(session);
+  if (age < 0) {
+    throw new VoteError("Sesi masuk tidak valid. Silakan masuk kembali.", 401, "stale_session");
+  }
+
   if (!election.frozen_at) throw new VoteError("Daftar pemilih belum dibekukan.", 409, "not_locked");
   if (stage(election, new Date().toISOString()) !== "open") {
     throw new VoteError("Pemilihan sudah ditutup atau belum dibuka.", 409, "not_open");

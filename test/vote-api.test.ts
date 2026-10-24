@@ -127,18 +127,19 @@ describe("POST /api/votes", () => {
     expect((await voteRequest(null, { candidate_id: 1, confirmation_text: "Budi" })).status).toBe(401);
   });
 
-  it("401 batas auth_time: 600 detik diterima, 601 ditolak, masa depan ditolak", async () => {
+  it("auth_time lama tetap diterima selama sesi sah; masa depan ditolak", async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     // 600 detik: diterima
     const fresh = await voteRequest(await sessionCookie("voter-1", SCOPE, nowSec - 600), { candidate_id: 1, confirmation_text: "Budi" });
     expect(fresh.status).toBe(201);
-    // 601 detik: ditolak tanpa menulis apa pun
-    const stale = await voteRequest(await sessionCookie("voter-2", SCOPE, nowSec - 601), { candidate_id: 1, confirmation_text: "Budi" });
-    expect(stale.status).toBe(401);
+    // 601 detik: tetap diterima (fork ini tidak memaksa masuk ulang)
+    await seedVoter("voter-2", { name: "Budi Santoso" });
+    const older = await voteRequest(await sessionCookie("voter-2", SCOPE, nowSec - 601), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(older.status).toBe(201);
     // auth_time di masa depan: ditolak
     const future = await voteRequest(await sessionCookie("voter-3", SCOPE, nowSec + 60), { candidate_id: 1, confirmation_text: "Budi" });
     expect(future.status).toBe(401);
-    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    expect(await rowCounts()).toEqual({ participation: 2, ballots: 2 });
   });
 
   it("403 afiliasi null (suspend) tanpa menulis baris", async () => {
@@ -338,12 +339,11 @@ describe("GET /api/votes/eligibility", () => {
     expect(JSON.stringify(body)).not.toContain("Budi");
   });
 
-  it("fresh_login_needed untuk sesi basi; not_logged_in tanpa sesi", async () => {
+  it("sesi lama tetap lolos kelayakan; not_logged_in tanpa sesi", async () => {
     const stale = await getRequest("/api/votes/eligibility", await sessionCookie("voter-1", SCOPE, Math.floor(Date.now() / 1000) - 601));
     const staleBody = await stale.json() as Record<string, unknown>;
-    expect(staleBody.allowed).toBe(false);
-    expect(staleBody.reason).toBe("stale_session");
-    expect(staleBody.fresh_login_needed).toBe(true);
+    expect(staleBody.allowed).toBe(true);
+    expect(staleBody.fresh_login_needed).toBe(false);
     const anon = await getRequest("/api/votes/eligibility", null);
     expect((await anon.json() as Record<string, unknown>).reason).toBe("not_logged_in");
   });
