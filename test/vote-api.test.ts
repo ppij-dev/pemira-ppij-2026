@@ -10,6 +10,7 @@ import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
 import limitsSql from "../migrations/0004_vote_limits.sql?raw";
+import previewSql from "../migrations/0006_preview_mode.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -83,7 +84,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();

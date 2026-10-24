@@ -7,25 +7,27 @@ import { ElectionError, type ReadinessCheck } from "./candidates";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:null,actor_name:"",action,target,komsat_path:null,detail_json:detail}); }
 export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessCheck[]> {
- const e=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{opens_at:string|null;closes_at:string|null}>();
+ const e=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{opens_at:string|null;closes_at:string|null;preview_mode:number}>();
  const candidates=await db.prepare("SELECT COUNT(*) AS n FROM candidates").first<{n:number}>();
  const duplicate=await db.prepare("SELECT nickname FROM candidates GROUP BY nickname COLLATE NOCASE HAVING COUNT(*)>1 LIMIT 1").first();
  const sync=await db.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first(); const voters=await db.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>();
  const adminCandidate=await db.prepare("SELECT 1 FROM candidates c JOIN admin_voting a ON a.member_id=c.member_id LIMIT 1").first();
  const time= e?.opens_at ? Date.parse(e.opens_at) : NaN;
+ const preview= e?.preview_mode===1;
  return [
   {key:"schedule",ok:!!e?.opens_at&&!!e.closes_at&&Date.parse(e.closes_at)>time,message:"Jadwal harus diatur dengan waktu yang valid"},
-  {key:"opens_future",ok:Number.isFinite(time)&&time>now.getTime(),message:"Waktu mulai harus di masa depan"},
+  {key:"opens_future",ok:Number.isFinite(time)&&(preview?true:time>now.getTime()),message:preview?"Mode pratinjau: pemilihan dapat dibuka sekarang":"Waktu mulai harus di masa depan"},
   {key:"candidate_count",ok:(candidates?.n??0)>=2&&(candidates?.n??0)<=10,message:(candidates?.n??0)<2?"Minimal 2 kandidat":"Maksimal 10 kandidat"},
   {key:"nicknames",ok:!duplicate,message:"Nickname kandidat harus unik"},
-  {key:"roll_synced",ok:!!sync&&(voters?.n??0)>0,message:"Daftar Pemilih belum disinkronkan"},
+  {key:"roll_synced",ok:preview|| (!!sync&&(voters?.n??0)>0),message:preview?"Mode pratinjau: pemilih terdaftar otomatis saat masuk":"Daftar Pemilih belum disinkronkan"},
   {key:"admin_candidate",ok:!adminCandidate,message:"Admin Voting tidak dapat menjadi kandidat"},
  ];
 }
-export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string}) {
+export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string;preview_mode?:boolean}) {
  const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf");
  if(!Number.isFinite(Date.parse(input.opens_at))||!Number.isFinite(Date.parse(input.closes_at))||Date.parse(input.closes_at)<=Date.parse(input.opens_at)) throw new ElectionError("Jadwal tidak valid",400);
- await db.batch([db.prepare("UPDATE elections SET title=?,description=?,opens_at=?,closes_at=? WHERE status_lock='draft'").bind(input.title,input.description,input.opens_at,input.closes_at),await audit(db,now,"Jadwal pemilihan diperbarui",null)]);
+ const previewMode=input.preview_mode===true?1:0;
+ await db.batch([db.prepare("UPDATE elections SET title=?,description=?,opens_at=?,closes_at=?,preview_mode=? WHERE status_lock='draft'").bind(input.title,input.description,input.opens_at,input.closes_at,previewMode),await audit(db,now,"Jadwal pemilihan diperbarui",null,previewMode?JSON.stringify({preview_mode:true}):null)]);
 }
 export async function clearSchedule(db:D1Database,now:Date) { const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf"); await db.batch([db.prepare("UPDATE elections SET opens_at=NULL,closes_at=NULL WHERE status_lock='draft'"),await audit(db,now,"Jadwal pemilihan dihapus",null)]); }
 const activeLocks = new WeakSet<D1Database>();
@@ -35,9 +37,9 @@ export async function lockElection(db:D1Database,cfg:ServiceApiConfig,now:Date,f
  try { return await lockElectionInternal(db,cfg,now,fetchImpl); } finally { activeLocks.delete(db); }
 }
 async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,fetchImpl:typeof fetch) {
- const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
+ const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
  const checks=await getReadiness(db,now); if(checks.some(c=>!c.ok)) throw new ElectionError("Kesiapan pemilihan belum terpenuhi",409,checks);
- try { await syncPemilih(db,cfg,now,fetchImpl); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); }
+ if(!row.preview_mode) { try { await syncPemilih(db,cfg,now,fetchImpl); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
  const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())?.n??0;
  const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id").first<{n:number}>())?.n??0;
  const frozen=count-(row.allow_admin_voting===0?admins:0);

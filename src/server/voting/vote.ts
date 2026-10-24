@@ -46,6 +46,7 @@ export interface ElectionRow {
   closed_early_at: string | null;
   frozen_at: string | null;
   allow_admin_voting: number;
+  preview_mode: number;
 }
 
 export interface VoterRow {
@@ -56,7 +57,7 @@ export interface VoterRow {
 }
 
 const ELECTION_SQL =
-  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting FROM elections ORDER BY id LIMIT 1";
+  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode FROM elections ORDER BY id LIMIT 1";
 
 /** Usia auth_time dalam detik; negatif berarti dari masa depan. */
 function sessionAgeSec(session: VoteSession): number {
@@ -77,6 +78,33 @@ async function consumeVoteAttempt(db: D1Database, memberId: string): Promise<voi
     .bind(`vote:${memberId}`, nowSec + VOTE_WINDOW_SEC, nowSec, nowSec, nowSec + VOTE_WINDOW_SEC)
     .first<{ count: number }>();
   if (!row || row.count > VOTE_LIMIT) throw new VoteError("Terlalu banyak percobaan. Coba lagi nanti.", 429, "rate_limited");
+}
+
+/**
+ * Mode Pratinjau (fork): afiliasi pertama di dalam cakupan dipakai sebagai
+ * jalur komsat pemilih; tanpa afiliasi di dalam cakupan, pakai cakupannya.
+ */
+export function previewKomsatPath(affiliation: string | string[] | null, scope: string): string {
+  const paths = Array.isArray(affiliation) ? affiliation : affiliation ? [affiliation] : [];
+  return paths.find((path) => path.startsWith(scope)) ?? scope;
+}
+
+/** Daftarkan pemilih Mode Pratinjau dari klaim sesi; idempoten. */
+async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, scope: string): Promise<VoterRow> {
+  await db
+    .prepare(
+      `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at)
+       VALUES (?, ?, ?, ?, 'ACTIVE', ?)
+       ON CONFLICT(member_id) DO NOTHING`,
+    )
+    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString())
+    .run();
+  const voter = await db
+    .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
+    .bind(session.member_id)
+    .first<VoterRow>();
+  if (!voter) throw new VoteError("Pendaftaran otomatis gagal. Coba lagi.", 403, "auto_register_failed");
+  return voter;
 }
 
 /**
@@ -116,11 +144,16 @@ export async function authorizeVoter(
     throw new VoteError("Admin Voting tidak ikut memilih di pemilihan ini.", 403, "admin_voting_not_allowed");
   }
 
-  // Pemilih harus ada di roll beku dan berstatus ACTIVE
-  const voter = await db
+  // Pemilih harus ada di roll beku dan berstatus ACTIVE. Pada Mode Pratinjau
+  // keanggotaan aktif dalam cakupan sudah terbukti dari klaim sesi, sehingga
+  // pemilih terdaftar otomatis tanpa menunggu sinkronisasi daftar beku.
+  let voter = await db
     .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
     .bind(session.member_id)
     .first<VoterRow>();
+  if (!voter && election.preview_mode === 1) {
+    voter = await autoRegisterPreviewVoter(db, session, scope.value);
+  }
   if (!voter) throw new VoteError("Anda tidak terdaftar dalam daftar pemilih yang dibekukan.", 403, "not_in_roll");
   if (voter.status.toUpperCase() !== "ACTIVE") throw new VoteError("Keanggotaan Anda belum aktif.", 403, "not_active");
 
