@@ -26,8 +26,10 @@ export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessChec
 export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string;preview_mode?:boolean}) {
  const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf");
  if(!Number.isFinite(Date.parse(input.opens_at))||!Number.isFinite(Date.parse(input.closes_at))||Date.parse(input.closes_at)<=Date.parse(input.opens_at)) throw new ElectionError("Jadwal tidak valid",400);
+ // Simpan sebagai UTC-Z agar perbandingan waktu konsisten di seluruh guard.
+ const opensAt=new Date(input.opens_at).toISOString(); const closesAt=new Date(input.closes_at).toISOString();
  const previewMode=input.preview_mode===true?1:0;
- await db.batch([db.prepare("UPDATE elections SET title=?,description=?,opens_at=?,closes_at=?,preview_mode=? WHERE status_lock='draft'").bind(input.title,input.description,input.opens_at,input.closes_at,previewMode),await audit(db,now,"Jadwal pemilihan diperbarui",null,previewMode?JSON.stringify({preview_mode:true}):null)]);
+ await db.batch([db.prepare("UPDATE elections SET title=?,description=?,opens_at=?,closes_at=?,preview_mode=? WHERE status_lock='draft'").bind(input.title,input.description,opensAt,closesAt,previewMode),await audit(db,now,"Jadwal pemilihan diperbarui",null,previewMode?JSON.stringify({preview_mode:true}):null)]);
 }
 export async function clearSchedule(db:D1Database,now:Date) { const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf"); await db.batch([db.prepare("UPDATE elections SET opens_at=NULL,closes_at=NULL WHERE status_lock='draft'"),await audit(db,now,"Jadwal pemilihan dihapus",null)]); }
 const activeLocks = new WeakSet<D1Database>();
@@ -58,7 +60,7 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
 async function requireStage(db:D1Database,now:Date,desired:"open"|"closed") {
  const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}>(); if(!row||stage(row,now.toISOString())!==desired) throw new ElectionError("Tahap pemilihan tidak mengizinkan tindakan ini"); return row;
 }
-export async function extendClosing(db:D1Database,now:Date,newClosesAt:string,reason:string) { const row=await requireStage(db,now,"open"); if(!Number.isFinite(Date.parse(newClosesAt))||Date.parse(newClosesAt)<=Date.parse(row.closes_at)) throw new ElectionError("Waktu penutupan baru harus lebih akhir"); await db.batch([db.prepare("UPDATE elections SET closes_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(newClosesAt),await audit(db,now,"Waktu penutupan diperpanjang",null,JSON.stringify({closes_at:newClosesAt,reason}))]); }
+export async function extendClosing(db:D1Database,now:Date,newClosesAt:string,reason:string) { const row=await requireStage(db,now,"open"); if(!Number.isFinite(Date.parse(newClosesAt))||Date.parse(newClosesAt)<=Date.parse(row.closes_at)) throw new ElectionError("Waktu penutupan baru harus lebih akhir"); const normalizedClosesAt=new Date(newClosesAt).toISOString(); await db.batch([db.prepare("UPDATE elections SET closes_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(normalizedClosesAt),await audit(db,now,"Waktu penutupan diperpanjang",null,JSON.stringify({closes_at:normalizedClosesAt,reason}))]); }
 export async function closeEarly(db:D1Database,now:Date,reason:string) {
  const row=await requireStage(db,now,"open");
  const at=now.toISOString();

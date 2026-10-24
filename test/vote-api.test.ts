@@ -142,6 +142,23 @@ describe("POST /api/votes", () => {
     expect(await rowCounts()).toEqual({ participation: 2, ballots: 2 });
   });
 
+  it("menerima suara saat jadwal tersimpan dengan offset zona waktu (+09:00)", async () => {
+    // Formulir admin menyimpan waktu dinding JST dengan offset +09:00; guard
+    // penulisan suara harus membandingkan instan (julianday), bukan string.
+    const tokyoStamp = (instant: number) =>
+      new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        .format(new Date(instant))
+        .replace(" ", "T") + ".000+09:00";
+    await env.DB.prepare("UPDATE elections SET opens_at = ?, closes_at = ? WHERE id = 1").bind(
+      tokyoStamp(Date.now() - 60_000),
+      tokyoStamp(Date.now() + 2 * 3_600_000),
+    ).run();
+    const res = await voteRequest(await sessionCookie("voter-1", SCOPE, Math.floor(Date.now() / 1000)), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(res.status).toBe(201);
+    expect((await res.json() as Record<string, unknown>).receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+  });
+
   it("403 afiliasi null (suspend) tanpa menulis baris", async () => {
     const res = await voteRequest(await sessionCookie("voter-1", null), { candidate_id: 1, confirmation_text: "Budi" });
     expect(res.status).toBe(403);

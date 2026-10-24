@@ -219,8 +219,8 @@ export async function castVote(
     status_lock = 'locked'
     AND frozen_at IS NOT NULL
     AND closed_early_at IS NULL
-    AND opens_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    AND closes_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    AND julianday(opens_at) <= julianday('now')
+    AND julianday(closes_at) > julianday('now')
   `;
 
   // All batch statements compare the audit tip observed before the batch.
