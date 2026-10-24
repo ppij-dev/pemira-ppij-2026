@@ -10,6 +10,8 @@ interface Props {
   siteName?: string;
   siteLogoPath?: string;
   showHasil?: boolean;
+  /** "white" mengganti kanvas halaman dari abu-abu hangat menjadi putih. */
+  canvas?: "default" | "white";
 }
 
 const {
@@ -18,6 +20,7 @@ const {
   siteName: providedSiteName,
   siteLogoPath,
   showHasil,
+  canvas = "default",
 } = Astro.props;
 const db = (env as unknown as { DB?: D1Database }).DB;
 let siteName = providedSiteName;
@@ -57,7 +60,7 @@ const path = Astro.url.pathname;
     <link rel="icon" href={logo.src} type={logo.faviconType} />
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
-  <body class="min-h-dvh bg-background text-foreground antialiased">
+  <body class:list={["min-h-dvh text-foreground antialiased", canvas === "white" ? "bg-white" : "bg-background"]}>
     <header class="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
       <div class="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <a href="/" aria-label={`${siteName} · Beranda`} class="inline-flex min-h-11 min-w-0 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-ring">

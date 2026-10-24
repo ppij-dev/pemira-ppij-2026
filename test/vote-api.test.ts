@@ -93,11 +93,11 @@ beforeEach(async () => {
 });
 
 describe("POST /api/votes", () => {
-  it("happy path: 201 dengan kode 26 karakter, 1 participation + 1 ballot + audit tanpa pilihan", async () => {
+  it("happy path: 201 dengan kode 4x4 16 karakter, 1 participation + 1 ballot + audit tanpa pilihan", async () => {
     const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi" });
     expect(res.status).toBe(201);
     const body = await res.json() as { receipt_code: string; voted_at: string };
-    expect(body.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(body.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
     expect(typeof body.voted_at).toBe("string");
     expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
     // Ballot: tidak ada kolom identitas pemilih atau waktu

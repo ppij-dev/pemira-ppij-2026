@@ -9,7 +9,7 @@ import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
 import { boardRoutes, ensureClosingSnapshot } from "../src/server/voting/board";
 import { closeEarly } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
-import { encodeReceipt, decodeReceipt, hashReceipt } from "../src/server/voting/receipt";
+import { encodeReceipt, decodeReceipt, hashReceipt, formatReceiptCode } from "../src/server/voting/receipt";
 import type { Bindings } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
@@ -27,11 +27,12 @@ beforeEach(async () => {
 });
 
 describe("receipt board", () => {
-  it("round trips 128-bit receipt encoding and lookup hides unknown codes", async () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
+  it("round trips 80-bit receipt encoding, groups 4-4-4-4, and lookup hides unknown codes", async () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
     const code = encodeReceipt(bytes);
-    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-    expect(decodeReceipt(code)).toEqual(bytes);
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{16}$/);
+    expect(decodeReceipt(formatReceiptCode(code))).toEqual(bytes);
+    expect(formatReceiptCode(code)).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
     const missing = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }, bindings);
     expect(await missing.json()).toEqual({ found: false });
     await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path) VALUES (1,'m',1,'A','A','x')").run();
