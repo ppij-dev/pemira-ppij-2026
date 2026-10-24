@@ -22,9 +22,8 @@ let previewMode=false;try{previewMode=((await bindings.DB.prepare("SELECT previe
   : eligibility.stage !== "open" ? <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"><h2 class="text-xl font-semibold">{eligibility.stage==="scheduled" ? "Pemilihan terjadwal" : "Pemungutan suara sudah ditutup"}</h2><p class="mt-2 text-muted-foreground">{eligibility.stage==="scheduled" ? "Pemungutan suara belum dimulai. Silakan kembali saat jadwal dibuka." : "Saat ini pemungutan suara tidak dibuka."}</p></section>
   : <>
     <section id="ballot-entry" class="rounded-xl border border-border bg-card p-6 text-center shadow-sm sm:p-8">
-      <span class="mx-auto flex size-16 items-center justify-center rounded-full bg-brand-50 text-brand-800"><IconBoxMultiple size={34} stroke={1.6} aria-hidden="true" /></span>
+      <img src="/voting-ballot-box.svg" alt="" class="mx-auto size-20" width="80" height="80" />
       <h2 class="mt-4 text-xl font-semibold">Siap memilih?</h2>
-      <p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Periksa nama dan nomor kandidat sebelum mengirim suara Anda.</p>
       <button id="open-ballot" type="button" class="mx-auto mt-5 inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Buka surat suara</button>
     </section>
 
@@ -54,18 +53,45 @@ let previewMode=false;try{previewMode=((await bindings.DB.prepare("SELECT previe
 const errors={belum_masuk:'Silakan masuk kembali.',stale_session:'Sesi masuk tidak valid. Silakan masuk kembali.',out_of_scope:'Anda berada di luar cakupan pemilihan.',not_in_roll:'Nama Anda tidak tercantum pada daftar pemilih.',not_active:'Status keanggotaan Anda belum aktif.',admin_voting_not_allowed:'Admin Voting tidak diperbolehkan memilih.',origin_tidak_diizinkan:'Permintaan tidak dapat diverifikasi. Muat ulang halaman.',confirmation_mismatch:'Konfirmasi tidak cocok. Buka ulang pilihan Anda.',invalid_body:'Data pilihan tidak valid.',candidate_not_found:'Kandidat tidak ditemukan.',not_locked:'Pemilihan belum siap dibuka.',not_open:'Pemungutan suara sedang ditutup.',already_voted:'Anda sudah memilih.',rate_limited:'Terlalu banyak percobaan. Coba kembali nanti.',audit_tip_changed:'Pemilihan sedang menerima suara lain. Coba lagi.',auto_register_failed:'Pendaftaran otomatis gagal. Muat ulang halaman.'};
 const sheet=document.querySelector('#ballot-sheet'),backdrop=document.querySelector('#sheet-backdrop'),listStep=document.querySelector('#sheet-list'),confirmStep=document.querySelector('#sheet-confirm'),continueBtn=document.querySelector('#sheet-continue'),sendBtn=document.querySelector('#send-vote'),msg=document.querySelector('#vote-error');
 let selected=null;
-const openSheet=()=>{sheet.hidden=false;backdrop.hidden=false;showList();(sheet.querySelector('input[name="candidate"]')??continueBtn).focus()};
-const closeSheet=()=>{sheet.hidden=true;backdrop.hidden=true;document.querySelector('#open-ballot').focus()};
+let sheetSequence=0;
+const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
+const stopMotion=()=>{sheet.getAnimations().forEach(animation=>animation.cancel());backdrop.getAnimations().forEach(animation=>animation.cancel())};
+const openSheet=()=>{
+  sheetSequence++;
+  stopMotion();
+  sheet.hidden=false;backdrop.hidden=false;
+  document.body.style.overflow='hidden';
+  showList();
+  if(!reducedMotion.matches){
+    sheet.animate([{transform:'translateY(100%)'},{transform:'translateY(0)'}],{duration:380,easing:'cubic-bezier(0.16, 1, 0.3, 1)'});
+    backdrop.animate([{opacity:0},{opacity:1}],{duration:300,easing:'ease-out'});
+  }
+  (sheet.querySelector('input[name="candidate"]')??continueBtn).focus();
+};
+const closeSheet=async(restoreFocus=true)=>{
+  if(sheet.hidden)return;
+  const sequence=++sheetSequence;
+  stopMotion();
+  if(!reducedMotion.matches){
+    const panel=sheet.animate([{transform:'translateY(0)'},{transform:'translateY(100%)'}],{duration:210,easing:'cubic-bezier(0.4, 0, 1, 1)'});
+    const shade=backdrop.animate([{opacity:1},{opacity:0}],{duration:190,easing:'ease-in'});
+    await Promise.all([panel.finished.catch(()=>{}),shade.finished.catch(()=>{})]);
+  }
+  if(sequence!==sheetSequence)return;
+  sheet.hidden=true;backdrop.hidden=true;
+  document.body.style.overflow='';
+  if(restoreFocus)document.querySelector('#open-ballot').focus();
+};
 const showList=()=>{listStep.hidden=false;confirmStep.hidden=true;msg.textContent=''};
 const showConfirm=()=>{listStep.hidden=true;confirmStep.hidden=false;msg.textContent='';sendBtn.focus()};
 document.querySelector('#open-ballot').addEventListener('click',openSheet);
-document.querySelector('#sheet-cancel').addEventListener('click',closeSheet);
-backdrop.addEventListener('click',closeSheet);
+document.querySelector('#sheet-cancel').addEventListener('click',()=>closeSheet());
+backdrop.addEventListener('click',()=>closeSheet());
 continueBtn.addEventListener('click',()=>{if(selected)showConfirm()});
 document.querySelector('#confirm-back').addEventListener('click',showList);
 sheet.querySelectorAll('input[name="candidate"]').forEach((radio)=>{radio.addEventListener('change',()=>{selected={id:Number(radio.value),nickname:radio.dataset.nickname,number:radio.dataset.number};continueBtn.disabled=false;document.querySelector('#confirm-name').textContent=`${selected.nickname} (no. ${selected.number})`})});
 sheet.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeSheet();return}if(e.key!=='Tab')return;const controls=[...sheet.querySelectorAll('input:not([disabled]),button:not([disabled])')].filter(el=>!el.closest('[hidden]'));if(!controls.length)return;const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}});
-sendBtn.addEventListener('click',async()=>{if(!selected)return;sendBtn.disabled=true;msg.textContent='Mengirim suara…';try{const r=await fetch('/api/votes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({candidate_id:selected.id,confirmation_text:selected.nickname})});const d=await r.json();if(r.status===201&&typeof d.receipt_code==='string'){const code=d.receipt_code;closeSheet();document.querySelector('#ballot-entry').hidden=true;document.querySelector('#receipt-code').textContent=code;document.querySelector('#receipt-link').href='/surat-suara#'+encodeURIComponent(code);document.querySelector('#success').hidden=false;document.querySelector('#copy-code').focus();try{localStorage.setItem('ppij_receipt_code',code)}catch{document.querySelector('#storage-warning').hidden=false}try{localStorage.setItem('ppij_receipt_choice',JSON.stringify({nickname:selected.nickname,number:Number(selected.number),receiptCode:code}))}catch{}return}if(r.status===409&&d.error==='already_voted'){location.assign('/surat-suara');return}msg.textContent=errors[d.error]||'Suara belum dapat dikirim. Coba kembali.'}catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.'}sendBtn.disabled=false});
+sendBtn.addEventListener('click',async()=>{if(!selected)return;sendBtn.disabled=true;msg.textContent='Mengirim suara…';try{const r=await fetch('/api/votes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({candidate_id:selected.id,confirmation_text:selected.nickname})});const d=await r.json();if(r.status===201&&typeof d.receipt_code==='string'){const code=d.receipt_code;await closeSheet(false);document.querySelector('#ballot-entry').hidden=true;document.querySelector('#receipt-code').textContent=code;document.querySelector('#receipt-link').href='/surat-suara#'+encodeURIComponent(code);document.querySelector('#success').hidden=false;document.querySelector('#copy-code').focus();try{localStorage.setItem('ppij_receipt_code',code)}catch{document.querySelector('#storage-warning').hidden=false}try{localStorage.setItem('ppij_receipt_choice',JSON.stringify({nickname:selected.nickname,number:Number(selected.number),receiptCode:code}))}catch{}return}if(r.status===409&&d.error==='already_voted'){location.assign('/surat-suara');return}msg.textContent=errors[d.error]||'Suara belum dapat dikirim. Coba kembali.'}catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.'}sendBtn.disabled=false});
 document.querySelector('#copy-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(document.querySelector('#receipt-code').textContent);document.querySelector('#copy-code').textContent='Tersalin'}catch{document.querySelector('#copy-code').textContent='Salin manual'}});
 </script></>}
 </Base>

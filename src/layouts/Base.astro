@@ -1,6 +1,6 @@
 ---
 import "../styles/global.css";
-import { IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
+import { IconHome2, IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import { getSiteLogo } from "../server/lib/logo";
 import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
@@ -81,14 +81,17 @@ const path = Astro.url.pathname;
       <slot />
     </main>
     <nav aria-label="Navigasi pemilih" class="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-20px_rgba(28,31,35,0.4)] backdrop-blur">
-      <div class={`mx-auto grid w-full max-w-3xl ${showResultsTab ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div class={`mx-auto grid w-full max-w-3xl ${showResultsTab ? "grid-cols-5" : "grid-cols-4"}`}>
+        <a href="/" aria-current={path === "/" || path === "/papan-bukti" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/" || path === "/papan-bukti" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
+          <IconHome2 size={21} stroke={1.8} aria-hidden="true" /><span>Beranda</span>
+        </a>
         <a href="/kandidat" aria-current={path.startsWith("/kandidat") ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path.startsWith("/kandidat") ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconUsers size={21} stroke={1.8} aria-hidden="true" /><span>Kandidat</span>
         </a>
         <a href="/pilih-suara" aria-current={path === "/pilih-suara" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/pilih-suara" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconSpeakerphone size={21} stroke={1.8} aria-hidden="true" /><span>Pilih Suara</span>
         </a>
-        <a href="/surat-suara" aria-current={path === "/surat-suara" || path === "/papan-bukti" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/surat-suara" || path === "/papan-bukti" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
+        <a href="/surat-suara" aria-current={path === "/surat-suara" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/surat-suara" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Bukti Suara</span>
         </a>
         {showResultsTab && <a href="/hasil" aria-current={path === "/hasil" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/hasil" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}><IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Hasil</span></a>}
