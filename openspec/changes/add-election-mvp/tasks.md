@@ -43,7 +43,7 @@ the shared `ppij` realm or creating another container.
 ## 4. Secret ballot and proof
 
 - [x] 4.1 Backend: fresh-affiliation-and-frozen-roll vote authorization, nickname confirmation, 5/min session limit, atomic participation/ballot D1 batch with random ballot ID, 409 concurrent duplicate, and no choice/code in logs or audit. Test suspended, after-lock joiner, stale sign-in, mismatch, closed vote and double submit.
-- [x] 4.2 Backend: 128-bit/26-character Crockford receipt generation and normalization, hash-only lookup with 30/min IP limit, post-close hash board, independent count check and idempotent closing audit snapshot. Test code entropy/round trip, secrecy, unknown hash, scheduled-close concurrency and unchanged snapshot after later audit entries.
+- [x] 4.2 Backend: 80-bit/16-character Crockford receipt generation with legacy 26-character verification and normalization, hash-only lookup with 30/min IP limit, post-close hash board, independent count check and idempotent closing audit snapshot. Test code entropy/round trip, secrecy, unknown hash, scheduled-close concurrency and unchanged snapshot after later audit entries.
 - [x] 4.3 UI: templui/Tabler mobile Pilih Suara confirmation, success/copy/local storage, Bukti Suara and `/surat-suara#code` browser hashing, hash-board local highlight and stage messages. Parent-owned Playwright covers vote, repeat vote, different device and no raw code in server URL.
 
 ## 5. Results, audit and integrated rehearsal

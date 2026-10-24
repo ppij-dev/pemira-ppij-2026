@@ -76,9 +76,10 @@ remote image request is necessary.
 `participation(election_id, member_id, member_name, voted_at, is_test)` has a unique
 `(election_id, member_id)` key. `ballots(id, election_id, candidate_id, komsat_path,
 receipt_hash, is_test) WITHOUT ROWID` has a random UUID id, no member or timestamp. A D1
-batch writes both or neither. Never log choice or raw code. Generate 128 random bits and
-encode as 26 Crockford Base32 characters (last character uses only the remaining three bits);
-display in groups for readability, but normalize separators/case before hashing. Only SHA-256
+batch writes both or neither. Never log choice or raw code. Generate 80 random bits and
+encode as 16 Crockford Base32 characters; display in four groups of four. Previously issued
+26-character codes retain their full canonical value for verification. For both formats,
+normalize separators/case before hashing. Only SHA-256
 of the canonical code is persisted. The success page shows it once and keeps it on the device.
 `/surat-suara#code` hashes in the browser; the server sees only the hash. After close, the
 public board lists receipt hashes sorted by random ballot ID, count check and closing audit

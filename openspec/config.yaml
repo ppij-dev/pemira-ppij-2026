@@ -26,7 +26,7 @@ context: |
   Data: The Pemilih roll comes from the ppij-identity Service API (add-service-api; local fixture until
   it ships). Sync runs in Draf and once more as the final sync that freezes the roll at Kunci; after the
   lock there is no sync and no contact lookups/reminders in 1.0 (no phone/email stored, ever). Receipts:
-  128 random bits as 26 Crockford Base32 chars, only SHA-256 stored, browser hashes before lookup,
+  80 random bits as 16 Crockford Base32 chars in four groups of four (legacy 26-character receipts remain verifiable), only SHA-256 stored, browser hashes before lookup,
   post-close public board lists hashes + closing audit snapshot hash. Candidates: 2–10 structured basic
   records (number, name, nickname, komsat, escaped plain description, assigned color, bundled local
   placeholder image); rich editor/media in 1.1. Results: overall tally + korda-level table suppressed

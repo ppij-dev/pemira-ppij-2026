@@ -1,7 +1,8 @@
 /**
- * Kode bukti suara: 128 bit acak dikodekan sebagai 26 karakter Crockford
+ * Kode bukti suara: 80 bit acak dikodekan sebagai 16 karakter Crockford
  * Base32 (0-9, A-Z tanpa I, L, O, U — besar semua, mudah diketik), ditampilkan
- * berkelompok 4-4-4-4-4-4-2. Hanya SHA-256 dari kode ternormalisasi (tanpa
+ * berkelompok 4-4-4-4. Kode lama 26 karakter tetap dapat diperiksa.
+ * Hanya SHA-256 dari kode ternormalisasi (tanpa
  * pemisah, alias dipetakan) yang disimpan di D1; kode mentah tidak pernah
  * disimpan.
  */
@@ -16,8 +17,10 @@ DECODE_MAP["I"] = 1;
 DECODE_MAP["l"] = 1;
 DECODE_MAP["L"] = 1;
 
-export const RECEIPT_CODE_LENGTH = 26;
-export const RECEIPT_BYTES = 16;
+export const RECEIPT_CODE_LENGTH = 16;
+export const RECEIPT_BYTES = 10;
+const LEGACY_CODE_LENGTH = 26;
+const LEGACY_BYTES = 16;
 
 /** Normalisasi kode bukti: hilangkan pemisah, uppercase, petakan alias. */
 export function normalizeReceiptCode(input: string): string {
@@ -28,14 +31,14 @@ export function normalizeReceiptCode(input: string): string {
     .replace(/[IL]/g, "1");
 }
 
-/** Tampilkan kode ternormalisasi berkelompok 4-4-4-4-4-4-2. */
+/** Kelompokkan per empat karakter; format lama tidak dipotong. */
 export function formatReceiptCode(canonical: string): string {
   return canonical.replace(/(.{4})(?=.)/g, "$1-");
 }
 
-/** Encode 16 byte (128 bit) menjadi 26 karakter Crockford Base32. */
+/** Encode 10 byte (80 bit) menjadi 16 karakter Crockford Base32. */
 export function encodeReceipt(bytes: Uint8Array): string {
-  if (bytes.length !== RECEIPT_BYTES) throw new Error("Kode bukti harus 16 byte");
+  if (bytes.length !== RECEIPT_BYTES) throw new Error("Kode bukti harus 10 byte");
   let out = "";
   let buffer = 0;
   let bits = 0;
@@ -51,11 +54,13 @@ export function encodeReceipt(bytes: Uint8Array): string {
   return out;
 }
 
-/** Decode 26 karakter Crockford Base32 kembali ke 16 byte. */
+/** Decode kode baru 16 karakter atau kode lama 26 karakter. */
 export function decodeReceipt(code: string): Uint8Array {
   const normalized = normalizeReceiptCode(code);
-  if (normalized.length !== RECEIPT_CODE_LENGTH) throw new Error("Panjang kode bukti tidak valid");
-  const bytes = new Uint8Array(RECEIPT_BYTES);
+  const byteLength = normalized.length === RECEIPT_CODE_LENGTH ? RECEIPT_BYTES
+    : normalized.length === LEGACY_CODE_LENGTH ? LEGACY_BYTES : null;
+  if (byteLength === null) throw new Error("Panjang kode bukti tidak valid");
+  const bytes = new Uint8Array(byteLength);
   let buffer = 0;
   let bits = 0;
   let byteIndex = 0;
@@ -69,7 +74,7 @@ export function decodeReceipt(code: string): Uint8Array {
       bits -= 8;
     }
   }
-  if (bits !== 2 || (buffer & 3) !== 0) throw new Error("Padding kode bukti tidak valid");
+  if (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0) throw new Error("Padding kode bukti tidak valid");
   return bytes;
 }
 

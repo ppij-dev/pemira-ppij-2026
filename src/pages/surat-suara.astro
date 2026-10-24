@@ -65,7 +65,7 @@ const votedAtJst = votedAt ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/
       <p class="max-w-prose text-sm leading-6 text-muted-foreground">Pemeriksaan ini hanya menunjukkan apakah surat suara tercatat. Pilihan kandidat tidak ditampilkan.</p>
       <label for="receipt-input" class="mt-4 block text-sm font-semibold">Kode bukti</label>
       <div class="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start">
-        <input id="receipt-input" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX" aria-describedby="receipt-help" class="min-h-12 w-full min-w-0 rounded-md border border-input bg-card px-3 font-mono text-sm uppercase focus-visible:outline-2 focus-visible:outline-ring" />
+        <input id="receipt-input" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-XXXX" aria-describedby="receipt-help" class="min-h-12 w-full min-w-0 rounded-md border border-input bg-card px-3 font-mono text-sm uppercase focus-visible:outline-2 focus-visible:outline-ring" />
         <button id="check-receipt" type="button" class="min-h-12 shrink-0 rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60">Periksa kode</button>
       </div>
       <p id="receipt-help" class="mt-2 text-xs text-muted-foreground">Tanda hubung dan huruf besar atau kecil boleh diabaikan.</p>

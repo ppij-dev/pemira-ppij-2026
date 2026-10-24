@@ -48,15 +48,21 @@ A valid vote SHALL write, in one D1 batch, a participation row (`member_id`, nam
 - **THEN** no column, ordering or timestamp in ballots connects a ballot to a member
 
 ### Requirement: Receipt code
-Each ballot SHALL get a random 128-bit receipt encoded as 26 Crockford Base32 characters.
-The UI MAY group the characters for readability; normalization SHALL remove separators
+Each new ballot SHALL get a random 80-bit receipt encoded as 16 Crockford Base32 characters.
+The UI SHALL display four groups of four characters (`XXXX-XXXX-XXXX-XXXX`).
+Previously issued 26-character receipts SHALL remain valid without truncation or rehashing.
+Normalization SHALL remove separators
 and ignore letter case before hashing. Only SHA-256 of the canonical code SHALL be stored.
 The code SHALL be shown once on the success screen with "Salin" and "Buka Bukti Suara"
 and kept in this browser's local storage. No outgoing receipt email is sent in 1.0.
 
 #### Scenario: After voting
 - **WHEN** Budi's vote is recorded
-- **THEN** he can copy the 26-character code and open the proof page without the code reaching a request path
+- **THEN** he can copy the 16-character code in four groups of four and open the proof page without the code reaching a request path
+
+#### Scenario: Receipt issued before the shorter format
+- **WHEN** Budi checks a previously issued 26-character receipt
+- **THEN** the browser hashes its complete canonical code and the existing ballot remains verifiable
 
 ### Requirement: Receipt page keeps the code out of the URL sent to the server
 `/surat-suara#<code>` SHALL normalize and hash the code in the browser, send only
