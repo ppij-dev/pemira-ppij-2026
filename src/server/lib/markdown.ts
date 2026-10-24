@@ -30,7 +30,7 @@ const YOUTUBE_THUMB = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jp
  * pemilih benar-benar memutar video.
  */
 function youTubeEmbed(id: string): string {
-  return `<div class="markdown-video"><button type="button" class="markdown-video-facade" data-video-id="${id}" aria-label="Putar video YouTube"><img src="${YOUTUBE_THUMB(id)}" alt="" loading="lazy" decoding="async" /><span class="markdown-video-play"><svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a.55 .55 0 0 0 .83 .47l11.062-6.861a.55 .55 0 0 0 0 -.938l-11.062 -6.86a.55 .55 0 0 0 -.83 .469z"/></svg></span></button></div>`;
+  return `<div class="markdown-video"><button type="button" class="markdown-video-facade" data-video-id="${id}" aria-label="Putar video YouTube"><img src="${YOUTUBE_THUMB(id)}" alt="" loading="lazy" decoding="async" /><span class="markdown-video-play"><svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a.55 .55 0 0 0 .83 .47l11.062-6.861a.55 .55 0 0 0 0 -.938l-11.062 -6.86a.55 .55 0 0 0 -.83 .469z"/></svg></span></button></div><a class="markdown-video-open" href="https://www.youtube.com/watch?v=${id}" target="_blank" rel="noopener noreferrer">Tonton di YouTube</a>`;
 }
 
 function safeLink(label: string, href: string): string {

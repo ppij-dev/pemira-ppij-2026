@@ -125,4 +125,6 @@
 .markdown-video-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgb(0 0 0 / 0.35); transition: background 150ms ease-out; }
 .markdown-video-facade:hover .markdown-video-play, .markdown-video-facade:focus-visible .markdown-video-play { background: rgb(200 16 46 / 0.5); }
 .markdown-video-facade:focus-visible { outline: 2px solid var(--color-ring); outline-offset: -2px; }
+.markdown-video-open { display: inline-block; margin-top: 0.375rem; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-video-open:hover { color: var(--primary-hover); }
 

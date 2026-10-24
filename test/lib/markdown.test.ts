@@ -25,8 +25,9 @@ describe("renderMarkdown", () => {
     expect(html).toContain('data-video-id="wDchsz8nmbo"');
     expect(html).toContain('src="https://i.ytimg.com/vi/wDchsz8nmbo/hqdefault.jpg"');
     expect(html).toContain("markdown-video-facade");
+    expect(html).toContain('href="https://www.youtube.com/watch?v=wDchsz8nmbo"');
+    expect(html).toContain('target="_blank"');
     expect(html).not.toContain("<iframe");
-    expect(html).not.toContain("watch?v=");
   });
 
   it("facades youtu.be and shorts urls", () => {
