@@ -20,16 +20,18 @@ describe("renderMarkdown", () => {
     expect(html).toContain("<hr/>");
   });
 
-  it("embeds youtube watch urls on their own line as sandboxed nocookie iframes", () => {
+  it("renders youtube watch urls on their own line as a click-to-load facade", () => {
     const html = renderMarkdown("Perkenalan:\n\nhttps://www.youtube.com/watch?v=wDchsz8nmbo\n\nSelesai.");
-    expect(html).toContain('src="https://www.youtube-nocookie.com/embed/wDchsz8nmbo"');
-    expect(html).toContain('sandbox="allow-scripts allow-popups"');
+    expect(html).toContain('data-video-id="wDchsz8nmbo"');
+    expect(html).toContain('src="https://i.ytimg.com/vi/wDchsz8nmbo/hqdefault.jpg"');
+    expect(html).toContain("markdown-video-facade");
+    expect(html).not.toContain("<iframe");
     expect(html).not.toContain("watch?v=");
   });
 
-  it("embeds youtu.be and shorts urls", () => {
-    expect(renderMarkdown("https://youtu.be/wDchsz8nmbo")).toContain("/embed/wDchsz8nmbo");
-    expect(renderMarkdown("https://www.youtube.com/shorts/wDchsz8nmbo")).toContain("/embed/wDchsz8nmbo");
+  it("facades youtu.be and shorts urls", () => {
+    expect(renderMarkdown("https://youtu.be/wDchsz8nmbo")).toContain('data-video-id="wDchsz8nmbo"');
+    expect(renderMarkdown("https://www.youtube.com/shorts/wDchsz8nmbo")).toContain('data-video-id="wDchsz8nmbo"');
   });
 
   it("keeps safe links and neutralizes unsafe ones", () => {

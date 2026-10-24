@@ -3,8 +3,8 @@ import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import CandidateCard from "../../components/CandidateCard.astro";
 const db=(env as unknown as {DB?:D1Database}).DB;
-let candidates:Array<{number:number;nickname:string;name:string;komsat_path:string;short_intro:string|null;color:string|null}>=[];
-try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,short_intro,color FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results??[]; } catch { candidates=[]; }
+let candidates:Array<{number:number;nickname:string;name:string;komsat_path:string;short_intro:string|null;color:string|null;photo_key:string|null}>=[];
+try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,short_intro,color,photo_key FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results??[]; } catch { candidates=[]; }
 ---
 <Base title="Kandidat · PPIJ Pemilu">
   <h1 class="mb-6 text-3xl font-bold tracking-tight">Kandidat</h1>

@@ -21,8 +21,16 @@ function escapeHtml(text: string): string {
 const YOUTUBE_LINE =
   /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})[^\s]*$/;
 
+const YOUTUBE_THUMB = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+
+/**
+ * Fasad video: thumbnail + tombol putar; iframe youtube-nocookie bersandbox
+ * (allow-scripts allow-popups, tanpa allow-same-origin) baru disisipkan di
+ * sisi klien saat dipilih, sehingga skrip YouTube tidak berjalan sebelum
+ * pemilih benar-benar memutar video.
+ */
 function youTubeEmbed(id: string): string {
-  return `<div class="markdown-video"><iframe src="https://www.youtube-nocookie.com/embed/${id}" title="Video kandidat" loading="lazy" allowfullscreen sandbox="allow-scripts allow-popups" referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen"></iframe></div>`;
+  return `<div class="markdown-video"><button type="button" class="markdown-video-facade" data-video-id="${id}" aria-label="Putar video YouTube"><img src="${YOUTUBE_THUMB(id)}" alt="" loading="lazy" decoding="async" /><span class="markdown-video-play"><svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a.55 .55 0 0 0 .83 .47l11.062-6.861a.55 .55 0 0 0 0 -.938l-11.062 -6.86a.55 .55 0 0 0 -.83 .469z"/></svg></span></button></div>`;
 }
 
 function safeLink(label: string, href: string): string {

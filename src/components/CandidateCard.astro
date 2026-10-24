@@ -1,6 +1,7 @@
 ---
 import { IconArrowUpRight } from "@tabler/icons-astro";
 import { formatUnitPath } from "../lib/formatKomsat";
+import { candidatePhotoSrc } from "../lib/candidatePhoto";
 
 interface Props {
   headingLevel?: 2 | 3;
@@ -11,6 +12,7 @@ interface Props {
     komsat_path: string;
     short_intro: string | null;
     color: string | null;
+    photo_key?: string | null;
   };
 }
 
@@ -23,7 +25,7 @@ const unit = formatUnitPath(candidate.komsat_path) || "PPI Jepang";
   class="group flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-brand-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 >
   <div class="aspect-[3/4] w-full overflow-hidden bg-muted" data-candidate-portrait>
-    <img src="/placeholder-candidate.png" alt="" loading="lazy" decoding="async" width="600" height="800" class="block size-full object-cover" />
+    <img src={candidatePhotoSrc(candidate.photo_key)} alt="" loading="lazy" decoding="async" width="600" height="800" class="block size-full object-cover" />
   </div>
   <div class="flex min-h-11 w-full items-center justify-center px-4 py-2 text-lg font-semibold text-white" style={`background-color:${candidate.color || '#c8102e'}`} data-candidate-number>
     <span class="sr-only">Nomor urut </span>{candidate.number}
