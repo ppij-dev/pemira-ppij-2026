@@ -24,7 +24,7 @@ describe("operator bootstrap", () => {
   it("requires the complete runtime configuration", () => {
     expect(loadRuntimeConfig(validConfig)).not.toBeNull();
     expect(loadRuntimeConfig({ ...validConfig, APP_MASTER_KEY: "" })).toBeNull();
-    expect(loadRuntimeConfig({ ...validConfig, SITE_LOGO_PATH: "" })?.SITE_LOGO_PATH).toBe("/logo.svg");
+    expect(loadRuntimeConfig({ ...validConfig, SITE_LOGO_PATH: "" })?.SITE_LOGO_PATH).toBe("/ppij-logo.png");
   });
 
   it("creates one draft election, technical admin and initialized site; reruns safely", async () => {

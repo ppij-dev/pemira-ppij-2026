@@ -20,7 +20,7 @@
     "SITE_SCOPE": "/ppij/okayama",
     "SITE_BASE_URL": "https://pemilihan.example.org",
     "SITE_NAME": "Pemilihan PPI Jepang",
-    "SITE_LOGO_PATH": "/logo.svg"
+    "SITE_LOGO_PATH": "/ppij-logo.png"
   },
   // Placeholder values: the Deploy to Cloudflare button provisions the D1
   // database and rewrites the IDs in the cloned repository.

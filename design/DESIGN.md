@@ -20,6 +20,8 @@ The source of truth for executable tokens is [`src/styles/global.css`](../src/st
 
 The PPIJ logo retains its own red. The darker interface red is chosen for readable white text. Candidate colors are a separate election data palette and must remain distinct and white-text safe; do not replace them with the brand action color.
 
+The bundled default logo and favicon are `public/ppij-logo.png`, copied from the identity portal's `web/public/ppij-logo.png`. An operator may still set `SITE_LOGO_PATH` to a local chapter asset. The legacy `/logo.svg` setting resolves to the bundled PPIJ PNG for previously bootstrapped sites.
+
 Typography uses locally hosted **Plus Jakarta Sans** at 400, 500, 600 and 700. The stack falls back to **Noto Sans JP** and then system sans for Japanese or unsupported glyphs. The font files and OFL license are in `public/fonts/`. Use `font-semibold` for section headings and action labels, `font-bold` sparingly for page titles and key figures, and `font-mono` only for receipt codes, hashes, countdowns and comparable fixed-width data.
 
 Use the Tailwind spacing scale. Panels have `p-4` on phones and `sm:p-6` where space allows. Field groups use `gap-4` to `gap-6`; sections use `gap-6` to `gap-8`. The base corner radius is 10px; use the provided radius utilities rather than inventing a radius per page. Text and controls must remain usable at 320px and with long Indonesian names.
@@ -42,3 +44,7 @@ Use Bahasa Indonesia first, with a friendly, helpful and secure tone. Error copy
 ## Review checklist
 
 For a new or changed component, inspect 320px and 390px phones, 768px tablet and desktop; keyboard focus; long names; error and pending states; and contrast on the actual surface. A successful build alone does not confirm the visual result. Keep the 1.0.6 identity guideline as a reference; this file and `global.css` define how that direction is implemented in the election app.
+
+## Local preview
+
+Run `npm run dev` and open `/dev/design-system/`. The navigation links to the kitchen sink, voter journey, Admin Voting workflows, and results/proof page. These routes use fictional data and have no API calls or writes. They return a 404 presentation outside Astro development mode. Use them to inspect shared primitives and page compositions before changing product screens; current product screens remain the behavior source of truth.

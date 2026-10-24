@@ -1,4 +1,5 @@
-export const DEFAULT_LOGO_PATH = "/logo.svg";
+export const DEFAULT_LOGO_PATH = "/ppij-logo.png";
+const LEGACY_DEFAULT_LOGO_PATH = "/logo.svg";
 
 export const ALLOWED_LOGO_EXTENSIONS = [
   ".svg",
@@ -55,9 +56,11 @@ export function isValidLogoPath(path: unknown): path is string {
 }
 
 /**
- * Returns the validated same-origin logo path, or falls back to DEFAULT_LOGO_PATH ("/logo.svg").
+ * Returns the validated same-origin logo path. The old bundled placeholder path
+ * resolves to the PPIJ logo for already bootstrapped instances.
  */
 export function resolveSiteLogoPath(path: unknown): string {
+  if (path === LEGACY_DEFAULT_LOGO_PATH) return DEFAULT_LOGO_PATH;
   return isValidLogoPath(path) ? path : DEFAULT_LOGO_PATH;
 }
 

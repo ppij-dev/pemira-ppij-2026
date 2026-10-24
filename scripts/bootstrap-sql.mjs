@@ -8,7 +8,7 @@ export function buildBootstrapStatements({
   siteName,
   siteScope,
   siteBaseUrl,
-  siteLogoPath = "/logo.svg",
+  siteLogoPath = "/ppij-logo.png",
   now = new Date().toISOString(),
 }) {
   const qTitle = escapeSqlString(siteName);

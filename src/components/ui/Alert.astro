@@ -1,0 +1,18 @@
+---
+import { IconAlertCircle, IconCircleCheck, IconInfoCircle } from "@tabler/icons-astro";
+interface Props {
+  tone?: "info" | "success" | "warning" | "danger";
+  title: string;
+}
+const { tone = "info", title } = Astro.props;
+const classes = {
+  info: "border-border bg-card text-foreground",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  warning: "border-amber-200 bg-amber-50 text-amber-900",
+  danger: "border-red-200 bg-red-50 text-red-900",
+}[tone];
+---
+<div role={tone === "danger" ? "alert" : "status"} class:list={["flex gap-3 rounded-xl border p-4", classes]}>
+  {tone === "success" ? <IconCircleCheck size={20} stroke={1.8} class="mt-0.5 shrink-0" aria-hidden="true" /> : tone === "danger" || tone === "warning" ? <IconAlertCircle size={20} stroke={1.8} class="mt-0.5 shrink-0" aria-hidden="true" /> : <IconInfoCircle size={20} stroke={1.8} class="mt-0.5 shrink-0" aria-hidden="true" />}
+  <div><p class="font-semibold">{title}</p><div class="mt-1 text-sm leading-6"><slot /></div></div>
+</div>

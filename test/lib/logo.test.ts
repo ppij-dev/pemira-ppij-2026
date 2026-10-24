@@ -55,9 +55,9 @@ describe("isValidLogoPath", () => {
 });
 
 describe("resolveSiteLogoPath", () => {
-  it("mengembalikan path jika valid dan fallback /logo.svg jika tidak valid", () => {
+  it("mengembalikan path valid, memigrasikan placeholder lama, dan memakai logo PPIJ sebagai fallback", () => {
     expect(resolveSiteLogoPath("/ppi-okayama-logo.webp")).toBe("/ppi-okayama-logo.webp");
-    expect(resolveSiteLogoPath("/logo.svg")).toBe("/logo.svg");
+    expect(resolveSiteLogoPath("/logo.svg")).toBe("/ppij-logo.png");
     expect(resolveSiteLogoPath("//evil.com/x.png")).toBe(DEFAULT_LOGO_PATH);
     expect(resolveSiteLogoPath("https://x/y.png")).toBe(DEFAULT_LOGO_PATH);
     expect(resolveSiteLogoPath("javascript:")).toBe(DEFAULT_LOGO_PATH);
@@ -93,16 +93,16 @@ describe("getSiteLogo", () => {
       faviconType: "image/webp",
     });
     expect(getSiteLogo("/logo.svg")).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/ppij-logo.png",
+      faviconType: "image/png",
     });
     expect(getSiteLogo("//evil.com/x.png")).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/ppij-logo.png",
+      faviconType: "image/png",
     });
     expect(getSiteLogo(undefined)).toEqual({
-      src: "/logo.svg",
-      faviconType: "image/svg+xml",
+      src: "/ppij-logo.png",
+      faviconType: "image/png",
     });
   });
 });

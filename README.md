@@ -12,6 +12,8 @@ Built with **Hono + Astro** and designed to fork and self-host on **Cloudflare W
 
 **1.0** mendukung latihan (*rehearsal*) lokal secara penuh serta deployment produksi ke Cloudflare melalui tombol *Deploy to Cloudflare* atau impor repositori di dasbor dengan bootstrap operator jarak jauh (`--remote`). Fitur 1.0 mencakup autentikasi OIDC OneLogin, sinkronisasi daftar pemilih Service API, pemungutan suara rahasia, bukti suara berbasis hash Crockford, hasil agregat tingkat korda, dan jejak audit berantai append-only. **Fitur yang ditunda ke 1.1**: pengiriman email keluar (pengingat, undangan, bukti suara), wizard peramban `/setup`, unggah dan pemotongan logo lewat peramban, visualisasi peta wilayah dan rincian komsat, editor kandidat kaya (CKEditor/foto/video; memerlukan keputusan penyimpanan karena Cloudflare R2 membutuhkan paket berbayar), serta filter dan ekspor CSV audit.
 
+Panduan visual ada di [`design/DESIGN.md`](design/DESIGN.md). Saat `npm run dev` berjalan, buka `/dev/design-system/` untuk kitchen sink serta contoh alur pemilih, Admin Voting, hasil, dan bukti. Semua contoh memakai data fiktif, tidak memanggil API, dan tidak tersedia pada build produksi.
+
 ## Pemasangan ke Cloudflare (untuk Korda / Komsat)
 
 Terdapat dua jalur pemasangan ke Cloudflare:
@@ -97,10 +99,10 @@ Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** men
      perintah UPDATE pada D1. Hanya ketiga rahasia yang dikelola melalui dasbor rahasia Cloudflare.
    - Konfigurasi wajib: `ONELOGIN_ISSUER`, `ONELOGIN_CLIENT_ID`, `ONELOGIN_CLIENT_SECRET`,
      `SERVICE_API_URL`, `SERVICE_API_CLIENT_ID`, `SERVICE_API_CLIENT_SECRET`, `SITE_SCOPE`,
-     `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/logo.svg`).
+     `SITE_BASE_URL`, `SITE_NAME`, dan `APP_MASTER_KEY`. `SITE_LOGO_PATH` opsional (default `/ppij-logo.png`).
      - `SITE_SCOPE`: wajib berupa format jalur grup diawali `/` tanpa spasi (contoh: `/ppij/okayama` atau `/ppij`),
        sesuai dengan klaim `affiliation` pada token OneLogin.
-     - `SITE_LOGO_PATH`: jalur logo publik di aset statis lokal (default `/logo.svg`). Untuk deployment cabang Okayama,
+     - `SITE_LOGO_PATH`: jalur logo publik di aset statis lokal (default `/ppij-logo.png`). Untuk deployment cabang Okayama,
        atur `SITE_LOGO_PATH=/ppi-okayama-logo.webp`. Jalur wajib berupa path absolut satu-asal (diawali `/`, bukan `//`,
        tanpa skema, tanpa spasi, ekstensi `.svg`, `.png`, `.webp`, `.jpg`, atau `.jpeg`). Tipe favicon diturunkan otomatis
        dari ekstensi. Seperti `SITE_BASE_URL` dan `SITE_SCOPE`, `system_config` di D1 adalah sumber kebenaran saat runtime.
@@ -126,7 +128,7 @@ Setelah aplikasi berhasil ter-deploy ke Cloudflare, operator masih **wajib** men
    Untuk D1 jarak jauh (Cloudflare / produksi):
    Prasyarat: operator telah masuk ke akun Cloudflare (`npx wrangler login`) dan nama basis data D1 diketahui (mis. dari `wrangler.jsonc`).
 
-   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika ada di direktori kerja. Jika `.dev.vars` memuat nilai lokal (misal `SITE_BASE_URL=http://localhost:4321`), nilai lokal tersebut akan tertulis ke tabel `system_config` pada D1 produksi! Nilai produksi harus diekspor di shell environment (environment variable shell mengesampingkan `.dev.vars`) dan harus sama persis dengan `vars` di `wrangler.jsonc`. Untuk deployment cabang Okayama, operator juga wajib mengekspor `SITE_LOGO_PATH=/ppi-okayama-logo.webp` (jika tidak diekspor, skrip membaca `.dev.vars` lalu environment dan menggunakan fallback default `/logo.svg`). Selalu jalankan dengan `--dry-run` terlebih dahulu untuk memeriksa baris `site_base_url`, `site_scope`, dan `site_logo_path` sebelum eksekusi ke D1 produksi.
+   > **Peringatan penting untuk bootstrap jarak jauh:** Skrip CLI secara otomatis membaca berkas `.dev.vars` jika ada di direktori kerja. Jika `.dev.vars` memuat nilai lokal (misal `SITE_BASE_URL=http://localhost:4321`), nilai lokal tersebut akan tertulis ke tabel `system_config` pada D1 produksi! Nilai produksi harus diekspor di shell environment (environment variable shell mengesampingkan `.dev.vars`) dan harus sama persis dengan `vars` di `wrangler.jsonc`. Untuk deployment cabang Okayama, operator juga wajib mengekspor `SITE_LOGO_PATH=/ppi-okayama-logo.webp` (jika tidak diekspor, skrip membaca `.dev.vars` lalu environment dan menggunakan fallback default `/ppij-logo.png`). Selalu jalankan dengan `--dry-run` terlebih dahulu untuk memeriksa baris `site_base_url`, `site_scope`, dan `site_logo_path` sebelum eksekusi ke D1 produksi.
 
    ```bash
    npm run bootstrap -- --remote --database <nama_d1> <member_id>
@@ -199,7 +201,7 @@ Ketika repositori hulu (`upstream`) merilis perbaikan atau fitur baru, cabang da
 - **Dasbor panitia**: hitung mundur, perolehan suara keseluruhan, tabel hasil tingkat korda (korda dengan kurang dari 10 suara tidak dirinci), statistik pemilih berbasis daftar beku, dan cek kecocokan jumlah suara. Data diperbarui dengan tombol *Muat Ulang Data*.
 - **Audit berantai hash**: setiap aksi Admin Voting, pemilih, dan sistem tercatat append-only; integritas rantai bisa diperiksa, dan hash audit saat penutupan ditampilkan di papan bukti.
 
-- **Foto kandidat dan logo sebagai aset statis**: Pada versi 1.0, seluruh kandidat menampilkan gambar placeholder bersama `/placeholder-candidate.png` (tidak ada kolom atau input foto di antarmuka web maupun API kandidat). Foto per-kandidat ditunda ke versi 1.1 (memerlukan kolom foto yang terhubung serta keputusan penyimpanan media kaya karena Cloudflare R2 memerlukan akun/paket berbayar). Hanya logo situs yang dapat dikonfigurasi melalui variabel `SITE_LOGO_PATH` menggunakan berkas di bawah direktori `public/` dengan jalur absolut satu-asal diawali `/` (default: `/logo.svg`, atau logo cabang seperti `/ppi-okayama-logo.webp`).
+- **Foto kandidat dan logo sebagai aset statis**: Pada versi 1.0, seluruh kandidat menampilkan gambar placeholder bersama `/placeholder-candidate.png` (tidak ada kolom atau input foto di antarmuka web maupun API kandidat). Foto per-kandidat ditunda ke versi 1.1 (memerlukan kolom foto yang terhubung serta keputusan penyimpanan media kaya karena Cloudflare R2 memerlukan akun/paket berbayar). Hanya logo situs yang dapat dikonfigurasi melalui variabel `SITE_LOGO_PATH` menggunakan berkas di bawah direktori `public/` dengan jalur absolut satu-asal diawali `/` (default: `/ppij-logo.png`, atau logo cabang seperti `/ppi-okayama-logo.webp`).
 
 Ditunda ke 1.1: email keluar (pengingat, undangan, bukti suara), wizard `/setup`, editor kandidat kaya dan unggah media (CKEditor/foto/video; membutuhkan keputusan penyimpanan terpisah karena Cloudflare R2 memerlukan akun/paket berbayar), peta wilayah + rincian komsat, unggah/krop logo lewat peramban, filter & ekspor CSV audit.
 
