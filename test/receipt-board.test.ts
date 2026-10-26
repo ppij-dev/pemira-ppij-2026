@@ -9,7 +9,7 @@ import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
 import { boardRoutes, ensureClosingSnapshot } from "../src/server/voting/board";
 import { closeEarly } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
-import { encodeReceipt, decodeReceipt, hashReceipt } from "../src/server/voting/receipt";
+import { encodeReceipt, decodeReceipt, generateReceipt, hashReceipt, formatReceiptCode } from "../src/server/voting/receipt";
 import type { Bindings } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
@@ -27,17 +27,50 @@ beforeEach(async () => {
 });
 
 describe("receipt board", () => {
-  it("round trips 128-bit receipt encoding and lookup hides unknown codes", async () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
+  it("round trips 80-bit receipt encoding and checks hashes without sending codes", async () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
     const code = encodeReceipt(bytes);
-    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-    expect(decodeReceipt(code)).toEqual(bytes);
-    const missing = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }, bindings);
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{16}$/);
+    expect(decodeReceipt(formatReceiptCode(code))).toEqual(bytes);
+    expect(formatReceiptCode(code)).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    const receipt_hash = await hashReceipt(code);
+    const missing = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ receipt_hash }) }, bindings);
     expect(await missing.json()).toEqual({ found: false });
     await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path) VALUES (1,'m',1,'A','A','x')").run();
     await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES ('b',1,1,'x',?,0)").bind(await hashReceipt(code)).run();
-    const found = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }, bindings);
+    const found = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ receipt_hash }) }, bindings);
     expect(await found.json()).toEqual({ found: true });
+    const rawCode = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) }, bindings);
+    expect(rawCode.status).toBe(400);
+  });
+
+  it("uses all 80 bits and emits exactly four groups of four", async () => {
+    expect(encodeReceipt(new Uint8Array(10))).toBe("0000000000000000");
+    expect(encodeReceipt(new Uint8Array(10).fill(255))).toBe("ZZZZZZZZZZZZZZZZ");
+    const example = "0123-4567-89AB-CDEF";
+    expect(decodeReceipt(example)).toHaveLength(10);
+    expect(formatReceiptCode(encodeReceipt(decodeReceipt(example)))).toBe(example);
+    expect(await hashReceipt("o123 4567_89ab.cdef")).toBe(await hashReceipt(example));
+    const generated = await generateReceipt();
+    expect(generated.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(generated.hash).toBe(await hashReceipt(generated.code));
+    expect(() => encodeReceipt(new Uint8Array(16))).toThrow("10 byte");
+    expect(() => decodeReceipt("Z".repeat(15))).toThrow("Panjang");
+    expect(() => decodeReceipt("U".repeat(16))).toThrow("Karakter");
+  });
+
+  it("verifies legacy receipts using the complete original canonical code", async () => {
+    const legacy = "Z".repeat(25) + "W";
+    expect(decodeReceipt(formatReceiptCode(legacy))).toEqual(new Uint8Array(16).fill(255));
+    expect(() => decodeReceipt("Z".repeat(26))).toThrow("Padding");
+    const expectedDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacy));
+    const expectedHash = Array.from(new Uint8Array(expectedDigest), byte => byte.toString(16).padStart(2, "0")).join("");
+    expect(await hashReceipt(formatReceiptCode(legacy).toLowerCase())).toBe(expectedHash);
+    expect(await hashReceipt(legacy.slice(0, 16))).not.toBe(expectedHash);
+    await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path) VALUES (1,'m',1,'A','A','x')").run();
+    await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES ('legacy',1,1,'x',?,0)").bind(expectedHash).run();
+    const response = await app.request("/api/votes/receipt-check", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({receipt_hash:await hashReceipt(formatReceiptCode(legacy))}) }, bindings);
+    expect(await response.json()).toEqual({found:true});
   });
 
   it("rejects early board reads, then persists one scheduled snapshot and verifies its audit chain", async () => {
@@ -88,10 +121,10 @@ describe("receipt board", () => {
 
   it("limits receipt checks to 30 per IP per minute", async () => {
     for (let i = 0; i < 30; i++) {
-      const response = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json", "CF-Connecting-IP": "198.51.100.1" }, body: JSON.stringify({ code: "invalid" }) }, bindings);
+      const response = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json", "CF-Connecting-IP": "198.51.100.1" }, body: JSON.stringify({ receipt_hash: "0".repeat(64) }) }, bindings);
       expect(response.status).toBe(200);
     }
-    const limited = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json", "CF-Connecting-IP": "198.51.100.1" }, body: JSON.stringify({ code: "invalid" }) }, bindings);
+    const limited = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json", "CF-Connecting-IP": "198.51.100.1" }, body: JSON.stringify({ receipt_hash: "0".repeat(64) }) }, bindings);
     expect(limited.status).toBe(429);
   });
 });
