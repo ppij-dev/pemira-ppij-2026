@@ -2,11 +2,15 @@
 import "../styles/global.css";
 import { env } from "cloudflare:workers";
 import { getSiteLogo } from "../server/lib/logo";
-import { SESSION_COOKIE, isAdminPageAuthorized, type AdminBindings } from "../pages/admin/admin-auth";
-const cookie = Astro.cookies.get(SESSION_COOKIE)?.value;
+import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
+const cookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
 const bindings = env as unknown as AdminBindings;
+// Tamu tanpa sesi sudah dialihkan middleware ke One Login; halaman ini hanya
+// menangani sesi yang masuk tetapi bukan Admin Voting (403).
+const adminSession = await openAdminSession(cookie, bindings);
 const authorized = await isAdminPageAuthorized(cookie, bindings);
 if (!authorized) Astro.response.status = 403;
+const accountInitial = (adminSession?.name ?? "").trim().charAt(0).toUpperCase() || "?";
 const title = Astro.props.title ?? "Admin Voting";
 let configuredLogo: string | undefined;
 if (authorized && bindings.DB) {
@@ -40,6 +44,7 @@ const nav = [
     <header class="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <a href="/admin/dasbor" class="inline-flex min-h-11 items-center gap-3 rounded-md font-semibold tracking-tight text-foreground focus-visible:outline-2 focus-visible:outline-ring"><img src={logo.src} alt="" class="h-9 w-auto max-w-14 object-contain" /><span><span class="block text-xs font-semibold uppercase tracking-wider text-primary">Admin Voting</span><span>PPIJ Pemilu</span></span></a>
+        {authorized && adminSession && <a href="/akun" aria-label={`Akun: ${adminSession.name}`} class="flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-card font-semibold text-foreground transition hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">{accountInitial}</a>}
         <a href="/" class="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm font-semibold text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Mode Pemilih</a>
       </div>
       <nav aria-label="Navigasi admin" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2 sm:px-6">

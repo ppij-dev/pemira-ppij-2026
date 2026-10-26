@@ -1,8 +1,9 @@
 ---
 import "../styles/global.css";
-import { IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
+import { IconHome2, IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import { getSiteLogo } from "../server/lib/logo";
+import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
 
 interface Props {
   title: string;
@@ -10,6 +11,8 @@ interface Props {
   siteName?: string;
   siteLogoPath?: string;
   showHasil?: boolean;
+  /** "white" mengganti kanvas halaman dari abu-abu hangat menjadi putih. */
+  canvas?: "default" | "white";
 }
 
 const {
@@ -18,6 +21,7 @@ const {
   siteName: providedSiteName,
   siteLogoPath,
   showHasil,
+  canvas = "default",
 } = Astro.props;
 const db = (env as unknown as { DB?: D1Database }).DB;
 let siteName = providedSiteName;
@@ -41,6 +45,13 @@ if (rawLogoPath === undefined && db) {
   }
 }
 const logo = getSiteLogo(rawLogoPath);
+const rawSessionCookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
+const session: SessionData | null =
+  rawSessionCookie && (env as unknown as { APP_MASTER_KEY?: string }).APP_MASTER_KEY
+    ? await openSession(rawSessionCookie, ((env as unknown as { APP_MASTER_KEY?: string }).APP_MASTER_KEY)!)
+    : null;
+const accountInitial = (session?.name ?? "").trim().charAt(0).toUpperCase() || "?";
+const hasMasukParam = Astro.url.searchParams.has("masuk");
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
 const path = Astro.url.pathname;
@@ -57,28 +68,32 @@ const path = Astro.url.pathname;
     <link rel="icon" href={logo.src} type={logo.faviconType} />
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
-  <body class="min-h-dvh bg-background text-foreground antialiased">
+  <body class:list={["min-h-dvh text-foreground antialiased", canvas === "white" ? "bg-white" : "bg-background"]}>
     <header class="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
       <div class="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <a href="/" aria-label={`${siteName} · Beranda`} class="inline-flex min-h-11 min-w-0 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-ring">
           <img src={logo.src} alt="" class="h-10 w-auto max-w-16 object-contain" />
           <span class="min-w-0 truncate text-base font-semibold tracking-tight sm:text-lg">{siteName}</span>
         </a>
-        <span class="shrink-0 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">Pemilihan</span>
+        {session && <a href="/akun" aria-label={`Akun: ${session.name}`} class="flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-card font-semibold text-foreground transition hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">{accountInitial}</a>}
       </div>
     </header>
     <main class="mx-auto w-full max-w-3xl px-4 py-8 pb-28 sm:px-6 sm:py-10 sm:pb-32">
+      {hasMasukParam && <script is:inline>try{const u=new URL(location.href);if(u.searchParams.has('masuk')){u.searchParams.delete('masuk');history.replaceState(null,'',u.pathname+u.search+u.hash)}}catch{}</script>}
       <slot />
     </main>
     <nav aria-label="Navigasi pemilih" class="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-20px_rgba(28,31,35,0.4)] backdrop-blur">
-      <div class={`mx-auto grid w-full max-w-3xl ${showResultsTab ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div class={`mx-auto grid w-full max-w-3xl ${showResultsTab ? "grid-cols-5" : "grid-cols-4"}`}>
+        <a href="/" aria-current={path === "/" || path === "/papan-bukti" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/" || path === "/papan-bukti" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
+          <IconHome2 size={21} stroke={1.8} aria-hidden="true" /><span>Beranda</span>
+        </a>
         <a href="/kandidat" aria-current={path.startsWith("/kandidat") ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path.startsWith("/kandidat") ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconUsers size={21} stroke={1.8} aria-hidden="true" /><span>Kandidat</span>
         </a>
         <a href="/pilih-suara" aria-current={path === "/pilih-suara" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/pilih-suara" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconSpeakerphone size={21} stroke={1.8} aria-hidden="true" /><span>Pilih Suara</span>
         </a>
-        <a href="/surat-suara" aria-current={path === "/surat-suara" || path === "/papan-bukti" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/surat-suara" || path === "/papan-bukti" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
+        <a href="/surat-suara" aria-current={path === "/surat-suara" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/surat-suara" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}>
           <IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Bukti Suara</span>
         </a>
         {showResultsTab && <a href="/hasil" aria-current={path === "/hasil" ? "page" : undefined} class:list={["flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", path === "/hasil" ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:text-primary"]}><IconRosetteDiscountCheck size={21} stroke={1.8} aria-hidden="true" /><span>Hasil</span></a>}

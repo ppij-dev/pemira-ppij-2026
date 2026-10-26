@@ -1,15 +1,17 @@
 ---
-import { IconArrowLeft } from "@tabler/icons-astro";
+import { IconArrowLeft, IconBoxMultiple } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import { stage } from "../../server/lib/stage";
 import { formatKomsatPath } from "../../lib/formatKomsat";
+import { renderMarkdown } from "../../server/lib/markdown";
+import { candidatePhotoSrc, PLACEHOLDER_CANDIDATE_PHOTO } from "../../lib/candidatePhoto";
 
 const slug = Astro.params.slug ?? "";
 const match = /^(\d+)-(.+)$/.exec(slug);
 const db = (env as unknown as { DB?: D1Database }).DB;
 const candidate = match
-  ? await db?.prepare("SELECT number,name,nickname,komsat_path,description,color FROM candidates WHERE number=? AND nickname=?")
+  ? await db?.prepare("SELECT number,name,nickname,komsat_path,description,color,photo_key FROM candidates WHERE number=? AND nickname=?")
       .bind(Number(match[1]), decodeURIComponent(match[2])).first<{
         number: number;
         name: string;
@@ -17,6 +19,7 @@ const candidate = match
         komsat_path: string;
         description: string | null;
         color: string | null;
+        photo_key: string | null;
       }>()
   : null;
 const election = await db?.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<any>();
@@ -28,10 +31,12 @@ if (election?.opens_at && election?.closes_at) {
     isOpen = false;
   }
 }
-const paragraphs = candidate?.description?.trim().split(/\n\s*\n/).filter(Boolean) ?? [];
+const content = candidate?.description?.trim() ? renderMarkdown(candidate.description) : "";
+const photoSrc = candidatePhotoSrc(candidate?.photo_key);
+const hasCustomPhoto = photoSrc !== PLACEHOLDER_CANDIDATE_PHOTO;
 ---
 
-<Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"}>
+<Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"} canvas="white">
   <a href="/kandidat" class="mb-8 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
     <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" /> Semua Kandidat
   </a>
@@ -39,8 +44,14 @@ const paragraphs = candidate?.description?.trim().split(/\n\s*\n/).filter(Boolea
   {candidate ? <article>
     <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-x-8">
       <figure class="col-start-1 row-start-1 sm:col-start-2 sm:row-span-2">
-        <img src="/placeholder-candidate.png" alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
-        <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">Foto belum tersedia</figcaption>
+        {hasCustomPhoto ? (
+          <button type="button" id="photo-zoom" aria-label="Perbesar foto kandidat" class="block w-full cursor-zoom-in overflow-hidden rounded-md bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+            <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full object-cover" />
+          </button>
+        ) : (
+          <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
+        )}
+        <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">{hasCustomPhoto ? "Tap untuk memperbesar" : "Foto belum tersedia"}</figcaption>
       </figure>
       <header class="col-start-2 row-start-1 min-w-0 sm:col-start-1">
         <span class="inline-flex size-8 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
@@ -50,18 +61,31 @@ const paragraphs = candidate?.description?.trim().split(/\n\s*\n/).filter(Boolea
       </header>
       <section aria-labelledby="profile-heading" class="col-span-2 row-start-2 mt-8 border-t border-border pt-7 sm:col-span-1 sm:col-start-1 sm:mt-6 sm:pt-6">
         <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>
-        {paragraphs.length
-          ? <div class="mt-4 max-w-[70ch] space-y-5 text-base leading-8 text-foreground sm:text-lg sm:leading-9">{paragraphs.map((paragraph) => <p class="whitespace-pre-line break-words">{paragraph}</p>)}</div>
+        {content
+          ? <div class="markdown mt-4 max-w-[70ch] text-base leading-8 text-foreground sm:text-lg sm:leading-9" set:html={content} />
           : <p class="mt-4 text-muted-foreground">Deskripsi kandidat belum tersedia.</p>}
       </section>
     </div>
 
     {isOpen && <footer class="mt-9 border-t border-border pt-6 sm:pt-8">
-      <p class="text-sm text-muted-foreground">Sudah mengenal kandidat ini? Periksa kembali pilihan Anda sebelum mengirim suara.</p>
-      <a href="/pilih-suara" class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Pilih Sekarang</a>
+      <a href="/pilih-suara" class="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Pilih Sekarang</a>
+      <p class="mt-2 text-xs text-muted-foreground">Satu suara per anggota, dijaga kerahasiaannya.</p>
     </footer>}
   </article> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm">
     <h1 class="text-2xl font-bold">Kandidat tidak ditemukan</h1>
     <p class="mt-2 text-muted-foreground">Data kandidat yang diminta tidak tersedia.</p>
   </section>}
+
+  <div id="photo-lightbox" hidden role="dialog" aria-modal="true" aria-label="Foto kandidat diperbesar" class="fixed inset-0 z-40 flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm">
+    <button type="button" id="lightbox-close" aria-label="Tutup foto" class="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full bg-card text-foreground shadow-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></svg>
+    </button>
+    <img id="lightbox-img" src={photoSrc} alt="" class="max-h-[88dvh] max-w-full rounded-lg object-contain shadow-2xl" />
+  </div>
+
+  <script is:inline>
+document.addEventListener('click',(event)=>{const facade=event.target instanceof Element?event.target.closest('.markdown-video-facade'):null;if(!facade)return;const id=facade.dataset.videoId;if(!id)return;const iframe=document.createElement('iframe');iframe.src=`https://www.youtube.com/embed/${id}?autoplay=1`;iframe.title='Video kandidat';iframe.allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen';iframe.setAttribute('referrerpolicy','strict-origin-when-cross-origin');iframe.setAttribute('allowfullscreen','');facade.replaceWith(iframe)});
+const zoom=document.querySelector('#photo-zoom'),lightbox=document.querySelector('#photo-lightbox'),lightboxClose=document.querySelector('#lightbox-close');
+if(zoom&&lightbox){const open=()=>{lightbox.hidden=false;document.body.style.overflow='hidden';lightboxClose.focus()};const close=()=>{lightbox.hidden=true;document.body.style.overflow='';zoom.focus()};zoom.addEventListener('click',open);lightboxClose.addEventListener('click',close);lightbox.addEventListener('click',e=>{if(e.target===lightbox)close()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lightbox.hidden)close()})}
+</script>
 </Base>
