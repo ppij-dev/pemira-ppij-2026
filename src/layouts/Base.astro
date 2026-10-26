@@ -52,12 +52,9 @@ const session: SessionData | null =
     : null;
 const accountInitial = (session?.name ?? "").trim().charAt(0).toUpperCase() || "?";
 const hasMasukParam = Astro.url.searchParams.has("masuk");
-// Percobaan masuk yang tidak menghasilkan sesi = sesi/cookie tertahan.
-const loginRetry = !session && hasMasukParam;
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
 const path = Astro.url.pathname;
-const retryHref = `/api/auth/login?prompt=login&return_to=${encodeURIComponent(path)}`;
 ---
 
 <!doctype html>
@@ -82,11 +79,6 @@ const retryHref = `/api/auth/login?prompt=login&return_to=${encodeURIComponent(p
       </div>
     </header>
     <main class="mx-auto w-full max-w-3xl px-4 py-8 pb-28 sm:px-6 sm:py-10 sm:pb-32">
-      {loginRetry && <section class="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900" role="alert">
-        <h2 class="text-base font-semibold">Sesi masuk tidak tersimpan</h2>
-        <p class="mt-2 text-sm leading-6">Proses masuk belum berhasil menyimpan sesi di peramban ini. Tekan tombol di bawah untuk memulai sesi baru di One Login. Bila masih berulang di Chrome, periksa izin cookie pada ikon di kiri bilah alamat, hapus data situs untuk rentang waktu <strong>Semua waktu (All time)</strong> termasuk <code>sso.ppijepang.app</code>, atau gunakan jendela penjelajahan pribadi.</p>
-        <a href={retryHref} class="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Coba masuk lagi</a>
-      </section>}
       {hasMasukParam && <script is:inline>try{const u=new URL(location.href);if(u.searchParams.has('masuk')){u.searchParams.delete('masuk');history.replaceState(null,'',u.pathname+u.search+u.hash)}}catch{}</script>}
       <slot />
     </main>

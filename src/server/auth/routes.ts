@@ -10,6 +10,9 @@ import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Bindings } from "../app";
 import {
+  AUTH_STAGE_COOKIE,
+  AUTH_STAGE_MAX_AGE,
+  AUTH_STAGE_PATH,
   AUTH_TX_COOKIE,
   AUTH_TX_MAX_AGE,
   AUTH_TX_PATH,
@@ -21,8 +24,10 @@ import {
   openAuthTxByState,
   openSession,
   openSessionFromHeader,
+  sealAuthStage,
   sealAuthTx,
   sealSession,
+  type AuthFailureCategory,
   type AuthTxData,
   type SessionData,
 } from "./session";
@@ -93,16 +98,39 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
       503,
     );
 
-  const unreachable = (c: Context<AuthEnv>, code: string) =>
-    c.json({ error: code, message: UNREACHABLE_MESSAGE }, 502);
+  /** Tandai tahap gagal pada browser, lalu arahkan ke /akun untuk kartu pemulihan. */
+  const markFailedAndRedirect = async (
+    c: Context<AuthEnv>,
+    runtime: AuthRuntime,
+    category: AuthFailureCategory,
+    returnTo: string,
+  ) => {
+    const sealed = await sealAuthStage(
+      { stage: "failed", category, returnTo: sanitizeReturnTo(returnTo), createdAt: Math.floor(Date.now() / 1000) },
+      runtime.masterKey,
+    );
+    setCookie(c, AUTH_STAGE_COOKIE, sealed, cookieOptions(AUTH_STAGE_PATH, AUTH_STAGE_MAX_AGE));
+    return c.redirect("/akun?masuk=ulang");
+  };
+
+  const unreachable = async (c: Context<AuthEnv>, runtime: AuthRuntime, code: string) => {
+    // Peramban mendapat kartu pemulihan yang bisa dibaca; klien API tetap menerima JSON.
+    if ((c.req.header("accept") ?? "").includes("text/html")) {
+      c.header("Cache-Control", "no-store");
+      return markFailedAndRedirect(c, runtime, "one_login_tidak_terjangkau", "/akun");
+    }
+    return c.json({ error: code, message: UNREACHABLE_MESSAGE }, 502);
+  };
 
   const badRequest = (c: Context<AuthEnv>, error: string, message: string) => c.json({ error, message }, 400);
 
   /**
    * Untuk navigasi peramban (Accept: text/html), kegagalan callback tidak boleh
    * meninggalkan pengguna di halaman JSON mentah: bila sesi sah sudah ada
-   * (mis. callback ganda/tombol Kembali di Chrome), arahkan ke halaman tujuan;
-   * bila belum masuk, arahkan ke /akun?masuk=ulang agar muncul panduan masuk ulang.
+   * (mis. callback ganda/tombol Kembali di Chrome), arahkan ke halaman tujuan
+   * tanpa mengubah penanda tahap; bila belum masuk, catat kategori kegagalan
+   * pada cookie tahap dan arahkan ke /akun agar kartu pemulihan mengklasifikasi
+   * sendiri (recover-login-session), bukan mengklaim penyebab peramban.
    */
   const recoverBrowserOrBadRequest = async (
     c: Context<AuthEnv>,
@@ -110,6 +138,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
     fallbackReturnTo: string | undefined,
     error: string,
     message: string,
+    category: AuthFailureCategory,
   ) => {
     const acceptsHtml = (c.req.header("accept") ?? "").includes("text/html");
     if (acceptsHtml) {
@@ -119,7 +148,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         const cleanDest = (fallbackReturnTo ?? "/").replace(/([?&])masuk=ulang(&|$)/, (_, p1, p2) => (p2 ? p1 : ""));
         return c.redirect(cleanDest || "/");
       }
-      return c.redirect("/akun?masuk=ulang");
+      return markFailedAndRedirect(c, runtime, category, fallbackReturnTo ?? "/akun");
     }
     return badRequest(c, error, message);
   };
@@ -145,7 +174,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
     try {
       discovery = await fetchDiscovery(runtime.config.issuer, doFetch);
     } catch (err) {
-      return unreachable(c, err instanceof OidcError ? err.code : "one_login_tidak_terjangkau");
+      return unreachable(c, runtime, err instanceof OidcError ? err.code : "one_login_tidak_terjangkau");
     }
 
     const createdAt = Math.floor(Date.now() / 1000);
@@ -192,6 +221,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         undefined,
         "masuk_dibatalkan",
         "Proses masuk di One Login tidak selesai. Silakan coba masuk kembali.",
+        "dibatalkan",
       );
     }
 
@@ -207,6 +237,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         undefined,
         "state_tidak_valid",
         "Permintaan balasan tidak cocok dengan permintaan masuk Anda, atau sudah kedaluwarsa. Silakan coba masuk lagi.",
+        "state",
       );
     }
     const code = c.req.query("code");
@@ -217,6 +248,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         tx.returnTo,
         "kode_tidak_ada",
         "Kode otorisasi dari One Login tidak ditemukan. Silakan coba masuk lagi.",
+        "kode",
       );
     }
 
@@ -224,7 +256,7 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
     try {
       discovery = await fetchDiscovery(runtime.config.issuer, doFetch);
     } catch (err) {
-      return unreachable(c, err instanceof OidcError ? err.code : "one_login_tidak_terjangkau");
+      return unreachable(c, runtime, err instanceof OidcError ? err.code : "one_login_tidak_terjangkau");
     }
 
     let session: SessionData;
@@ -256,10 +288,22 @@ export function createAuthRoutes(deps: AuthDeps = {}): Hono<AuthEnv> {
         tx.returnTo,
         "verifikasi_gagal",
         "Kami tidak dapat memverifikasi tanda masuk Anda dari One Login. Silakan coba masuk lagi.",
+        "verifikasi",
       );
     }
 
     setCookie(c, SESSION_COOKIE, await sealSession(session, runtime.masterKey), cookieOptions(SESSION_PATH, SESSION_MAX_AGE));
+    // Penanda tahap "ok": /akun memakainya untuk membedakan "sesi belum aktif"
+    // dari callback yang gagal, bila peramban tidak mengembalikan sesi.
+    setCookie(
+      c,
+      AUTH_STAGE_COOKIE,
+      await sealAuthStage(
+        { stage: "ok", category: null, returnTo: sanitizeReturnTo(tx.returnTo), createdAt: now },
+        runtime.masterKey,
+      ),
+      cookieOptions(AUTH_STAGE_PATH, AUTH_STAGE_MAX_AGE),
+    );
     deleteCookie(c, AUTH_TX_COOKIE, { path: AUTH_TX_PATH });
     c.header("Cache-Control", "no-store");
     return c.redirect(tx.returnTo);
