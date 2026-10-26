@@ -239,3 +239,56 @@ export async function normalizeAuthCookies(request: Request, masterKey: string |
   }
   return nextReq;
 }
+
+/**
+ * Penanda tahap percobaan masuk untuk kartu pemulihan di /akun: "failed"
+ * saat callback belum menghasilkan sesi, "ok" saat sesi sudah tersegel
+ * tetapi permintaan berikutnya belum tentu bisa membacanya. Cookie pendek
+ * (10 menit) yang disegel dengan kunci master — bukan parameter URL.
+ */
+export const AUTH_STAGE_COOKIE = "ppij_auth_stage";
+export const AUTH_STAGE_PATH = "/";
+/** Cukup untuk satu putaran redirect tujuan → /akun di perangkat lambat. */
+export const AUTH_STAGE_MAX_AGE = 600;
+
+/** Kategori kegagalan masuk yang terbatas: tanpa data pribadi, tanpa detail internal. */
+export type AuthFailureCategory =
+  | "dibatalkan"
+  | "state"
+  | "kode"
+  | "verifikasi"
+  | "one_login_tidak_terjangkau";
+
+export interface AuthStageData {
+  stage: "failed" | "ok";
+  category: AuthFailureCategory | null;
+  /** Jalur relatif dalam situs untuk tombol coba lagi. */
+  returnTo: string;
+  createdAt: number;
+}
+
+function isAuthStageData(value: unknown): value is AuthStageData {
+  if (!isPlainObject(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.stage === "failed" || v.stage === "ok") &&
+    (v.category === null ||
+      v.category === "dibatalkan" ||
+      v.category === "state" ||
+      v.category === "kode" ||
+      v.category === "verifikasi" ||
+      v.category === "one_login_tidak_terjangkau") &&
+    typeof v.returnTo === "string" &&
+    typeof v.createdAt === "number" &&
+    Number.isFinite(v.createdAt)
+  );
+}
+
+export function sealAuthStage(data: AuthStageData, masterKey: string): Promise<string> {
+  return seal(data, masterKey);
+}
+
+export async function openAuthStage(cookie: string | undefined, masterKey: string): Promise<AuthStageData | null> {
+  if (!cookie) return null;
+  return unseal(cookie, masterKey, isAuthStageData);
+}

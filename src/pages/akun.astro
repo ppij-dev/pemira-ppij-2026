@@ -2,7 +2,8 @@
 import { env } from "cloudflare:workers";
 import { IconLogout, IconRosetteDiscountCheck, IconShieldCheck, IconSpeakerphone, IconUserCircle } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
-import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
+import { AUTH_STAGE_COOKIE, AUTH_STAGE_PATH, SESSION_COOKIE, openAuthStage, openSession, type SessionData } from "../server/auth/session";
+import { classifyRecovery, recoveryCopy, helpCode } from "../server/auth/recovery";
 import { isAdminPageAuthorized, type AdminBindings } from "./admin/admin-auth";
 import { getVoteMe } from "../server/voting/vote";
 import { stage as getStage, type Stage } from "../server/lib/stage";
@@ -12,6 +13,19 @@ import type { Bindings } from "../server/app";
 const bindings = env as unknown as Bindings;
 const raw = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
 const session: SessionData | null = raw && bindings.APP_MASTER_KEY ? await openSession(raw, bindings.APP_MASTER_KEY) : null;
+
+// Pemulihan masuk (recover-login-session): satu kartu dengan satu aksi coba
+// lagi, diklasifikasi dari cookie tahap server — bukan dari parameter URL.
+const authStage = bindings.APP_MASTER_KEY ? await openAuthStage(Astro.cookies.get(AUTH_STAGE_COOKIE)?.value, bindings.APP_MASTER_KEY) : null;
+const recovery = session ? null : classifyRecovery(authStage);
+const recoveryInfo = recovery ? recoveryCopy(recovery) : null;
+const stageReturnTo = authStage && authStage.returnTo.startsWith("/") ? authStage.returnTo : "/akun";
+const retryHref = `/api/auth/login?prompt=login&return_to=${encodeURIComponent(stageReturnTo)}`;
+const helpCodeValue = recovery && authStage && bindings.APP_MASTER_KEY
+  ? await helpCode(authStage.category, bindings.APP_MASTER_KEY, Math.floor(Date.now() / 1000))
+  : null;
+if (session && authStage) Astro.cookies.delete(AUTH_STAGE_COOKIE, { path: AUTH_STAGE_PATH });
+Astro.response.headers.set("Cache-Control", "no-store");
 
 let isAdmin = false;
 let votedAt: string | null = null;
@@ -33,7 +47,14 @@ const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone
 <Base title="Akun · PPIJ Pemilu">
   <div class="mb-6"><p class="text-sm font-semibold text-primary">AKUN</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Akun</h1><p class="mt-2 text-muted-foreground">Sesi, status pemilihan, dan aksi akun Anda di situs ini.</p></div>
 
-  {!session ? <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+  {!session && recovery && recoveryInfo ? <section class="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6 text-amber-900" role="alert">
+    <h2 class="text-xl font-semibold">{recoveryInfo.title}</h2>
+    <p class="mt-2 text-sm leading-6">{recoveryInfo.body}</p>
+    <a href={retryHref} class="mt-5 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">{recoveryInfo.retryLabel}</a>
+    {recovery.kind === "session_unavailable" && <p class="mt-4 text-xs leading-5 text-amber-900/80">Bila berulang, periksa apakah peramban memblokir cookie untuk situs ini, atau coba jendela penjelajahan pribadi.</p>}
+    {helpCodeValue && <p class="mt-2 text-xs leading-5 text-amber-900/80">Masih belum berhasil? Laporkan kode bantuan <strong class="font-mono">{helpCodeValue}</strong> ke panitia pemilihan.</p>}
+  </section>
+  : !session ? <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
     <h2 class="text-xl font-semibold">Belum masuk</h2>
     <p class="mt-2 text-muted-foreground">Masuk dengan PPIJ One Login untuk melihat status keanggotaan dan pemilihan Anda.</p>
     <a href="/api/auth/login?return_to=/akun" class="mt-5 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Masuk</a>

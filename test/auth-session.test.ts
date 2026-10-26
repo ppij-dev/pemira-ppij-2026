@@ -7,7 +7,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { createAuthRoutes, type AuthEnv, type AuthRuntime } from "../src/server/auth/routes";
-import { AUTH_TX_COOKIE, SESSION_COOKIE, normalizeAuthCookies, openAuthTx, openSession } from "../src/server/auth/session";
+import {
+  AUTH_STAGE_COOKIE,
+  AUTH_TX_COOKIE,
+  SESSION_COOKIE,
+  normalizeAuthCookies,
+  openAuthStage,
+  openAuthTx,
+  openSession,
+} from "../src/server/auth/session";
+import { classifyRecovery, helpCode } from "../src/server/auth/recovery";
 import { codeChallenge } from "../src/server/auth/oidc";
 
 const ISSUER = "https://sso.ppijepang.test/realms/ppij";
@@ -407,5 +416,127 @@ describe("Autentikasi One Login (BFF)", () => {
     });
     expect(replayHtml.status).toBe(302);
     expect(replayHtml.headers.get("location")).toBe("/");
+  });
+});
+
+describe("Pemulihan masuk (recover-login-session)", () => {
+  let stub: OneLoginStub;
+  let jar: CookieJar;
+  let app: Hono<AuthEnv>;
+
+  const req = (path: string, init?: RequestInit) =>
+    app.request(path, { ...init, headers: { ...(init?.headers as Record<string, string>), cookie: cookieHeader(jar) } });
+
+  const reqStoring = async (path: string, init?: RequestInit) => {
+    const res = await req(path, init);
+    await storeCookies(res, jar);
+    return res;
+  };
+
+  const startLogin = async () => {
+    const res = await reqStoring("/auth/login?return_to=/pilih");
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location") as string);
+    stub.state.nonce = loc.searchParams.get("nonce") as string;
+    return { state: loc.searchParams.get("state") as string };
+  };
+
+  const callbackUrl = (state: string) =>
+    `/auth/callback?code=${encodeURIComponent(stub.state.code)}&state=${encodeURIComponent(state)}`;
+
+  const html = { accept: "text/html,application/xhtml+xml" };
+
+  beforeEach(async () => {
+    stub = await createOneLoginStub();
+    jar = {};
+    app = createAuthRoutes({
+      loadRuntime: async () => ({ config: CONFIG, masterKey: MASTER_KEY }),
+      fetchImpl: stub.fetchImpl,
+    });
+  });
+
+  it("callback dengan state tidak dikenal menandai tahap gagal kategori state", async () => {
+    const res = await reqStoring("/auth/callback?code=x&state=kadaluarsa", { headers: html });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/akun?masuk=ulang");
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage).toMatchObject({ stage: "failed", category: "state", returnTo: "/akun" });
+  });
+
+  it("callback dibatalkan menandai kategori dibatalkan", async () => {
+    const res = await reqStoring("/auth/callback?error=access_denied&state=x", { headers: html });
+    expect(res.status).toBe(302);
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage).toMatchObject({ stage: "failed", category: "dibatalkan" });
+  });
+
+  it("verifikasi gagal menandai kategori verifikasi", async () => {
+    const { state } = await startLogin();
+    stub.state.signWithSecondKey = true;
+    const res = await reqStoring(callbackUrl(state), { headers: html });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/akun?masuk=ulang");
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage).toMatchObject({ stage: "failed", category: "verifikasi" });
+  });
+
+  it("callback sukses menandai tahap ok dengan tujuan asli", async () => {
+    const { state } = await startLogin();
+    const res = await reqStoring(callbackUrl(state));
+    expect(res.headers.get("location")).toBe("/pilih?masuk=ulang");
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage).toMatchObject({ stage: "ok", category: null, returnTo: "/pilih?masuk=ulang" });
+  });
+
+  it("callback ulang saat sesi sah tidak menimpa tahap ok", async () => {
+    const { state } = await startLogin();
+    await reqStoring(callbackUrl(state));
+    const replay = await req("/auth/callback?code=x&state=kadaluarsa", { headers: html });
+    expect(replay.status).toBe(302);
+    expect(replay.headers.get("location")).toBe("/");
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage?.stage).toBe("ok");
+  });
+
+  it("discovery tidak terjangkau: peramban mendapat kartu pemulihan, API tetap JSON", async () => {
+    const down = createAuthRoutes({
+      loadRuntime: async () => ({ config: CONFIG, masterKey: MASTER_KEY }),
+      fetchImpl: async () => {
+        throw new Error("jaringan mati");
+      },
+    });
+    const browserRes = await down.request("/auth/login?return_to=/pilih", {
+      headers: { accept: "text/html,application/xhtml+xml", cookie: cookieHeader(jar) },
+    });
+    expect(browserRes.status).toBe(302);
+    expect(browserRes.headers.get("location")).toBe("/akun?masuk=ulang");
+    await storeCookies(browserRes, jar);
+    const stage = await openAuthStage(jar[AUTH_STAGE_COOKIE], MASTER_KEY);
+    expect(stage).toMatchObject({ stage: "failed", category: "one_login_tidak_terjangkau" });
+
+    const apiRes = await down.request("/auth/login?return_to=/pilih", { headers: { cookie: cookieHeader(jar) } });
+    expect(apiRes.status).toBe(502);
+    expect(await apiRes.json()).toMatchObject({ error: "one_login_tidak_terjangkau" });
+  });
+
+  it("klasifikasi memetakan penanda ke satu kartu dan kode bantuan stabil per jam", async () => {
+    expect(classifyRecovery(null)).toBeNull();
+    expect(classifyRecovery({ stage: "failed", category: "state", returnTo: "/akun", createdAt: 0 })).toEqual({
+      kind: "incomplete",
+    });
+    expect(classifyRecovery({ stage: "failed", category: "dibatalkan", returnTo: "/akun", createdAt: 0 })).toEqual({
+      kind: "canceled",
+    });
+    expect(classifyRecovery({ stage: "ok", category: null, returnTo: "/akun", createdAt: 0 })).toEqual({
+      kind: "session_unavailable",
+    });
+    // Cookie palsu tidak bisa menjadi penanda yang sah.
+    expect(await openAuthStage("cookie-palsu", MASTER_KEY)).toBeNull();
+
+    const now = Math.floor(Date.now() / 1000);
+    const first = await helpCode("state", MASTER_KEY, now);
+    expect(first).toMatch(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/);
+    expect(await helpCode("state", MASTER_KEY, now + 600)).toBe(first);
+    expect(await helpCode("verifikasi", MASTER_KEY, now)).not.toBe(first);
   });
 });
