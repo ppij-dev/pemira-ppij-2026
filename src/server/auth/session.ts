@@ -17,7 +17,7 @@ export interface SessionData {
 }
 
 /** Isi cookie sementara selama redirect login/callback (PKCE). */
-export interface AuthTxData {
+export interface AuthTxEntry {
   state: string;
   nonce: string;
   codeVerifier: string;
@@ -26,6 +26,11 @@ export interface AuthTxData {
   /** Nilai max_age yang diminta halaman, dalam detik. */
   maxAge: number | null;
   createdAt: number;
+}
+
+export interface AuthTxData extends AuthTxEntry {
+  /** Transaksi login sebelumnya yang masih aktif (mencegah gagal saat klik ganda/prefetch). */
+  prev?: AuthTxEntry[];
 }
 
 export const SESSION_COOKIE = "ppij_session";
@@ -58,7 +63,7 @@ function isSessionData(value: unknown): value is SessionData {
   );
 }
 
-function isAuthTxData(value: unknown): value is AuthTxData {
+function isAuthTxEntry(value: unknown): value is AuthTxEntry {
   if (!isPlainObject(value)) return false;
   return (
     typeof value.state === "string" &&
@@ -72,6 +77,12 @@ function isAuthTxData(value: unknown): value is AuthTxData {
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt)
   );
+}
+
+function isAuthTxData(value: unknown): value is AuthTxData {
+  if (!isAuthTxEntry(value)) return false;
+  const prev = (value as { prev?: unknown }).prev;
+  return prev === undefined || (Array.isArray(prev) && prev.every(isAuthTxEntry));
 }
 
 async function seal(value: unknown, masterKey: string): Promise<string> {
@@ -93,12 +104,56 @@ async function unseal<T>(cookie: string, masterKey: string, guard: (v: unknown) 
   }
 }
 
+/** Ambil semua nilai cookie bernama `name` dari header Cookie mentah. */
+export function extractCookieValues(cookieHeader: string | undefined, name: string): string[] {
+  if (!cookieHeader || !cookieHeader.includes(name)) return [];
+  const results: string[] = [];
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    let val = part.slice(eq + 1).trim();
+    if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+    try {
+      results.push(decodeURIComponent(val));
+    } catch {
+      results.push(val);
+    }
+  }
+  return results;
+}
+
 export function sealSession(session: SessionData, masterKey: string): Promise<string> {
   return seal(session, masterKey);
 }
 
-export function openSession(cookie: string, masterKey: string): Promise<SessionData | null> {
-  return unseal(cookie, masterKey, isSessionData);
+export async function openSession(cookie: string, masterKey: string): Promise<SessionData | null> {
+  const direct = await unseal(cookie, masterKey, isSessionData);
+  if (direct) return direct;
+  if (cookie.includes(";") || cookie.includes(`${SESSION_COOKIE}=`)) {
+    return openSessionFromHeader(cookie, masterKey);
+  }
+  return null;
+}
+
+/**
+ * Baca sesi dari header Cookie yang mungkin memuat lebih dari satu cookie
+ * `ppij_session` (mis. cookie lama di domain induk/path lain yang mendahului
+ * cookie baru menurut RFC 6265). Pilih sesi sah dengan `auth_time` terbaru.
+ */
+export async function openSessionFromHeader(
+  cookieHeader: string | undefined,
+  masterKey: string,
+): Promise<SessionData | null> {
+  const values = extractCookieValues(cookieHeader, SESSION_COOKIE);
+  let best: SessionData | null = null;
+  for (const val of values) {
+    const session = await unseal(val, masterKey, isSessionData);
+    if (session && (!best || session.auth_time >= best.auth_time)) {
+      best = session;
+    }
+  }
+  return best;
 }
 
 export function sealAuthTx(tx: AuthTxData, masterKey: string): Promise<string> {
@@ -107,4 +162,133 @@ export function sealAuthTx(tx: AuthTxData, masterKey: string): Promise<string> {
 
 export function openAuthTx(cookie: string, masterKey: string): Promise<AuthTxData | null> {
   return unseal(cookie, masterKey, isAuthTxData);
+}
+
+/** Kumpulkan transaksi login yang belum kedaluwarsa untuk disimpan pada `prev`. */
+export async function collectActiveAuthTx(
+  cookieHeader: string | undefined,
+  singleCookie: string | undefined,
+  masterKey: string,
+  nowSec: number,
+  maxEntries = 4,
+): Promise<AuthTxEntry[]> {
+  const candidates = extractCookieValues(cookieHeader, AUTH_TX_COOKIE);
+  if (singleCookie && !candidates.includes(singleCookie)) candidates.unshift(singleCookie);
+  const seen = new Set<string>();
+  const active: AuthTxEntry[] = [];
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const tx = await openAuthTx(candidates[i], masterKey);
+    if (!tx) continue;
+    const { prev, ...head } = tx;
+    for (const entry of [head, ...(prev ?? [])]) {
+      if (nowSec - entry.createdAt <= AUTH_TX_MAX_AGE && !seen.has(entry.state)) {
+        seen.add(entry.state);
+        active.push(entry);
+        if (active.length >= maxEntries) return active;
+      }
+    }
+  }
+  return active;
+}
+
+/** Cari transaksi login yang cocok dengan `state` dari semua cookie `ppij_auth_tx`. */
+export async function openAuthTxByState(
+  cookieHeader: string | undefined,
+  singleCookie: string | undefined,
+  masterKey: string,
+  state: string,
+  nowSec: number,
+): Promise<AuthTxEntry | null> {
+  if (!state) return null;
+  const active = await collectActiveAuthTx(cookieHeader, singleCookie, masterKey, nowSec, 16);
+  return active.find((entry) => entry.state === state) ?? null;
+}
+
+/**
+ * Bila permintaan membawa lebih dari satu cookie `ppij_session` (cookie lama
+ * membayangi cookie baru), saring header Cookie agar pembaca hilir
+ * (`Astro.cookies.get`, `getCookie`) selalu mendapatkan cookie sesi yang sah.
+ */
+export async function normalizeAuthCookies(request: Request, masterKey: string | undefined): Promise<Request> {
+  if (!masterKey) return request;
+  const cookieHeader = request.headers.get("cookie");
+  if (!cookieHeader) return request;
+  const sessionValues = extractCookieValues(cookieHeader, SESSION_COOKIE);
+  if (sessionValues.length <= 1) return request;
+
+  let bestRaw: string | null = null;
+  let bestAuthTime = -Infinity;
+  for (const val of sessionValues) {
+    const session = await unseal(val, masterKey, isSessionData);
+    if (session && session.auth_time >= bestAuthTime) {
+      bestAuthTime = session.auth_time;
+      bestRaw = encodeURIComponent(val);
+    }
+  }
+  const otherParts = cookieHeader.split(";").filter((part) => {
+    const eq = part.indexOf("=");
+    return eq === -1 || part.slice(0, eq).trim() !== SESSION_COOKIE;
+  });
+  if (bestRaw) otherParts.push(`${SESSION_COOKIE}=${bestRaw}`);
+  const headers = new Headers(request.headers);
+  if (otherParts.length > 0) headers.set("cookie", otherParts.join("; "));
+  else headers.delete("cookie");
+  const nextReq = new Request(request, { headers });
+  for (const sym of Object.getOwnPropertySymbols(request)) {
+    Reflect.set(nextReq, sym, Reflect.get(request, sym));
+  }
+  return nextReq;
+}
+
+/**
+ * Penanda tahap percobaan masuk untuk kartu pemulihan di /akun: "failed"
+ * saat callback belum menghasilkan sesi, "ok" saat sesi sudah tersegel
+ * tetapi permintaan berikutnya belum tentu bisa membacanya. Cookie pendek
+ * (10 menit) yang disegel dengan kunci master — bukan parameter URL.
+ */
+export const AUTH_STAGE_COOKIE = "ppij_auth_stage";
+export const AUTH_STAGE_PATH = "/";
+/** Cukup untuk satu putaran redirect tujuan → /akun di perangkat lambat. */
+export const AUTH_STAGE_MAX_AGE = 600;
+
+/** Kategori kegagalan masuk yang terbatas: tanpa data pribadi, tanpa detail internal. */
+export type AuthFailureCategory =
+  | "dibatalkan"
+  | "state"
+  | "kode"
+  | "verifikasi"
+  | "one_login_tidak_terjangkau";
+
+export interface AuthStageData {
+  stage: "failed" | "ok";
+  category: AuthFailureCategory | null;
+  /** Jalur relatif dalam situs untuk tombol coba lagi. */
+  returnTo: string;
+  createdAt: number;
+}
+
+function isAuthStageData(value: unknown): value is AuthStageData {
+  if (!isPlainObject(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.stage === "failed" || v.stage === "ok") &&
+    (v.category === null ||
+      v.category === "dibatalkan" ||
+      v.category === "state" ||
+      v.category === "kode" ||
+      v.category === "verifikasi" ||
+      v.category === "one_login_tidak_terjangkau") &&
+    typeof v.returnTo === "string" &&
+    typeof v.createdAt === "number" &&
+    Number.isFinite(v.createdAt)
+  );
+}
+
+export function sealAuthStage(data: AuthStageData, masterKey: string): Promise<string> {
+  return seal(data, masterKey);
+}
+
+export async function openAuthStage(cookie: string | undefined, masterKey: string): Promise<AuthStageData | null> {
+  if (!cookie) return null;
+  return unseal(cookie, masterKey, isAuthStageData);
 }

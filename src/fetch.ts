@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { Hono } from "hono";
 import { actions, i18n, middleware, pages, sessions } from "astro/hono";
 import { app as api, type Bindings } from "./server/app";
+import { normalizeAuthCookies } from "./server/auth/session";
 import { setupGuard } from "./server/setup/guard";
 import { noindex } from "./server/middleware/noindex";
 
@@ -25,5 +26,9 @@ app.use(pages());
 
 // Astro's adapter owns the ExecutionContext and supplies render state on request.
 export default {
-  fetch: (request: Request) => app.fetch(request, env as unknown as Bindings),
+  fetch: async (request: Request) => {
+    const bindings = env as unknown as Bindings;
+    const normalized = await normalizeAuthCookies(request, bindings.APP_MASTER_KEY);
+    return app.fetch(normalized, bindings);
+  },
 };

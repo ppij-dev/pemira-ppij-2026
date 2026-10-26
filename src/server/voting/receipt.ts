@@ -1,8 +1,10 @@
 /**
- * Kode bukti suara: 128 bit acak yang dikodekan sebagai 26 karakter
- * Crockford Base32 (alfabet 0-9, A-Z tanpa I, L, O, U). Karakter ke-26
- * hanya memakai 3 bit terakhir (nilai 0-7). Hanya SHA-256 dari kode
- * ternormalisasi yang disimpan di D1; kode mentah tidak pernah disimpan.
+ * Kode bukti suara: 80 bit acak dikodekan sebagai 16 karakter Crockford
+ * Base32 (0-9, A-Z tanpa I, L, O, U — besar semua, mudah diketik), ditampilkan
+ * berkelompok 4-4-4-4. Kode lama 26 karakter tetap dapat diperiksa.
+ * Hanya SHA-256 dari kode ternormalisasi (tanpa
+ * pemisah, alias dipetakan) yang disimpan di D1; kode mentah tidak pernah
+ * disimpan.
  */
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const DECODE_MAP: Record<string, number> = {};
@@ -15,8 +17,10 @@ DECODE_MAP["I"] = 1;
 DECODE_MAP["l"] = 1;
 DECODE_MAP["L"] = 1;
 
-export const RECEIPT_CODE_LENGTH = 26;
-export const RECEIPT_BYTES = 16;
+export const RECEIPT_CODE_LENGTH = 16;
+export const RECEIPT_BYTES = 10;
+const LEGACY_CODE_LENGTH = 26;
+const LEGACY_BYTES = 16;
 
 /** Normalisasi kode bukti: hilangkan pemisah, uppercase, petakan alias. */
 export function normalizeReceiptCode(input: string): string {
@@ -27,39 +31,50 @@ export function normalizeReceiptCode(input: string): string {
     .replace(/[IL]/g, "1");
 }
 
-/** Encode 16 byte (128 bit) menjadi 26 karakter Crockford Base32. */
+/** Kelompokkan per empat karakter; format lama tidak dipotong. */
+export function formatReceiptCode(canonical: string): string {
+  return canonical.replace(/(.{4})(?=.)/g, "$1-");
+}
+
+/** Encode 10 byte (80 bit) menjadi 16 karakter Crockford Base32. */
 export function encodeReceipt(bytes: Uint8Array): string {
-  if (bytes.length !== RECEIPT_BYTES) throw new Error("Kode bukti harus 16 byte");
+  if (bytes.length !== RECEIPT_BYTES) throw new Error("Kode bukti harus 10 byte");
   let out = "";
-  for (let i = 0; i < 25; i++) {
-    const bitStart = i * 5;
-    const byteIndex = bitStart >> 3;
-    const bitOffset = bitStart & 7;
-    const word = (bytes[byteIndex]! << 8) | (byteIndex + 1 < 16 ? bytes[byteIndex + 1]! : 0);
-    out += ALPHABET[(word >> (11 - bitOffset)) & 0x1f];
+  let buffer = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    buffer = ((buffer << 8) | byte) >>> 0;
+    bits += 8;
+    while (bits >= 5) {
+      out += ALPHABET[(buffer >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
   }
-  // Karakter ke-26: 3 bit terakhir (bit 125..127 = 3 bit rendah byte 15)
-  out += ALPHABET[bytes[15]! & 0x07];
+  if (bits > 0) out += ALPHABET[(buffer << (5 - bits)) & 31];
   return out;
 }
 
-/** Decode 26 karakter Crockford Base32 kembali ke 16 byte. */
+/** Decode kode baru 16 karakter atau kode lama 26 karakter. */
 export function decodeReceipt(code: string): Uint8Array {
   const normalized = normalizeReceiptCode(code);
-  if (normalized.length !== RECEIPT_CODE_LENGTH) throw new Error("Panjang kode bukti tidak valid");
-  const bytes = new Uint8Array(16);
-  for (let i = 0; i < 25; i++) {
-    const val = DECODE_MAP[normalized[i]!];
-    if (val === undefined || val > 31) throw new Error("Karakter kode bukti tidak valid");
-    const bitStart = i * 5;
-    const byteIndex = bitStart >> 3;
-    const bitOffset = bitStart & 7;
-    bytes[byteIndex]! |= (val << (11 - bitOffset)) >> 8;
-    if (byteIndex + 1 < 16) bytes[byteIndex + 1]! |= (val << (11 - bitOffset)) & 0xff;
+  const byteLength = normalized.length === RECEIPT_CODE_LENGTH ? RECEIPT_BYTES
+    : normalized.length === LEGACY_CODE_LENGTH ? LEGACY_BYTES : null;
+  if (byteLength === null) throw new Error("Panjang kode bukti tidak valid");
+  const bytes = new Uint8Array(byteLength);
+  let buffer = 0;
+  let bits = 0;
+  let byteIndex = 0;
+  for (const ch of normalized) {
+    const val = DECODE_MAP[ch];
+    if (val === undefined) throw new Error("Karakter kode bukti tidak valid");
+    buffer = ((buffer << 5) | val) >>> 0;
+    bits += 5;
+    if (bits >= 8) {
+      bytes[byteIndex++] = (buffer >>> (bits - 8)) & 0xff;
+      bits -= 8;
+    }
   }
-  const lastVal = DECODE_MAP[normalized[25]!];
-  if (lastVal === undefined || lastVal > 7) throw new Error("Karakter terakhir kode bukti tidak valid");
-  bytes[15]! |= lastVal & 0x07;
+  if (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0) throw new Error("Padding kode bukti tidak valid");
   return bytes;
 }
 
@@ -73,7 +88,7 @@ export async function hashReceipt(code: string): Promise<string> {
 /** Hasilkan kode bukti baru: { code, hash }. Kode mentah hanya untuk respons. */
 export async function generateReceipt(): Promise<{ code: string; hash: string }> {
   const bytes = crypto.getRandomValues(new Uint8Array(RECEIPT_BYTES));
-  const code = encodeReceipt(bytes);
+  const code = formatReceiptCode(encodeReceipt(bytes));
   const hash = await hashReceipt(code);
   return { code, hash };
 }

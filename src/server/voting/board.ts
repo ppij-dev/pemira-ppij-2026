@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { AUDIT_GENESIS_HASH, canonicalRow, sha256Hex, type AuditEntry } from "../lib/audit";
 import { stage } from "../lib/stage";
-import { hashReceipt, normalizeReceiptCode } from "./receipt";
 
 type Env = { Bindings: Bindings };
 
@@ -152,9 +151,8 @@ async function consumeReceiptCheck(db: D1Database, ip: string): Promise<boolean>
   return (row?.count ?? 31) <= 30;
 }
 
-export async function checkReceipt(db: D1Database, code: string): Promise<{ found: boolean }> {
-  const hash = await hashReceipt(normalizeReceiptCode(code));
-  const found = await db.prepare("SELECT 1 FROM ballots WHERE receipt_hash=? LIMIT 1").bind(hash).first();
+export async function checkReceipt(db: D1Database, receiptHash: string): Promise<{ found: boolean }> {
+  const found = await db.prepare("SELECT 1 FROM ballots WHERE receipt_hash=? LIMIT 1").bind(receiptHash).first();
   return { found: !!found };
 }
 
@@ -181,8 +179,9 @@ async function handleReceiptCheck(c: import("hono").Context<Env>) {
   if (!await consumeReceiptCheck(c.env.DB, ip)) return c.json({ error: "rate_limited" }, 429);
   let body: unknown;
   try { body = await c.req.json(); } catch { return c.json({ error: "body_tidak_valid" }, 400); }
-  const code = typeof body === "object" && body !== null && "code" in body && typeof body.code === "string" ? body.code : "";
-  return c.json(await checkReceipt(c.env.DB, code));
+  const receiptHash = typeof body === "object" && body !== null && "receipt_hash" in body && typeof body.receipt_hash === "string" ? body.receipt_hash : "";
+  if (!/^[0-9a-f]{64}$/.test(receiptHash)) return c.json({ error: "hash_tidak_valid" }, 400);
+  return c.json(await checkReceipt(c.env.DB, receiptHash));
 }
 
 async function handleBoard(c: import("hono").Context<Env>) {
