@@ -13,6 +13,12 @@ interface Props {
   showHasil?: boolean;
   /** "white" mengganti kanvas halaman dari abu-abu hangat menjadi putih. */
   canvas?: "default" | "white";
+  /** Jalur atau URL gambar pratinjau berbagi (Open Graph). */
+  ogImage?: string;
+  /** Deskripsi pratinjau berbagi; memakai description halaman bila kosong. */
+  ogDescription?: string;
+  /** Tipe Open Graph; "profile" untuk halaman kandidat. */
+  ogType?: "website" | "article" | "profile";
 }
 
 const {
@@ -22,6 +28,9 @@ const {
   siteLogoPath,
   showHasil,
   canvas = "default",
+  ogImage,
+  ogDescription,
+  ogType = "website",
 } = Astro.props;
 const db = (env as unknown as { DB?: D1Database }).DB;
 let siteName = providedSiteName;
@@ -55,6 +64,9 @@ const hasMasukParam = Astro.url.searchParams.has("masuk");
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
 const path = Astro.url.pathname;
+const pageUrl = new URL(path, Astro.url.origin).href;
+const ogImageAbs = new URL(ogImage ?? logo.src, Astro.url.origin).href;
+const ogTitle = `${title} · ${siteName}`;
 ---
 
 <!doctype html>
@@ -65,6 +77,15 @@ const path = Astro.url.pathname;
     <title>{title}</title>
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content={description} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={ogDescription ?? description} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:image" content={ogImageAbs} />
+    <meta property="og:image:alt" content={ogTitle} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href={pageUrl} />
     <link rel="icon" href={logo.src} type={logo.faviconType} />
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
