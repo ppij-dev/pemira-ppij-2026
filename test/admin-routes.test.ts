@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import { recoveryInvitationSql } from "../scripts/recovery-invite.mjs";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
@@ -47,7 +48,7 @@ async function digestHex(value: string) {
 }
 beforeEach(async () => {
   await reset();
-  const statements = initSql.split(";").map((statement) => statement.trim()).filter(Boolean);
+  const statements = [initSql, memberNumberSql].join(";").split(";").map((statement) => statement.trim()).filter(Boolean);
   await env.DB.batch(statements.map((statement) => env.DB.prepare(statement)));
   await env.DB.batch([
     env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('initialized','1'),('site_scope',?),('site_base_url','https://election.test')").bind(SCOPE),
@@ -84,6 +85,16 @@ describe("Admin Voting invitation routes", () => {
     expect(await env.DB.prepare("SELECT accepted_at FROM invitations").first()).toMatchObject({ accepted_at: expect.any(String) });
     expect(await auditActions()).toEqual(["admin_invitation_created", "admin_invitation_accepted"]);
     expect((await accept(token, "member-2")).status).toBe(409);
+  });
+
+  it("accepts a member card number as the invite target", async () => {
+    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,member_number) VALUES ('member-card','Kartu Member','Kartu',?,'ACTIVE',?,'OKA-2026-0001')").bind(`${SCOPE}/komsat`, new Date().toISOString()).run();
+    const created = await createInvitation("OKA-2026-0001");
+    expect(created.status).toBe(201);
+    expect(await env.DB.prepare("SELECT member_id FROM invitations").first()).toEqual({ member_id: "member-card" });
+    const token = await inviteToken(created);
+    expect((await accept(token, "member-card")).status).toBe(200);
+    expect(await env.DB.prepare("SELECT member_id FROM admin_voting WHERE member_id='member-card'").first()).toBeTruthy();
   });
   it("refuses a forwarded invitation without consuming it", async () => {
     await seedVoter("member-2");

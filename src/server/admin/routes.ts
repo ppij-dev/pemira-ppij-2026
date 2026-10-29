@@ -73,20 +73,24 @@ export function createAdminRoutes() {
     const body = await c.req.json<{member_id?:string}>().catch(() => ({} as {member_id?:string}));
     const memberId = body.member_id?.trim();
     if (!memberId) return jsonError(c,"member_id_wajib",400);
-    const voter = await c.env.DB.prepare("SELECT member_id, name, status, komsat_path FROM voters WHERE member_id = ?").bind(memberId).first<{member_id:string;name:string;status:string;komsat_path:string}>();
+    // Terima UUID anggota atau nomor kartu (mis. OKA-2026-0001) dari roll.
+    const voter = await c.env.DB.prepare("SELECT member_id, name, status, komsat_path FROM voters WHERE member_id = ?").bind(memberId).first<{member_id:string;name:string;status:string;komsat_path:string}>()
+      ?? await c.env.DB.prepare("SELECT member_id, name, status, komsat_path FROM voters WHERE member_number = ?").bind(memberId).first<{member_id:string;name:string;status:string;komsat_path:string}>();
+    if (!voter) return jsonError(c,"anggota_tidak_aktif_atau_tidak_ditemukan_atau_di_luar_cakupan",409);
+    const resolvedId = voter.member_id;
     const scope = await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_scope'").first<{value:string}>();
-    const candidate = await c.env.DB.prepare("SELECT 1 FROM candidates WHERE member_id = ?").bind(memberId).first();
-    if (!scope || !voter || voter.status.toUpperCase() !== "ACTIVE" || !affiliationInScope(voter.komsat_path, scope.value)) return jsonError(c,"anggota_tidak_aktif_atau_tidak_ditemukan_atau_di_luar_cakupan",409);
+    const candidate = await c.env.DB.prepare("SELECT 1 FROM candidates WHERE member_id = ?").bind(resolvedId).first();
+    if (!scope || voter.status.toUpperCase() !== "ACTIVE" || !affiliationInScope(voter.komsat_path, scope.value)) return jsonError(c,"anggota_tidak_aktif_atau_tidak_ditemukan_atau_di_luar_cakupan",409);
     if (candidate) return jsonError(c,"kandidat_tidak_dapat_menjadi_admin_voting",409);
-    const exists = await c.env.DB.prepare("SELECT 1 FROM admin_voting WHERE member_id = ?").bind(memberId).first();
+    const exists = await c.env.DB.prepare("SELECT 1 FROM admin_voting WHERE member_id = ?").bind(resolvedId).first();
     if (exists) return jsonError(c,"sudah_admin_voting",409);
     const actor = c.get("adminAuth")!;
     const token = crypto.randomUUID() + crypto.randomUUID();
     const hash = await digest(token);
     const now = new Date(); const expires = new Date(now.getTime() + 72 * 60 * 60 * 1000);
     await c.env.DB.batch([
-      c.env.DB.prepare("INSERT INTO invitations (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(hash, memberId, now.toISOString(), expires.toISOString()),
-      await buildAuditInsert(c.env.DB, { at: now.toISOString(), actor_type:"admin", actor_member_id:actor.session.member_id, actor_name:actor.session.name, action:"admin_invitation_created", target:memberId, komsat_path:null, detail_json:null }),
+      c.env.DB.prepare("INSERT INTO invitations (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(hash, resolvedId, now.toISOString(), expires.toISOString()),
+      await buildAuditInsert(c.env.DB, { at: now.toISOString(), actor_type:"admin", actor_member_id:actor.session.member_id, actor_name:actor.session.name, action:"admin_invitation_created", target:resolvedId, komsat_path:null, detail_json:null }),
     ]);
     const base = await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_base_url'").first<{value:string}>();
     return c.json({ invitation_url: `${base?.value ?? ""}/api/admin/invitations/${encodeURIComponent(token)}/accept`, expires_at: expires.toISOString() }, 201);
