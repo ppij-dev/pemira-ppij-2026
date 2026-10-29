@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import { ServiceApiError } from "../src/server/serviceapi/client";
 import { assertSyncAllowed, syncPemilih } from "../src/server/serviceapi/sync";
 import { createServiceApiStub } from "./lib/serviceapi-fixture";
@@ -10,6 +11,10 @@ beforeEach(async () => {
   await reset();
   const sql = [initSql, unitsSql].join(";").replaceAll("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ").replaceAll("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ").replaceAll("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ");
   await env.DB.batch(sql.split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
+  // ALTER tidak bersifat idempoten; abaikan bila kolom sudah ada dari batch sebelumnya.
+  try {
+    await env.DB.batch(memberNumberSql.split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
+  } catch { /* kolom member_number sudah ada */ }
 });
 const cfg = (stub: { issuer: string; serviceUrl: string; fetchImpl: typeof fetch }) => ({ issuer: stub.issuer, serviceApiUrl: stub.serviceUrl, clientId: "test-client", clientSecret: "test-secret", fetchImpl: stub.fetchImpl });
 describe("Service API voter sync", () => {
@@ -17,6 +22,7 @@ describe("Service API voter sync", () => {
     const fixture = createServiceApiStub();
     expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-01T00:00:00Z"))).toEqual({ added: 8, removed: 0, total: 8 });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM units").first<{n:number}>()).toEqual({ n: 8 });
+    expect(await env.DB.prepare("SELECT member_number FROM voters WHERE member_id = 'member-1'").first<{member_number:string|null}>()).toEqual({ member_number: "1" });
     expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-03T00:00:00Z"))).toEqual({ added: 3, removed: 1, total: 10 });
   });
   it("leaves voters, sync time, and audit untouched when the batch fails", async () => {

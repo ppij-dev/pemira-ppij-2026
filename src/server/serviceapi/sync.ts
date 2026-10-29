@@ -19,7 +19,7 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
     if (member.status === "ACTIVE") {
       const existing = await db.prepare("SELECT 1 FROM voters WHERE member_id=?").bind(member.member_id).first();
       if (!existing) added++;
-      upserts.push(db.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at) VALUES (?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET name=excluded.name,nickname=excluded.nickname,komsat_path=excluded.komsat_path,status=excluded.status,synced_at=excluded.synced_at").bind(member.member_id, member.full_name, member.nickname, member.komsat_path, member.status, now.toISOString()));
+      upserts.push(db.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,member_number) VALUES (?,?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET name=excluded.name,nickname=excluded.nickname,komsat_path=excluded.komsat_path,status=excluded.status,synced_at=excluded.synced_at,member_number=excluded.member_number").bind(member.member_id, member.full_name, member.nickname, member.komsat_path, member.status, now.toISOString(), member.member_number ?? null));
     } else {
       const existing = await db.prepare("SELECT 1 FROM voters WHERE member_id=?").bind(member.member_id).first();
       if (existing) {
