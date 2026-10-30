@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
+import { formatUnitPath } from "../../lib/formatKomsat";
 
 /** Candidate counts of a korda are hidden below this many ballots (admin-dashboard spec). */
 export const KORDA_MIN_BALLOTS = 10;
@@ -184,7 +185,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     const perCandidate = votesByRegionCandidate.get(key);
     return {
       key,
-      name: names.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : key),
+      name: names.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : formatUnitPath(key)),
       eligible_count: eligible,
       used_count: used,
       turnout_percentage: eligible > 0 ? Math.round(((used / eligible) * 100) * 10) / 10 : null,

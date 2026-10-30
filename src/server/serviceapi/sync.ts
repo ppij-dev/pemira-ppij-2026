@@ -34,3 +34,33 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
   await db.batch(upserts);
   return { added, removed, total: (totalRow?.total ?? 0) + added - removed };
 }
+
+/**
+ * Lengkapi nama resmi dan nomor kartu untuk baris roll yang sudah ada —
+ * tanpa menambah/menghapus pemilih dan tanpa mengubah status, sehingga
+ * aman dijalankan pada pemilihan yang sudah dibekukan (mis. pratinjau).
+ */
+export async function enrichRollNames(db: D1Database, cfg: ServiceApiConfig, now: Date, fetchImpl?: typeof fetch): Promise<{ updated: number }> {
+  const client = new ServiceApiClient({ ...cfg, ...(fetchImpl ? { fetchImpl } : {}) });
+  const members = await client.getMembers();
+  const byId = new Map(members.map((member) => [member.member_id, member]));
+  const rows = await db.prepare("SELECT member_id, name, member_number FROM voters").all<{ member_id: string; name: string; member_number: string | null }>();
+  const updates = [];
+  let updated = 0;
+  for (const row of rows.results) {
+    const member = byId.get(row.member_id);
+    if (!member) continue;
+    // Perbarui bila nama masih berupa ID anggota (belum tersedia saat
+    // pendaftaran) atau nomor kartu dari portal berbeda dari yang tersimpan.
+    const nameMissing = !row.name || row.name.trim() === row.member_id;
+    const numberDiffers = Boolean(member.member_number) && (member.member_number !== row.member_number);
+    if (!nameMissing && !numberDiffers) continue;
+    updates.push(db.prepare("UPDATE voters SET name = ?, member_number = COALESCE(?, member_number) WHERE member_id = ?").bind(member.full_name, member.member_number ?? null, row.member_id));
+    updated++;
+  }
+  if (updates.length) {
+    const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_nama_diperbarui", target: null, komsat_path: null, detail_json: JSON.stringify({ updated }) });
+    await db.batch([...updates, audit]);
+  }
+  return { updated };
+}

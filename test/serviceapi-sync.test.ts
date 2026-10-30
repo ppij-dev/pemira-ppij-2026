@@ -4,7 +4,7 @@ import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import { ServiceApiError } from "../src/server/serviceapi/client";
-import { assertSyncAllowed, syncPemilih } from "../src/server/serviceapi/sync";
+import { assertSyncAllowed, enrichRollNames, syncPemilih } from "../src/server/serviceapi/sync";
 import { createServiceApiStub } from "./lib/serviceapi-fixture";
 
 beforeEach(async () => {
@@ -56,6 +56,18 @@ describe("Service API voter sync", () => {
     const fetchImpl: typeof fetch = (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
     await expect(syncPemilih(env.DB, { ...cfg(fixture), fetchImpl }, new Date())).rejects.toMatchObject({ code: "timeout" });
   }, 12_000);
+  it("enriches existing roll rows with official names and card numbers", async () => {
+    const fixture = createServiceApiStub();
+    // Baris pratinjau: nama masih berupa ID anggota, nomor kartu kosong.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at) VALUES ('member-1','member-1','M1','/ppij/okayama/okayama','ACTIVE',?)").bind(new Date().toISOString()).run();
+    const result = await enrichRollNames(env.DB, cfg(fixture), new Date("2026-01-02T00:00:00Z"));
+    expect(result.updated).toBe(1);
+    const row = await env.DB.prepare("SELECT name, member_number FROM voters WHERE member_id = 'member-1'").first<{ name: string; member_number: string | null }>();
+    expect(row).toEqual({ name: "Member 1", member_number: "1" });
+    // Idempoten: pembaruan berikutnya tidak mengubah apa pun.
+    expect((await enrichRollNames(env.DB, cfg(fixture), new Date("2026-01-02T00:05:00Z"))).updated).toBe(0);
+  });
+
   it("blocks sync outside draft", async () => {
     await env.DB.prepare("INSERT INTO elections (id,status_lock) VALUES (1,'locked')").run();
     await expect(assertSyncAllowed(env.DB)).rejects.toMatchObject({ status: 409 });
