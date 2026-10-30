@@ -30,9 +30,16 @@ Astro.response.headers.set("Cache-Control", "no-store");
 let isAdmin = false;
 let votedAt: string | null = null;
 let currentStage: Stage | null = null;
+let rollName: string | null = null;
+let memberNumber: string | null = null;
 if (session) {
   const adminBindings = bindings as unknown as AdminBindings;
   isAdmin = await isAdminPageAuthorized(raw ?? undefined, adminBindings);
+  try {
+    const voter = await bindings.DB.prepare("SELECT name, member_number FROM voters WHERE member_id = ?").bind(session.member_id).first<{ name: string; member_number: string | null }>();
+    rollName = voter?.name ?? null;
+    memberNumber = voter?.member_number ?? null;
+  } catch { rollName = null; }
   try { votedAt = (await getVoteMe(bindings.DB, session)).voted_at; } catch { votedAt = null; }
   try {
     const election = await bindings.DB.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<any>();
@@ -40,6 +47,10 @@ if (session) {
   } catch { currentStage = null; }
 }
 
+// Nama tampilan: utamakan nama resmi dari daftar pemilih (hasil sinkronisasi
+// Service API); klaim nama One Login yang belum terisi berupa ID anggota.
+const claimsLookLikeId = session ? session.name.trim() === session.member_id : false;
+const displayName = rollName && rollName.trim() && rollName !== session?.member_id ? rollName : claimsLookLikeId ? null : session?.name ?? null;
 const affiliationPath = Array.isArray(session?.affiliation) ? session!.affiliation[0] : session?.affiliation ?? null;
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", dateStyle: "long", timeStyle: "short" }).format(new Date(value)) + " JST";
 ---
@@ -64,7 +75,8 @@ const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone
       <div class="mt-4 flex items-center gap-4">
         <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-800" aria-hidden="true"><IconUserCircle size={34} stroke={1.5} /></span>
         <div class="min-w-0">
-          <p class="break-words text-lg font-semibold">{session.name}</p>
+          {displayName ? <p class="break-words text-lg font-semibold">{displayName}</p> : <p class="break-words text-lg font-semibold text-muted-foreground">Nama belum tersedia dari portal</p>}
+          {memberNumber && <p class="mt-0.5 text-xs font-semibold text-muted-foreground">Kartu anggota <span class="font-mono">{memberNumber}</span></p>}
           <p class="mt-0.5 break-all font-mono text-xs text-muted-foreground">{session.member_id}</p>
         </div>
       </div>
@@ -72,7 +84,7 @@ const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone
         <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Unit</dt><dd class="font-semibold">{affiliationPath ? formatUnitPath(affiliationPath) : "—"}</dd></div>
         <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Keanggotaan</dt><dd>{affiliationPath ? <span class="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Aktif</span> : <span class="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">Tidak aktif</span>}</dd></div>
       </dl>
-      <p class="mt-4 text-xs leading-5 text-muted-foreground">Data keanggotaan dikelola portal PPIJ. Perubahan data diri dilakukan di portal, bukan di situs pemilihan ini.</p>
+      <p class="mt-4 text-xs leading-5 text-muted-foreground">Data keanggotaan dikelola portal PPIJ; nama resmi mengikuti daftar pemilih hasil sinkronisasi. Perubahan data diri dilakukan di portal, bukan di situs pemilihan ini.</p>
     </section>
 
     <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
