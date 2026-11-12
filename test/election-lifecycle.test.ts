@@ -19,6 +19,31 @@ describe("election lifecycle",()=>{
  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE category <> 'BIASA' OR category IS NULL").first()).toEqual({n:0});
  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id IN ('member-12','member-13')").first()).toEqual({n:0});expect((await env.DB.prepare("SELECT status_lock,frozen_hak_pilih FROM elections").first()).status_lock).toBe("locked");expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots WHERE is_test=1").first()).toEqual({n:0});const colors=(await env.DB.prepare("SELECT color FROM candidates").all<{color:string}>()).results.map(x=>x.color);expect(new Set(colors).size).toBe(2);expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE detail_json LIKE '%Data uji coba dihapus: 1 suara%'").first()).toEqual({n:1});});
  it("subtracts committee members from frozen Hak pilih when disabled",async()=>{await setup(0);await ready();const api=createServiceApiStub();expect((await lockElection(env.DB,cfg,NOW,api.fetchImpl)).frozen_hak_pilih).toBe(9);});
+ it("freezes only can_vote = 1 roll rows as Hak pilih, leaving can_vote 0 and NULL out",async()=>{
+ // Mode pratinjau melewati sinkronisasi final, jadi roll hasil seed diuji apa adanya.
+ for(let i=1;i<=2;i++){await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number,can_vote) VALUES(?,?,'/u','ACTIVE','now',?,1)").bind(`member-${i}`,`Member ${i}`,`KARTU-00${i}`).run();await createCandidate(env.DB,NOW,{member_id:`KARTU-00${i}`,number:i,name:`Member ${i}`,nickname:`M${i}`,description:""});}
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-3','Member 3','/u','ACTIVE','now',1)").run();
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-4','Member 4','/u','ACTIVE','now',0)").run();
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-5','Member 5','/u','ACTIVE','now',NULL)").run();
+ await env.DB.prepare("INSERT INTO system_config(key,value) VALUES('pemilih_last_sync','2026-10-19T00:00:00Z')").run();
+ await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z",preview_mode:true});
+ const result=await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+ expect(result.frozen_hak_pilih).toBe(3);
+ expect(await env.DB.prepare("SELECT frozen_hak_pilih FROM elections").first()).toEqual({frozen_hak_pilih:3});
+ });
+ it("subtracts committee members from frozen Hak pilih only while they are on the eligible roll",async()=>{
+ await setup(0);
+ // Dua kandidat + satu pemilih berhak; member-6 admin yang berhak, member-8 admin can_vote 0.
+ for(let i=1;i<=2;i++){await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number,can_vote) VALUES(?,?,'/u','ACTIVE','now',?,1)").bind(`member-${i}`,`Member ${i}`,`KARTU-00${i}`).run();await createCandidate(env.DB,NOW,{member_id:`KARTU-00${i}`,number:i,name:`Member ${i}`,nickname:`M${i}`,description:""});}
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-3','Member 3','/u','ACTIVE','now',1)").run();
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-6','Member 6','/u','ACTIVE','now',1)").run();
+ await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,can_vote) VALUES('member-8','Member 8','/u','ACTIVE','now',0)").run();
+ await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-6','Admin 6','now')").run();
+ await env.DB.prepare("INSERT INTO system_config(key,value) VALUES('pemilih_last_sync','2026-10-19T00:00:00Z')").run();
+ await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z",preview_mode:true});
+ // 4 baris berhak (member-1,2,3,6) dikurangi satu admin berhak (member-6); member-8 (can_vote 0) tidak pernah dihitung.
+ expect((await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl)).frozen_hak_pilih).toBe(3);
+ });
  it("failed final sync leaves draft and candidate data untouched",async()=>{await ready();const api=createServiceApiStub({mode:"fail_page_n",failPage:0});await expect(lockElection(env.DB,cfg,NOW,api.fetchImpl)).rejects.toThrow("Sinkronisasi final gagal");expect((await env.DB.prepare("SELECT status_lock FROM elections").first()).status_lock).toBe("draft");expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first()).n).toBe(8);expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates WHERE color IS NOT NULL").first()).n).toBe(0);});
  it("supports extending, early closing and irreversible publication",async()=>{await ready();const api=createServiceApiStub();await lockElection(env.DB,cfg,NOW,api.fetchImpl);const openNow=new Date("2026-10-21T01:00:00Z");await expect(extendClosing(env.DB,openNow,"2026-10-21T23:00:00Z","earlier")).rejects.toThrow();await extendClosing(env.DB,openNow,"2026-10-23T00:00:00Z","incident");await closeEarly(env.DB,openNow,"incident");await expect(extendClosing(env.DB,openNow,"2026-10-24T00:00:00Z","late")).rejects.toThrow();await publishResults(env.DB,openNow);await expect(publishResults(env.DB,openNow)).rejects.toThrow();await expect(closeEarly(env.DB,openNow,"again")).rejects.toThrow();});
  it("removes test participation and refuses edits or test votes after lock",async()=>{await ready();await castTestVote(env.DB,NOW,1,"member-8");const api=createServiceApiStub();await lockElection(env.DB,cfg,NOW,api.fetchImpl);expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM participation WHERE is_test=1").first()).toEqual({n:0});await expect(castTestVote(env.DB,NOW,1,"member-8")).rejects.toThrow();await expect(setSchedule(env.DB,NOW,{title:"Changed",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z"})).rejects.toThrow();});

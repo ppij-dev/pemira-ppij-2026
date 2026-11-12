@@ -100,10 +100,12 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   // Test rows stay visible (and labeled) while Draf; later stages count is_test=0 only.
   const realOnly = currentStage !== "draft";
   const testOn = (alias: string) => (realOnly ? `AND ${alias}.is_test = 0` : "");
-  // Draf fallback roll and per-region denominators mirror the frozen count rule.
-  const excludeAdmins = election.allow_admin_voting === 0
-    ? "WHERE member_id NOT IN (SELECT member_id FROM admin_voting)"
-    : "";
+  // Draf fallback roll and per-region denominators mirror the frozen count rule:
+  // only roll rows the portal marks can_vote = 1 may vote, so only they are
+  // eligible (can_vote 0 and NULL are never accepted by the vote guard).
+  const eligibleVoterFilter = `WHERE can_vote = 1${
+    election.allow_admin_voting === 0 ? " AND member_id NOT IN (SELECT member_id FROM admin_voting)" : ""
+  }`;
   const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult] = await db.batch([
     db.prepare(
       `SELECT c.id, c.number, c.nickname, c.color, COUNT(b.id) AS votes
@@ -118,7 +120,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     ).bind(election.id),
     db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")} GROUP BY komsat_path`)
       .bind(election.id),
-    db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters ${excludeAdmins} GROUP BY komsat_path`),
+    db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters ${eligibleVoterFilter} GROUP BY komsat_path`),
     db.prepare(`SELECT COUNT(*) AS n FROM participation WHERE election_id = ? ${testOn("participation")}`)
       .bind(election.id),
     db.prepare(`SELECT COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")}`)
@@ -129,7 +131,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     ).bind(election.id, election.id),
     db.prepare("SELECT path, name FROM units WHERE type = 'korda'"),
     db.prepare("SELECT COUNT(*) AS n FROM admin_voting"),
-    db.prepare(`SELECT COUNT(*) AS n FROM voters ${excludeAdmins}`),
+    db.prepare(`SELECT COUNT(*) AS n FROM voters ${eligibleVoterFilter}`),
   ]);
   const candidates = candidatesResult as { results: CandidateTally[] };
   const votesByRegion = votesByRegionResult as { results: { candidate_id: number; path: string; n: number }[] };
