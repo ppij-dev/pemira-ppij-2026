@@ -1,37 +1,62 @@
 ---
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
+import Button from "../../components/ui/Button.astro";
+import Callout from "../../components/ui/Callout.astro";
+import { IconAlertCircle, IconAlertTriangle, IconRefresh } from "@tabler/icons-astro";
 ---
 <AdminLayout title="Dasbor">
-  <div class="flex flex-wrap items-end justify-between gap-4"><div><p class="text-sm font-semibold text-primary">ADMIN VOTING</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Dasbor</h1><p class="mt-2 text-muted-foreground">Ringkasan pemungutan suara dan perolehan suara.</p></div><button id="refresh" type="button" class="inline-flex min-h-11 items-center rounded-md border border-border bg-card px-4 font-semibold text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Muat Ulang Data</button></div>
-  <div id="error" role="alert" class="mt-4 hidden rounded-xl border border-red-200 bg-red-50 p-4 text-red-800"></div><div id="access" class="mt-4 hidden rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 class="font-bold">Akses khusus Admin Voting</h2><p class="mt-1">Anda tidak memiliki akses ke data dasbor.</p></div>
-  <div id="dashboard" class="mt-6 space-y-5" aria-live="polite"><p class="rounded-xl border border-border bg-card p-5 text-muted-foreground">Memuat data…</p></div>
+  <PageHeader title="Dasbor" eyebrow="Admin Voting" description="Ringkasan pemungutan suara dan perolehan suara. Data hanya diperbarui lewat aksi manual.">
+    <Button id="refresh" variant="secondary" size="sm" type="button"><IconRefresh size={16} stroke={1.8} aria-hidden="true" /><span id="refresh-label">Muat Ulang Data</span></Button>
+  </PageHeader>
+  <Callout id="error" tone="danger" icon={IconAlertCircle} class="mt-5" hidden></Callout>
+  <Callout id="access" tone="warning" icon={IconAlertTriangle} title="Akses khusus Admin Voting" class="mt-5" hidden>
+    Anda tidak memiliki akses ke data dasbor.
+  </Callout>
+  <div id="dashboard" class="mt-5 grid gap-[17px] [&>*]:min-w-0" aria-live="polite">
+    <section class="rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]">
+      <p class="text-[13px] text-brand-muted">Memuat data dasbor...</p>
+      <div aria-hidden="true" class="mt-3 grid gap-2">
+        <span class="block h-5 w-40 rounded bg-secondary"></span>
+        <span class="block h-9 w-56 rounded bg-secondary"></span>
+      </div>
+    </section>
+  </div>
   <script is:inline>
-    const root=document.querySelector('#dashboard'),error=document.querySelector('#error'),access=document.querySelector('#access');
+    const root=document.querySelector('#dashboard'),error=document.querySelector('#error'),access=document.querySelector('#access'),refresh=document.querySelector('#refresh'),refreshLabel=document.querySelector('#refresh-label');
     const num=n=>new Intl.NumberFormat('id-ID').format(n);
     const percent=n=>new Intl.NumberFormat('id-ID',{maximumFractionDigits:1}).format(n)+'%';
     const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const panel='min-w-0 rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]';
+    const panelTitle='text-lg leading-snug font-bold tracking-tight text-brand-ink';
+    const badge=(text,tone)=>'<span class="inline-flex w-fit shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap '+tone+'">'+esc(text)+'</span>';
+    const stageTone={draft:'bg-muted text-muted-foreground',scheduled:'bg-[#f0f4fa] text-[#4c627b]',open:'bg-[#f1f5f3] text-[#35604a]',closed:'bg-[#fff5e6] text-[#7c5014]',published:'bg-brand-50 text-brand-800'};
+    const stageLabel={draft:'Draf',scheduled:'Terjadwal',open:'Dibuka',closed:'Ditutup',published:'Diumumkan'};
     let timer,target,stage;
     const countdown=()=>{const el=document.querySelector('#countdown');if(!el||!target)return;const sec=Math.max(0,Math.floor((Date.parse(target)-Date.now())/1000));const d=Math.floor(sec/86400),clock=[Math.floor(sec%86400/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':');el.textContent=d>0?d+' hari '+clock:clock};
-    const refresh=document.querySelector('#refresh');
     async function load(){
-      error.classList.add('hidden');access.classList.add('hidden');refresh.disabled=true;refresh.textContent='Memuat…';
+      error.setAttribute('hidden','');access.setAttribute('hidden','');refresh.disabled=true;refreshLabel.textContent='Memuat...';
       try{
         const r=await fetch('/api/dashboard',{credentials:'same-origin'}),d=await r.json();
-        if(r.status===403){root.replaceChildren();access.classList.remove('hidden');return}
+        if(r.status===403){root.replaceChildren();access.removeAttribute('hidden');return}
         if(!r.ok)throw new Error(d.error||'Data dasbor gagal dimuat.');
         stage=d.stage;target=stage==='open'?d.closes_at:d.opens_at;clearInterval(timer);
         const count=['scheduled','open'].includes(stage);timer=count?setInterval(countdown,1000):null;
         const cards=[['Hak pilih',d.eligible_count],['Sudah digunakan',d.used_count],['Belum digunakan',d.unused_count],['Partisipasi',d.turnout_percentage,percent(d.turnout_percentage)]];
-        root.innerHTML=(d.committee_warning?'<div class="rounded-xl border border-amber-300 bg-amber-50 p-4 font-semibold text-amber-900">Sebaiknya ada minimal 2 Admin Voting · <a class="underline" href="/admin">Kelola Admin Voting</a></div>':'')+
-          '<section class="rounded-xl border border-border bg-card p-5"><p class="text-sm font-semibold text-primary">'+({draft:'Draf',scheduled:'Terjadwal',open:'Dibuka',closed:'Ditutup',published:'Diumumkan'}[stage]||stage)+'</p>'+(count?'<p class="mt-2 text-sm text-muted-foreground">'+(stage==='open'?'Pemungutan suara ditutup dalam':'Pemungutan suara dibuka dalam')+'</p><p id="countdown" class="mt-1 font-mono text-3xl font-bold tracking-tight" aria-live="off">—</p>':'<p class="mt-2 text-xl font-bold">'+({draft:'Pemilihan masih dalam persiapan.',closed:'Pemungutan suara telah ditutup.',published:'Hasil pemilihan telah diumumkan.'}[stage]||'Status pemilihan tersedia.')+'</p>')+'</section>'+
-          '<section class="grid gap-3 sm:grid-cols-4">'+cards.map(([k,v,shown])=>'<article class="rounded-xl border border-border bg-card p-4"><p class="text-sm text-muted-foreground">'+k+'</p><p class="mt-1 text-2xl font-bold">'+(shown??num(v))+'</p></article>').join('')+'</section>'+
-          '<section class="rounded-xl border border-border bg-card p-4"><p class="font-semibold">Surat Suara Terkirim: '+num(d.participation_count)+' · Jumlah Suara di Kotak: '+num(d.ballot_count)+' · <strong class="'+(d.count_matches?'text-emerald-700':'text-red-700')+'">'+(d.count_matches?'Sesuai':'Tidak sesuai')+'</strong></p><p class="mt-2 text-sm text-muted-foreground">Diperbarui '+new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Tokyo',dateStyle:'medium',timeStyle:'medium'}).format(new Date(d.updated_at))+' JST</p></section>'+
-          (d.test?'<p class="rounded-xl border border-amber-300 bg-amber-50 p-4 font-semibold text-amber-900">Uji Coba — Partisipasi '+num(d.test.participation_count)+' · Suara di kotak '+num(d.test.ballot_count)+'</p>':'')+
-          '<section class="rounded-xl border border-border bg-card p-5"><h2 class="text-xl font-bold">Perolehan suara keseluruhan</h2><div class="mt-4 flex flex-wrap gap-2">'+d.candidates.map(c=>'<span class="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2"><span class="size-3 rounded-full" style="background-color:'+esc(c.color||'#334155')+'"></span><strong>'+esc(c.number)+' · '+esc(c.nickname)+'</strong><span>'+num(c.votes)+' suara</span></span>').join('')+'</div></section>'+
-          '<section class="overflow-x-auto rounded-xl border border-border bg-card p-5"><h2 class="text-xl font-bold">Hasil per korda</h2><table class="mt-4 w-full text-left text-sm"><thead><tr class="border-b"><th class="p-2">Korda</th><th class="p-2">Hak pilih</th><th class="p-2">Digunakan</th><th class="p-2">Partisipasi</th><th class="p-2">Perolehan kandidat</th></tr></thead><tbody>'+d.korda.map(k=>'<tr class="border-b"><th class="p-2">'+esc(k.name)+'</th><td class="p-2">'+num(k.eligible_count)+'</td><td class="p-2">'+num(k.used_count)+'</td><td class="p-2">'+(k.turnout_percentage===null?'—':percent(k.turnout_percentage))+'</td><td class="p-2">'+(k.suppressed?'Data terlalu sedikit':k.candidates.map(c=>esc(c.nickname)+': '+num(c.votes)).join(' · '))+'</td></tr>').join('')+'</tbody></table></section>';
+        root.innerHTML=
+          (d.committee_warning?'<div class="rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]"><strong class="block font-bold">Sebaiknya ada minimal 2 Admin Voting</strong><a class="underline underline-offset-2" href="/admin">Kelola Admin Voting</a></div>':'')+
+          '<section class="'+panel+'"><div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><div class="min-w-0"><h2 class="'+panelTitle+'">Tahap pemilihan</h2><div class="mt-2">'+badge(stageLabel[stage]||stage,stageTone[stage]||stageTone.draft)+'</div></div></div>'+
+          (count?'<p class="mt-4 text-[13px] text-brand-muted">'+(stage==='open'?'Pemungutan suara ditutup dalam':'Pemungutan suara dibuka dalam')+'</p><p id="countdown" class="mt-1 font-mono text-[30px] leading-tight font-extrabold tracking-tight tabular-nums text-brand-ink" aria-live="off">—</p>':'<p class="mt-4 text-lg leading-snug font-bold text-brand-ink">'+({draft:'Pemilihan masih dalam persiapan.',closed:'Pemungutan suara telah ditutup.',published:'Hasil pemilihan telah diumumkan.'}[stage]||'Status pemilihan tersedia.')+'</p>')+'</section>'+
+          '<section aria-label="Angka partisipasi" class="grid min-w-0 grid-cols-2 gap-[17px] min-[901px]:grid-cols-4">'+cards.map(([k,v,shown])=>'<article class="grid min-w-0 gap-2 rounded-xl border border-brand-border bg-card p-5"><p class="text-sm font-medium text-muted-foreground">'+k+'</p><p class="text-3xl font-bold tracking-tight text-brand-ink tabular-nums">'+(shown??num(v))+'</p></article>').join('')+'</section>'+
+          '<section class="'+panel+'"><div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><h2 class="'+panelTitle+'">Pemeriksaan surat suara</h2><div class="mt-0.5">'+badge(d.count_matches?'Sesuai':'Tidak sesuai',d.count_matches?'bg-[#f1f5f3] text-[#35604a]':'border border-[#f0ccd4] bg-[#fdf2f4] text-[#8f1730]')+'</div></div>'+
+          '<dl class="mt-4 mb-0 grid grid-cols-2 gap-x-5 gap-y-3 max-[600px]:grid-cols-1"><div class="grid min-w-0 gap-0.5"><dt class="text-xs text-brand-muted">Surat suara terkirim</dt><dd class="m-0 text-[22px] leading-tight font-bold text-brand-ink tabular-nums">'+num(d.participation_count)+'</dd></div><div class="grid min-w-0 gap-0.5"><dt class="text-xs text-brand-muted">Suara di kotak</dt><dd class="m-0 text-[22px] leading-tight font-bold text-brand-ink tabular-nums">'+num(d.ballot_count)+'</dd></div></dl>'+
+          '<p class="mt-3 border-t border-brand-border pt-2.5 text-xs text-brand-muted">Diperbarui '+new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Tokyo',dateStyle:'medium',timeStyle:'medium'}).format(new Date(d.updated_at))+' JST</p></section>'+
+          (d.test?'<div class="rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]"><strong class="block font-bold">Uji coba</strong>Partisipasi '+num(d.test.participation_count)+' · Suara di kotak '+num(d.test.ballot_count)+'</div>':'')+
+          '<section class="'+panel+'"><div class="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><h2 class="'+panelTitle+'">Perolehan suara keseluruhan</h2></div><ul class="m-0 grid list-none gap-0 p-0">'+d.candidates.map(c=>'<li class="flex flex-wrap items-center gap-3 border-t border-brand-border px-1 py-3 first:border-t-0"><span aria-hidden="true" class="size-3 shrink-0 rounded-full" style="background-color:'+esc(c.color||'#334155')+'"></span><strong class="min-w-0 text-sm font-semibold text-brand-ink break-words">'+esc(c.number)+' · '+esc(c.nickname)+'</strong><span class="ml-auto text-sm text-brand-muted tabular-nums">'+num(c.votes)+' suara</span></li>').join('')+'</ul></section>'+
+          '<section class="'+panel+'"><div class="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><h2 class="'+panelTitle+'">Hasil per korda</h2></div><div class="overflow-x-auto"><table class="w-full caption-bottom text-sm"><thead><tr class="border-b border-brand-border"><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Korda</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Hak pilih</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Digunakan</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Partisipasi</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Perolehan kandidat</th></tr></thead><tbody>'+d.korda.map(k=>'<tr class="border-b border-brand-border last:border-b-0"><th scope="row" class="p-2 text-left align-middle text-[13px] font-semibold text-brand-ink">'+esc(k.name)+'</th><td class="p-2 align-middle text-[13px] tabular-nums">'+num(k.eligible_count)+'</td><td class="p-2 align-middle text-[13px] tabular-nums">'+num(k.used_count)+'</td><td class="p-2 align-middle text-[13px] tabular-nums">'+(k.turnout_percentage===null?'—':percent(k.turnout_percentage))+'</td><td class="p-2 align-middle text-[13px]">'+(k.suppressed?'Data terlalu sedikit':k.candidates.map(c=>esc(c.nickname)+': '+num(c.votes)).join(' · '))+'</td></tr>').join('')+'</tbody></table></div></section>';
         countdown();
-      }catch(e){error.textContent=(e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.';error.classList.remove('hidden')}finally{refresh.disabled=false;refresh.textContent='Muat Ulang Data'}
+      }catch(e){error.textContent=(e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.';error.removeAttribute('hidden')}finally{refresh.disabled=false;refreshLabel.textContent='Muat Ulang Data'}
     }
-    document.querySelector('#refresh').addEventListener('click',load);load();
+    refresh.addEventListener('click',load);load();
   </script>
 </AdminLayout>

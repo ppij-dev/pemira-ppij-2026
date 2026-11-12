@@ -1,0 +1,55 @@
+---
+/**
+ * PPIJ design system `FactList` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/fact-list.tsx.
+ * Baris istilah dan nilai di dalam <dl>: `rows` untuk detail drawer dengan
+ * kolom istilah 96px, `twoColumn`/`inline` runtuh ke satu kolom di ponsel.
+ */
+export type FactListVariant = "rows" | "inline" | "twoColumn";
+interface Item {
+  label: string;
+  value: string;
+  muted?: boolean;
+}
+interface Props {
+  items: Item[];
+  variant?: FactListVariant;
+  total?: { label: string; value: string };
+  emptyLabel?: string;
+  class?: string;
+}
+const { items, variant = "rows", total, emptyLabel, class: className } = Astro.props;
+
+const listClass: Record<FactListVariant, string> = {
+  rows: "grid",
+  twoColumn: "grid grid-cols-2 gap-x-5 gap-y-3 max-[600px]:grid-cols-1",
+  inline: "grid grid-cols-2 gap-x-5 gap-y-2.5 max-[600px]:grid-cols-1",
+};
+const itemClass: Record<FactListVariant, string> = {
+  rows: "grid min-w-0 grid-cols-[96px_minmax(0,1fr)] items-baseline gap-x-3 border-b border-brand-border py-2",
+  twoColumn: "grid min-w-0 gap-0.5",
+  inline: "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2",
+};
+const valueClass: Record<FactListVariant, string> = {
+  rows: "text-[13px] font-semibold",
+  twoColumn: "text-sm font-semibold",
+  inline: "text-[13px] font-semibold",
+};
+---
+{(items.length || total) && (
+  <dl data-slot="fact-list" data-variant={variant} class:list={["m-0", listClass[variant], className]}>
+    {items.map((item) => (
+      <div class={itemClass[variant]}>
+        <dt class="text-xs text-brand-muted">{item.label}</dt>
+        <dd class:list={["m-0 break-words", valueClass[variant], item.muted ? "text-brand-muted" : "text-brand-ink"]}>{item.value}</dd>
+      </div>
+    ))}
+    {total && (
+      <div class="col-span-full flex items-baseline justify-between gap-3 border-t border-brand-border pt-2.5">
+        <dt class="text-xs text-brand-muted">{total.label}</dt>
+        <dd class="m-0 text-sm font-bold text-brand-ink">{total.value}</dd>
+      </div>
+    )}
+  </dl>
+)}
+{!items.length && !total && emptyLabel && <p data-slot="fact-list-empty" class:list={["m-0 text-[13px] text-brand-muted", className]}>{emptyLabel}</p>}

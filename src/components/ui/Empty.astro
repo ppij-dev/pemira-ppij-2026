@@ -1,0 +1,24 @@
+---
+/**
+ * PPIJ design system `Empty` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/empty.tsx.
+ * Keadaan kosong: bingkai putus-putus, ikon, judul, penjelasan, satu aksi.
+ */
+import type { Component } from "astro";
+
+interface Props {
+  title: string;
+  description?: string;
+  icon?: Component;
+  class?: string;
+}
+const { title, description, icon: Icon, class: className } = Astro.props;
+---
+<div data-slot="empty" class:list={["flex min-w-0 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-brand-border bg-card p-10 text-center text-balance max-[600px]:p-6", className]}>
+  <div class="flex max-w-sm flex-col items-center gap-2 text-center">
+    {Icon && <div class="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-brand-ink"><Icon size={24} stroke={1.7} aria-hidden="true" /></div>}
+    <p class="text-base font-semibold tracking-tight text-brand-ink">{title}</p>
+    {description && <p class="text-sm text-brand-muted">{description}</p>}
+  </div>
+  {Astro.slots.has("default") && <div class="flex w-full max-w-sm min-w-0 flex-col items-center gap-3 text-sm text-balance"><slot /></div>}
+</div>

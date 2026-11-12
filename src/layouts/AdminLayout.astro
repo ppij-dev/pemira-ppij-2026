@@ -1,6 +1,18 @@
 ---
 import "../styles/global.css";
 import { env } from "cloudflare:workers";
+import {
+  IconCalendarEvent,
+  IconId,
+  IconLayoutDashboard,
+  IconMenu2,
+  IconShieldCheck,
+  IconUserCheck,
+  IconUsers,
+} from "@tabler/icons-astro";
+import AdminSidebar from "../components/ui/AdminSidebar.astro";
+import AdminTopBar from "../components/ui/AdminTopBar.astro";
+import BottomBar from "../components/ui/BottomBar.astro";
 import { getSiteLogo } from "../server/lib/logo";
 import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
 const cookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
@@ -11,6 +23,7 @@ const adminSession = await openAdminSession(cookie, bindings);
 const authorized = await isAdminPageAuthorized(cookie, bindings);
 if (!authorized) Astro.response.status = 403;
 const accountInitial = (adminSession?.name ?? "").trim().charAt(0).toUpperCase() || "?";
+const accountName = adminSession?.name ?? "Admin Voting";
 const title = Astro.props.title ?? "Admin Voting";
 let configuredLogo: string | undefined;
 if (authorized && bindings.DB) {
@@ -20,14 +33,26 @@ if (authorized && bindings.DB) {
 }
 const logo = getSiteLogo(configuredLogo);
 const path = Astro.url.pathname;
+// Navigasi Admin Voting: enam halaman, ikon Tabler saja.
 const nav = [
-  { href: "/admin/dasbor", label: "Dasbor" },
-  { href: "/admin", label: "Panitia" },
-  { href: "/admin/pemilih", label: "Pemilih" },
-  { href: "/admin/kandidat", label: "Kandidat" },
-  { href: "/admin/pemilihan", label: "Pemilihan" },
-  { href: "/admin/audit", label: "Audit" },
+  { href: "/admin/dasbor", label: "Dasbor", icon: IconLayoutDashboard },
+  { href: "/admin", label: "Panitia", icon: IconUserCheck },
+  { href: "/admin/pemilih", label: "Pemilih", icon: IconUsers },
+  { href: "/admin/kandidat", label: "Kandidat", icon: IconId },
+  { href: "/admin/pemilihan", label: "Pemilihan", icon: IconCalendarEvent },
+  { href: "/admin/audit", label: "Audit", icon: IconShieldCheck },
 ];
+// Ponsel memuat empat tujuan harian dan menu "Lainnya" untuk sisanya.
+const primaryNav = nav.filter((item) => ["/admin/dasbor", "/admin/pemilih", "/admin/kandidat", "/admin/pemilihan"].includes(item.href));
+const secondaryNav = nav.filter((item) => !primaryNav.some((primary) => primary.href === item.href));
+const inSecondary = secondaryNav.some((item) => item.href === path);
+const bottomItems = [
+  ...primaryNav.map((item) => ({ ...item, current: item.href === path })),
+  { href: "#lainnya", label: "Lainnya", icon: IconMenu2, current: inSecondary, attrs: { "data-bottom-more": "true", "aria-controls": "phone-more-menu", "aria-expanded": "false", "aria-haspopup": "true" } },
+];
+const identity = { name: accountName, initials: accountInitial };
+// Fakta tenang di bilah atas: tanggal hari ini dalam zona waktu Jepang.
+const todayJst = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date());
 ---
 <!doctype html>
 <html lang="id">
@@ -35,24 +60,71 @@ const nav = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta name="description" content="Administrasi pemilihan PPI Jepang." />
+    <meta name="description" content="Admin Voting pemilihan PPI Jepang." />
     <title>{title} · PPIJ Pemilu</title>
     <link rel="icon" href={logo.src} type={logo.faviconType} />
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
-  <body class="min-h-dvh bg-background text-foreground antialiased">
-    <header class="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
-      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <a href="/admin/dasbor" class="inline-flex min-h-11 items-center gap-3 rounded-md font-semibold tracking-tight text-foreground focus-visible:outline-2 focus-visible:outline-ring"><img src={logo.src} alt="" class="h-9 w-auto max-w-14 object-contain" /><span><span class="block text-xs font-semibold uppercase tracking-wider text-primary">Admin Voting</span><span>PPIJ Pemilu</span></span></a>
-        {authorized && adminSession && <a href="/akun" aria-label={`Akun: ${adminSession.name}`} class="flex size-11 shrink-0 items-center justify-center rounded-full border border-border bg-card font-semibold text-foreground transition hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">{accountInitial}</a>}
-        <a href="/" class="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-sm font-semibold text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Mode Pemilih</a>
+  <body class="min-h-dvh bg-brand-bg text-brand-ink antialiased">
+    <div id="admin-shell" data-collapsed="false" class="group/shell min-h-dvh bg-brand-bg">
+      {authorized && <AdminSidebar items={nav} current={path} identity={identity} brand={{ src: logo.src, alt: "PPI Jepang", label: "PPI Jepang", caption: "Admin Voting" }} voterHref="/" />}
+      <div class="min-w-0 min-[701px]:pl-[254px] group-data-[collapsed=true]/shell:min-[701px]:pl-[72px]">
+        {authorized && <>
+          <AdminTopBar variant="desktop" path={[{ label: "Admin Voting" }]} title={title} meta={[todayJst]} identity={identity} />
+          <AdminTopBar variant="phone" title={title} identity={identity} brand={{ src: logo.src, alt: "PPI Jepang", label: "Admin Voting" }} />
+        </>}
+        <main id="main" class="mx-auto w-full max-w-[1490px] px-4 pt-[19px] pb-[86px] min-[701px]:px-[clamp(24px,3vw,48px)] min-[701px]:py-7 min-[701px]:pb-9">
+          {authorized
+            ? <slot />
+            : <section class="rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]"><h1 class="text-lg font-bold tracking-tight text-brand-ink">Akses khusus Admin Voting</h1><p class="mt-1 text-[13px] text-brand-muted">Anda tidak memiliki akses ke halaman ini.</p></section>}
+        </main>
       </div>
-      <nav aria-label="Navigasi admin" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2 sm:px-6">
-        {nav.map((item) => <a href={item.href} aria-current={path === item.href ? "page" : undefined} class:list={["inline-flex min-h-11 shrink-0 items-center rounded-md px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-ring", path === item.href ? "bg-brand-50 text-brand-800" : "text-muted-foreground hover:bg-accent hover:text-foreground"]}>{item.label}</a>)}
-      </nav>
-    </header>
-    <main class="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-      {authorized ? <slot /> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8"><h1 class="text-xl font-bold">Akses khusus Admin Voting</h1><p class="mt-2 text-muted-foreground">Anda tidak memiliki akses ke halaman ini.</p></section>}
-    </main>
+      {authorized && (
+        <div class="fixed inset-x-0 bottom-0 z-30 min-[701px]:hidden">
+          <div id="phone-more-menu" hidden class="mx-2 mb-2 grid rounded-lg border border-brand-border bg-card p-1 shadow-[0_9px_25px_rgba(15,24,39,0.16)]">
+            {secondaryNav.map((item) => (
+              <a href={item.href} class:list={["flex min-h-11 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-semibold no-underline hover:bg-accent", item.href === path ? "text-brand-red" : "text-brand-ink"]}>
+                <item.icon size={19} stroke={1.8} aria-hidden="true" />{item.label}
+              </a>
+            ))}
+            <a href="/" class="flex min-h-11 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-semibold text-brand-ink no-underline hover:bg-accent">Mode Pemilih</a>
+          </div>
+          <BottomBar items={bottomItems} />
+        </div>
+      )}
+    </div>
+    {authorized && <script is:inline>
+      (function () {
+        const shell = document.getElementById("admin-shell");
+        const toggle = document.querySelector("[data-sidebar-toggle]");
+        const label = document.querySelector("[data-sidebar-toggle-label]");
+        const STORAGE_KEY = "ppij-admin-sidebar";
+        function apply(collapsed) {
+          if (!shell) return;
+          shell.dataset.collapsed = collapsed ? "true" : "false";
+          if (toggle) {
+            toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+            toggle.setAttribute("aria-label", collapsed ? "Tampilkan navigasi" : "Sembunyikan navigasi");
+          }
+          if (label) label.textContent = collapsed ? "Tampilkan navigasi" : "Sembunyikan navigasi";
+        }
+        let stored = null;
+        try { stored = window.localStorage.getItem(STORAGE_KEY); } catch { /* Penyimpanan lokal dapat diblokir. */ }
+        apply(stored === "true");
+        if (toggle) toggle.addEventListener("click", function () {
+          const next = !(shell && shell.dataset.collapsed === "true");
+          apply(next);
+          try { window.localStorage.setItem(STORAGE_KEY, next ? "true" : "false"); } catch { /* Tetap berfungsi tanpa penyimpanan. */ }
+        });
+        const more = document.querySelector("[data-bottom-more]");
+        const menu = document.getElementById("phone-more-menu");
+        if (more && menu) more.addEventListener("click", function (event) {
+          event.preventDefault();
+          const open = menu.hasAttribute("hidden");
+          if (open) menu.removeAttribute("hidden"); else menu.setAttribute("hidden", "");
+          more.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+      })();
+    </script>}
   </body>
 </html>

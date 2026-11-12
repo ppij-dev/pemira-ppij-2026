@@ -58,7 +58,8 @@
     "@astrojs/cloudflare": "~14.3.0",
     "@tabler/icons-astro": "^3.49.0",
     "astro": "~7.3.0",
-    "hono": "^4.13.13"
+    "hono": "^4.13.13",
+    "ppij-design-system": "^0.4.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",

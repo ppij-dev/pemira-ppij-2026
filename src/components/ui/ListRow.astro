@@ -1,0 +1,55 @@
+---
+/**
+ * PPIJ design system `ListRow` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/list-row.tsx.
+ * Satu baris: judul, subjudul, kolom meta dan slot kanan. Kolom meta hanya
+ * tampil dari 600px ke atas; setiap kontrol di slot kanan tetap kontrol sendiri.
+ */
+export type ListRowTone = "default" | "danger" | "muted";
+const toneClass: Record<ListRowTone, string> = {
+  default: "text-brand-ink",
+  danger: "text-destructive",
+  muted: "text-brand-muted",
+};
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  tone?: ListRowTone;
+  /** Menyorot baris dan menandainya sebagai halaman aktif. */
+  selected?: boolean;
+  href?: string;
+  class?: string;
+}
+const { title, subtitle, tone = "default", selected = false, href, class: className } = Astro.props;
+const hasLeading = Astro.slots.has("leading");
+const hasMeta = Astro.slots.has("meta");
+const hasTrailing = Astro.slots.has("trailing");
+const hasBadge = Astro.slots.has("badge");
+const columns = [hasLeading ? "auto" : null, "minmax(0,1fr)", hasMeta ? "auto" : null, "auto"].filter(Boolean).join(" ");
+const classes = [
+  "grid w-full items-center gap-x-3 gap-y-1 border-t border-brand-border px-1 py-3 text-left first:border-t-0",
+  "max-[600px]:min-h-11",
+  selected && "bg-secondary/60",
+  className,
+];
+const Tag = href ? "a" : "div";
+---
+<Tag
+  data-slot="list-row"
+  href={href}
+  aria-current={selected ? "true" : undefined}
+  class:list={[classes, href && "transition-colors hover:bg-secondary/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"]}
+  style={`grid-template-columns:${columns}`}
+>
+  {hasLeading && <span class="flex shrink-0 items-center"><slot name="leading" /></span>}
+  <span class="grid min-w-0 gap-1">
+    <span class="flex min-w-0 flex-wrap items-center gap-2">
+      <strong class:list={["block text-sm leading-snug font-semibold break-words", toneClass[tone]]}>{title}</strong>
+      {hasBadge && <slot name="badge" />}
+    </span>
+    {subtitle && <small class="block text-xs leading-snug break-words text-brand-muted">{subtitle}</small>}
+  </span>
+  {hasMeta && <span class="hidden text-xs text-brand-muted min-[600px]:block"><slot name="meta" /></span>}
+  {hasTrailing && <span class="flex shrink-0 items-center justify-end gap-2"><slot name="trailing" /></span>}
+</Tag>

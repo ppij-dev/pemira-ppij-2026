@@ -1,0 +1,76 @@
+---
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-astro";
+/**
+ * Kerangka tabel data Admin Voting untuk Astro, mengikuti `DataTable` dari
+ * ppij-design-system/packages/ui/src/components/data-table.tsx: bilah atas
+ * dengan pencarian dan aksi, isi tabel, dan footer ringkas dengan paginasi.
+ * Kontrol paginasi 44px di ponsel dan 32px dari 600px ke atas.
+ */
+interface Props {
+  /** Slot bilah pencarian: input berikon atau pemilih filter. */
+  title?: string;
+  description?: string;
+  footerText?: string;
+  pageLabel?: string;
+  previousHref?: string;
+  nextHref?: string;
+  previousDisabled?: boolean;
+  nextDisabled?: boolean;
+  class?: string;
+}
+const {
+  title,
+  description,
+  footerText,
+  pageLabel,
+  previousHref,
+  nextHref,
+  previousDisabled = false,
+  nextDisabled = false,
+  class: className,
+} = Astro.props;
+const hasPagination = Boolean(previousHref || nextHref);
+const hasFooter = Boolean(footerText || hasPagination);
+const navClass = "inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:size-8 min-[600px]:min-h-8 min-[600px]:min-w-8";
+const inertClass = "pointer-events-none opacity-50";
+---
+<div data-slot="data-table" class:list={["overflow-hidden rounded-xl border border-brand-border bg-card", className]}>
+  {(title || Astro.slots.has("toolbar")) && (
+    <div class="border-b border-brand-border px-4 py-3.5 max-[600px]:px-3">
+      {title && (
+        <div class="mb-3">
+          <h2 class="text-lg leading-snug font-bold tracking-tight text-brand-ink">{title}</h2>
+          {description && <p class="mt-1 text-[13px] text-brand-muted">{description}</p>}
+        </div>
+      )}
+      <div class="flex flex-wrap items-center gap-2"><slot name="toolbar" /></div>
+    </div>
+  )}
+  <div class="overflow-x-auto"><slot /></div>
+  {hasFooter && (
+    <div class="flex min-h-10 flex-wrap items-center justify-between gap-2 border-t border-brand-border px-3 py-1.5">
+      {footerText && <p class="text-xs text-brand-muted">{footerText}</p>}
+      {hasPagination && (
+        <nav aria-label="Halaman tabel" class="ml-auto flex items-center gap-1">
+          {pageLabel && <span class:list={["mr-1 text-xs text-brand-muted", footerText && "sr-only min-[600px]:not-sr-only"]}>{pageLabel}</span>}
+          <a
+            href={previousDisabled ? undefined : previousHref}
+            aria-disabled={previousDisabled ? "true" : undefined}
+            aria-label="Sebelumnya"
+            class:list={[navClass, previousDisabled && inertClass]}
+          >
+            <IconChevronLeft size={16} stroke={1.8} aria-hidden="true" /><span class="min-[600px]:sr-only">Sebelumnya</span>
+          </a>
+          <a
+            href={nextDisabled ? undefined : nextHref}
+            aria-disabled={nextDisabled ? "true" : undefined}
+            aria-label="Berikutnya"
+            class:list={[navClass, nextDisabled && inertClass]}
+          >
+            <span class="min-[600px]:sr-only">Berikutnya</span><IconChevronRight size={16} stroke={1.8} aria-hidden="true" />
+          </a>
+        </nav>
+      )}
+    </div>
+  )}
+</div>

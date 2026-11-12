@@ -1,0 +1,67 @@
+---
+/**
+ * PPIJ design system `Callout` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/callout.tsx.
+ * Catatan sebaris: satu langkah warna, ikon, judul dan isi, serta satu aksi.
+ * `danger` memakai role alert; nada lain memakai role status atau tanpa role.
+ */
+import type { Component } from "astro";
+
+export type CalloutTone = "info" | "success" | "warning" | "danger" | "neutral";
+
+const TONES: Record<CalloutTone, string> = {
+  info: "bg-[#f0f4fa] text-[#4c627b]",
+  success: "bg-[#f1f5f3] text-[#35604a]",
+  warning: "bg-[#fff5e6] text-[#7c5014]",
+  danger: "border border-[#f0ccd4] bg-[#fdf2f4] text-[#8f1730]",
+  neutral: "border border-[#e6eaed] bg-[#f8fafb] text-[#56636d]",
+};
+const ROLES: Record<CalloutTone, "status" | "alert" | undefined> = {
+  info: "status",
+  success: "status",
+  warning: undefined,
+  danger: "alert",
+  neutral: undefined,
+};
+
+interface Props {
+  tone?: CalloutTone;
+  icon?: Component;
+  title?: string;
+  /** `compact` adalah catatan drawer admin: isi 12px, padding 10px. */
+  density?: "default" | "compact";
+  /** Untuk elemen dengan id sendiri, misalnya wadah galat yang diisi skrip. */
+  id?: string;
+  class?: string;
+  /** Menyembunyikan catatan sampai skrip menampilkannya. */
+  hidden?: boolean;
+  role?: "status" | "alert";
+  "aria-live"?: "polite" | "off";
+}
+const { tone = "info", icon: Icon, title, density = "default", id, class: className, hidden = false, role, ...rest } = Astro.props;
+const compact = density === "compact";
+const resolvedRole = role ?? ROLES[tone];
+---
+<div
+  data-slot="callout"
+  data-tone={tone}
+  id={id}
+  hidden={hidden}
+  role={resolvedRole}
+  {...rest}
+  class:list={[
+    "rounded-lg",
+    compact ? "px-3 py-2.5 text-xs leading-5" : "px-3.5 py-3 text-[13px] leading-5",
+    TONES[tone],
+    className,
+  ]}
+>
+  <div class="flex items-start gap-2.5">
+    {Icon && <span aria-hidden="true" class="mt-0.5 shrink-0 [&_svg]:size-[18px]"><Icon size={18} stroke={1.8} /></span>}
+    <div class="min-w-0">
+      {title && <strong class:list={["block font-bold", compact ? "text-xs" : "text-[13px]"]}>{title}</strong>}
+      <div class:list={["min-w-0", title && "mt-0.5 text-xs"]}><slot /></div>
+    </div>
+  </div>
+  {Astro.slots.has("action") && <div class="mt-2.5 flex flex-wrap items-center gap-2"><slot name="action" /></div>}
+</div>

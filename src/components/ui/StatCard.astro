@@ -1,0 +1,27 @@
+---
+/**
+ * PPIJ design system `StatCard` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/stat-card.tsx.
+ * Label, angka besar, satu baris konteks. Angka diformat halaman.
+ */
+import type { Component } from "astro";
+
+interface Props {
+  label: string;
+  value: string;
+  /** Satu baris konteks tenang di bawah angka. */
+  hint?: string;
+  /** Ikon Tabler di chip kanan atas. */
+  icon?: Component;
+  class?: string;
+}
+const { label, value, hint, icon: Icon, class: className } = Astro.props;
+---
+<article data-slot="stat-card" class:list={["grid min-w-0 gap-2 rounded-xl border border-brand-border bg-card p-5", className]}>
+  <div class="flex items-start justify-between gap-3">
+    <span class="text-sm font-medium text-muted-foreground">{label}</span>
+    {Icon && <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground"><Icon size={16} stroke={1.8} aria-hidden="true" /></span>}
+  </div>
+  <span class="text-3xl font-bold tracking-tight text-brand-ink tabular-nums max-[600px]:text-[26px]">{value}</span>
+  {hint && <p class="text-sm text-muted-foreground">{hint}</p>}
+</article>
