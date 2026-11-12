@@ -12,13 +12,16 @@ function createHandler(opts: FixtureOptions) {
     { path: "/ppij/kyushu", name: "Kyushu", parent_path: "/ppij", type: "korda" },
     ...["okayama", "kyushu", "fukuoka", "kumamoto", "kagoshima"].map((name, index) => ({ path: `/ppij/${index < 1 ? "okayama" : "kyushu"}/${name}`, name, parent_path: `/ppij/${index < 1 ? "okayama" : "kyushu"}`, type: "komsat" as const })),
   ];
-  const initial = Array.from({ length: 8 }, (_, index) => ({ member_id: `member-${index + 1}`, full_name: `Member ${index + 1}`, nickname: `M${index + 1}`, komsat_path: index < 4 ? "/ppij/okayama/okayama" : "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(index + 1), member_category: "BIASA", updated_at: `2026-01-01T00:00:0${index}Z` }));
-  const joined = [9, 10, 11].map((n) => ({ member_id: `member-${n}`, full_name: `Member ${n}`, nickname: `M${n}`, komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(n), member_category: "BIASA", updated_at: "2026-01-02T00:00:00Z" }));
-  const extraordinary = { member_id: "member-12", full_name: "Member 12", nickname: "M12", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "12", member_category: "LUAR_BIASA", updated_at: "2026-01-02T00:00:00Z" };
-  const memberOneExpired = { ...initial[0]!, status: "EXPIRED", updated_at: "2026-01-02T00:00:00Z" };
+  const initial = Array.from({ length: 8 }, (_, index) => ({ member_id: `member-${index + 1}`, full_name: `Member ${index + 1}`, nickname: `M${index + 1}`, komsat_path: index < 4 ? "/ppij/okayama/okayama" : "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(index + 1), member_category: "BIASA", can_vote: true, updated_at: `2026-01-01T00:00:0${index}Z` }));
+  const joined = [9, 10, 11].map((n) => ({ member_id: `member-${n}`, full_name: `Member ${n}`, nickname: `M${n}`, komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(n), member_category: "BIASA", can_vote: true, updated_at: "2026-01-02T00:00:00Z" }));
+  // Luar Biasa: portal menyatakan can_vote false.
+  const extraordinary = { member_id: "member-12", full_name: "Member 12", nickname: "M12", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "12", member_category: "LUAR_BIASA", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
+  // Kategori belum ditentukan: portal mengirim can_vote null.
+  const undetermined = { member_id: "member-13", full_name: "Member 13", nickname: "M13", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "13", member_category: null, can_vote: null, updated_at: "2026-01-02T00:00:00Z" };
+  const memberOneExpired = { ...initial[0]!, status: "EXPIRED", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
   // Deltanya sync bertahap; snapshot penuh (status=ALL) mencerminkan keadaan server sekarang.
-  const changed = [...joined, extraordinary, memberOneExpired];
-  const all = [...initial.filter((member) => member.member_id !== "member-1"), memberOneExpired, ...joined, extraordinary];
+  const changed = [...joined, extraordinary, undetermined, memberOneExpired];
+  const all = [...initial.filter((member) => member.member_id !== "member-1"), memberOneExpired, ...joined, extraordinary, undetermined];
   const envelope = (items: unknown[], url: URL) => {
     const page = url.searchParams.get("cursor") ? Number(url.searchParams.get("cursor")) : 0;
     return { items: items.slice(page * 2, page * 2 + 2), cursor: (page + 1) * 2 < items.length ? String(page + 1) : null, as_of: AS_OF };

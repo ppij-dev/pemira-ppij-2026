@@ -51,7 +51,7 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
  for(let i=colors.length-1;i>0;i--){const j=crypto.getRandomValues(new Uint32Array(1))[0]!%(i+1); [colors[i],colors[j]]=[colors[j]!,colors[i]!];}
  const deletions=await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=1").bind(row.id).first<{n:number}>();
  const votes=deletions?.n??0;
- const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,...(finalSync?.excluded?{bukan_anggota_biasa:finalSync.excluded}:{})}));
+ const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
  const statements=[db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
  let result;
  try { result=await db.batch(statements); } catch(error) { const current=await db.prepare("SELECT status_lock FROM elections WHERE id=?").bind(row.id).first<{status_lock:string}>(); if(current?.status_lock!=="draft") throw new ElectionError("Pemilihan telah dikunci oleh permintaan lain"); throw error; }

@@ -4,8 +4,9 @@ import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
+import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import { ServiceApiError } from "../src/server/serviceapi/client";
-import { assertSyncAllowed, enrichRollNames, syncPemilih } from "../src/server/serviceapi/sync";
+import { assertSyncAllowed, enrichRollNames, storedCanVote, syncPemilih } from "../src/server/serviceapi/sync";
 import { createServiceApiStub } from "./lib/serviceapi-fixture";
 
 beforeEach(async () => {
@@ -14,29 +15,42 @@ beforeEach(async () => {
   await env.DB.batch(sql.split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
   // ALTER tidak bersifat idempoten; abaikan bila kolom sudah ada dari batch sebelumnya.
   try {
-    await env.DB.batch([memberNumberSql, categorySql].join(";").split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
-  } catch { /* kolom member_number/category sudah ada */ }
+    await env.DB.batch([memberNumberSql, categorySql, canVoteSql].join(";").split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
+  } catch { /* kolom member_number/category/can_vote sudah ada */ }
 });
 const cfg = (stub: { issuer: string; serviceUrl: string; fetchImpl: typeof fetch }) => ({ issuer: stub.issuer, serviceApiUrl: stub.serviceUrl, clientId: "test-client", clientSecret: "test-secret", fetchImpl: stub.fetchImpl });
 describe("Service API voter sync", () => {
+  it("maps the portal can_vote to a stored 1/0/null voting right", () => {
+    const member = (can_vote: unknown) => ({ member_id: "m", full_name: "M", nickname: null, komsat_path: "/ppij", status: "ACTIVE", member_number: null, updated_at: "2026-01-01T00:00:00Z", can_vote: can_vote as boolean | null });
+    expect(storedCanVote(member(true))).toBe(1);
+    expect(storedCanVote(member(1))).toBe(1);
+    expect(storedCanVote(member(false))).toBe(0);
+    expect(storedCanVote(member(0))).toBe(0);
+    expect(storedCanVote(member(null))).toBeNull();
+    expect(storedCanVote(member(undefined))).toBeNull();
+  });
   it("imports active voters and units, then applies changed_since deltas", async () => {
     const fixture = createServiceApiStub();
     expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-01T00:00:00Z"))).toEqual({ added: 8, removed: 0, excluded: 0, total: 8 });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM units").first<{n:number}>()).toEqual({ n: 8 });
-    expect(await env.DB.prepare("SELECT member_number, category FROM voters WHERE member_id = 'member-1'").first<{member_number:string|null;category:string|null}>()).toEqual({ member_number: "1", category: "BIASA" });
+    expect(await env.DB.prepare("SELECT member_number, category, can_vote FROM voters WHERE member_id = 'member-1'").first<{member_number:string|null;category:string|null;can_vote:number|null}>()).toEqual({ member_number: "1", category: "BIASA", can_vote: 1 });
     // Penanda waktu dari as_of portal, bukan klok klien.
     expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first()).toEqual({ value: fixture.asOf });
-    expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-03T00:00:00Z"))).toEqual({ added: 3, removed: 1, excluded: 1, total: 10 });
+    // member-1 keluar ACTIVE, sembilan-sebelas masuk; Luar Biasa dan kategori
+    // belum ditentukan hanya dihitung sebagai tanpa hak pilih.
+    expect(await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-03T00:00:00Z"))).toEqual({ added: 3, removed: 1, excluded: 2, total: 10 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id IN ('member-12','member-13')").first<{n:number}>()).toEqual({ n: 0 });
   });
-  it("keeps only ACTIVE Anggota Biasa when rebuilding the roll from the portal", async () => {
+  it("keeps only members the portal marks can_vote true when rebuilding the roll", async () => {
     const fixture = createServiceApiStub();
     await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at) VALUES ('member-999','Anggota lama','/ppij/kyushu/fukuoka','ACTIVE',?)").bind(new Date().toISOString()).run();
     const result = await syncPemilih(env.DB, cfg(fixture), new Date("2026-01-05T00:00:00Z"), undefined, { full: true });
-    expect(result).toEqual({ added: 10, removed: 1, excluded: 1, total: 10 });
+    expect(result).toEqual({ added: 10, removed: 1, excluded: 2, total: 10 });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>()).toEqual({ n: 10 });
-    // Anggota Luar Biasa (member-12) dan anggota yang sudah EXPIRED tidak ikut.
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id IN ('member-12','member-1','member-999')").first<{n:number}>()).toEqual({ n: 0 });
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE category <> 'BIASA' OR category IS NULL").first<{n:number}>()).toEqual({ n: 0 });
+    // Luar Biasa (member-12), kategori belum ditentukan (member-13), anggota
+    // yang sudah EXPIRED dan baris asing (member-999) tidak ikut.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id IN ('member-12','member-13','member-1','member-999')").first<{n:number}>()).toEqual({ n: 0 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote IS NOT 1").first<{n:number}>()).toEqual({ n: 0 });
     expect(await env.DB.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first()).toEqual({ value: fixture.asOf });
   });
   it("leaves voters, sync time, and audit untouched when the batch fails", async () => {
@@ -70,18 +84,21 @@ describe("Service API voter sync", () => {
     const fetchImpl: typeof fetch = (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
     await expect(syncPemilih(env.DB, { ...cfg(fixture), fetchImpl }, new Date())).rejects.toMatchObject({ code: "timeout" });
   }, 12_000);
-  it("enriches existing roll rows with official names, card numbers and categories", async () => {
+  it("enriches existing roll rows with official names, card numbers, categories and voting rights", async () => {
     const fixture = createServiceApiStub();
-    // Baris pratinjau: nama masih berupa ID anggota, nomor kartu dan kategori kosong.
-    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at) VALUES ('member-1','member-1','M1','/ppij/okayama/okayama','ACTIVE',?)").bind(new Date().toISOString()).run();
-    // Anggota Luar Biasa tetap di roll beku, tetapi kategorinya tersimpan benar.
-    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,category) VALUES ('member-12','Member 12','M12','/ppij/kyushu/fukuoka','ACTIVE',?,'BIASA')").bind(new Date().toISOString()).run();
+    // Baris pratinjau: nama masih berupa ID anggota, nomor kartu, kategori dan hak pilih kosong.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at) VALUES ('member-2','member-2','M2','/ppij/kyushu/fukuoka','ACTIVE',?)").bind(new Date().toISOString()).run();
+    // Baris beku yang usang: kategori/hak pilih lama, portal sudah mengubahnya.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,category,can_vote) VALUES ('member-12','Member 12','M12','/ppij/kyushu/fukuoka','ACTIVE',?,'BIASA',1)").bind(new Date().toISOString()).run();
+    // Kategori, nomor kartu dan hak pilih yang portalnya masih kosong tidak ikut ditulis.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,member_number,category,can_vote) VALUES ('member-13','Member 13','M13','/ppij/kyushu/fukuoka','ACTIVE',?,'13',NULL,NULL)").bind(new Date().toISOString()).run();
     const result = await enrichRollNames(env.DB, cfg(fixture), new Date("2026-01-02T00:00:00Z"));
     expect(result.updated).toBe(2);
-    const row = await env.DB.prepare("SELECT name, member_number, category FROM voters WHERE member_id = 'member-1'").first<{ name: string; member_number: string | null; category: string | null }>();
-    expect(row).toEqual({ name: "Member 1", member_number: "1", category: "BIASA" });
-    const luarBiasa = await env.DB.prepare("SELECT category FROM voters WHERE member_id = 'member-12'").first<{ category: string }>();
-    expect(luarBiasa).toEqual({ category: "LUAR_BIASA" });
+    const row = await env.DB.prepare("SELECT name, member_number, category, can_vote FROM voters WHERE member_id = 'member-2'").first<{ name: string; member_number: string | null; category: string | null; can_vote: number | null }>();
+    expect(row).toEqual({ name: "Member 2", member_number: "2", category: "BIASA", can_vote: 1 });
+    // Baris Luar Biasa tetap di roll beku, tetapi hak pilihnya jadi 0.
+    const luarBiasa = await env.DB.prepare("SELECT category, can_vote FROM voters WHERE member_id = 'member-12'").first<{ category: string; can_vote: number }>();
+    expect(luarBiasa).toEqual({ category: "LUAR_BIASA", can_vote: 0 });
     // Idempoten: pembaruan berikutnya tidak mengubah apa pun.
     expect((await enrichRollNames(env.DB, cfg(fixture), new Date("2026-01-02T00:05:00Z"))).updated).toBe(0);
   });

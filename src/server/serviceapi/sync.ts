@@ -1,13 +1,12 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { buildAuditInsert } from "../lib/audit";
-import { isRegularMember } from "../../lib/memberCategory";
 import { ServiceApiClient, type Member, type ServiceApiConfig } from "./client";
 export { ServiceApiError } from "./client";
 
 export interface PemilihSyncResult {
   added: number;
   removed: number;
-  /** Anggota ACTIVE dari portal yang bukan Anggota Biasa (atau belum ditentukan). */
+  /** Anggota ACTIVE dari portal yang belum/tidak berhak memilih (can_vote bukan true). */
   excluded: number;
   total: number;
 }
@@ -29,14 +28,26 @@ function isActiveMember(member: Member): boolean {
   return String(member.status ?? "").toUpperCase() === "ACTIVE";
 }
 
-/** Aktif dan kategorinya Anggota Biasa (portal: member_category BIASA). */
+/**
+ * Hak pilih dari portal: 1 boleh, 0 tidak, null belum ditentukan. Kontraknya
+ * JSON boolean (true/false/null); nilai numerik 1/0 tetap diterima agar
+ * kekeliruan serialisasi tidak diam-diam mengosongkan seluruh roll.
+ */
+export function storedCanVote(member: Member): number | null {
+  const value = member.can_vote as unknown;
+  if (value === true || value === 1) return 1;
+  if (value === false || value === 0) return 0;
+  return null;
+}
+
+/** Anggota ACTIVE yang portalnya menyatakan can_vote true. */
 function isEligibleMember(member: Member): boolean {
-  return isActiveMember(member) && isRegularMember(member.member_category);
+  return isActiveMember(member) && storedCanVote(member) === 1;
 }
 
 function upsertVoter(db: D1Database, member: Member, now: Date) {
-  return db.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,member_number,category) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET name=excluded.name,nickname=excluded.nickname,komsat_path=excluded.komsat_path,status=excluded.status,synced_at=excluded.synced_at,member_number=excluded.member_number,category=excluded.category")
-    .bind(member.member_id, member.full_name, member.nickname ?? "", member.komsat_path, member.status, now.toISOString(), member.member_number ?? null, member.member_category ?? null);
+  return db.prepare("INSERT INTO voters (member_id,name,nickname,komsat_path,status,synced_at,member_number,category,can_vote) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET name=excluded.name,nickname=excluded.nickname,komsat_path=excluded.komsat_path,status=excluded.status,synced_at=excluded.synced_at,member_number=excluded.member_number,category=excluded.category,can_vote=excluded.can_vote")
+    .bind(member.member_id, member.full_name, member.nickname ?? "", member.komsat_path, member.status, now.toISOString(), member.member_number ?? null, member.member_category ?? null, storedCanVote(member));
 }
 
 function upsertUnit(db: D1Database, unit: { path: string; name: string; parent_path: string; type: string }) {
@@ -77,7 +88,7 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
     const totalRow = await db.prepare("SELECT COUNT(*) AS total FROM voters").first<{ total: number }>();
     total = (totalRow?.total ?? 0) + added - removed;
   }
-  const summary = `+${added} baru / -${removed} keluar` + (excluded ? ` / ${excluded} bukan Anggota Biasa` : "");
+  const summary = `+${added} baru / -${removed} keluar` + (excluded ? ` / ${excluded} tanpa hak pilih` : "");
   const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_sync", target: null, komsat_path: null, detail_json: JSON.stringify({ summary, added, removed, excluded, full: options.full === true }) });
   // as_of server dari portal, bukan klok lokal: jaminan tidak melewatkan
   // perubahan yang tertulis saat sinkronisasi berjalan (kontrak §4.3).
@@ -87,9 +98,10 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
 }
 
 /**
- * Lengkapi nama resmi, nomor kartu dan kategori AD/ART untuk baris roll yang
- * sudah ada — tanpa menambah/menghapus pemilih dan tanpa mengubah status,
- * sehingga aman dijalankan pada pemilihan yang sudah dibekukan (mis. pratinjau).
+ * Lengkapi nama resmi, nomor kartu, kategori tampilan dan hak pilih
+ * (can_vote) untuk baris roll yang sudah ada — tanpa menambah/menghapus
+ * pemilih dan tanpa mengubah status, sehingga aman dijalankan pada pemilihan
+ * yang sudah dibekukan (mis. pratinjau).
  */
 export async function enrichRollNames(db: D1Database, cfg: ServiceApiConfig, now: Date, fetchImpl?: typeof fetch): Promise<{ updated: number }> {
   const client = new ServiceApiClient({ ...cfg, ...(fetchImpl ? { fetchImpl } : {}) });
@@ -97,21 +109,24 @@ export async function enrichRollNames(db: D1Database, cfg: ServiceApiConfig, now
   // tetap perlu kategori benar agar penolakan saat memilih tepat.
   const page = await client.getMembers({ status: "ALL" });
   const byId = new Map(page.items.map((member) => [member.member_id, member]));
-  const rows = await db.prepare("SELECT member_id, name, member_number, category FROM voters").all<{ member_id: string; name: string; member_number: string | null; category: string | null }>();
+  const rows = await db.prepare("SELECT member_id, name, member_number, category, can_vote FROM voters").all<{ member_id: string; name: string; member_number: string | null; category: string | null; can_vote: number | null }>();
   const updates = [];
   let updated = 0;
   for (const row of rows.results) {
     const member = byId.get(row.member_id);
     if (!member) continue;
     // Perbarui bila nama masih berupa ID anggota (belum tersedia saat
-    // pendaftaran), nomor kartu portal berbeda, atau kategori portal berbeda.
-    // Kategori portal yang eksplisit null menimpa nilai lama (belum ditentukan).
+    // pendaftaran), nomor kartu portal berbeda, kategori tampilan berbeda,
+    // atau hak pilih (can_vote) berbeda dari yang tersimpan.
+    // Nilai portal yang eksplisit null menimpa nilai lama (belum ditentukan).
     const nameMissing = !row.name || row.name.trim() === row.member_id;
     const numberDiffers = Boolean(member.member_number) && (member.member_number !== row.member_number);
     const categoryPresent = member.member_category !== undefined;
     const categoryDiffers = categoryPresent && (member.member_category ?? null) !== row.category;
-    if (!nameMissing && !numberDiffers && !categoryDiffers) continue;
-    updates.push(db.prepare("UPDATE voters SET name = ?, member_number = COALESCE(?, member_number), category = ? WHERE member_id = ?").bind(member.full_name, member.member_number ?? null, member.member_category ?? null, row.member_id));
+    const canVotePresent = member.can_vote !== undefined;
+    const canVoteDiffers = canVotePresent && storedCanVote(member) !== row.can_vote;
+    if (!nameMissing && !numberDiffers && !categoryDiffers && !canVoteDiffers) continue;
+    updates.push(db.prepare("UPDATE voters SET name = ?, member_number = COALESCE(?, member_number), category = ?, can_vote = ? WHERE member_id = ?").bind(member.full_name, member.member_number ?? null, member.member_category ?? null, storedCanVote(member), row.member_id));
     updated++;
   }
   if (updates.length) {
