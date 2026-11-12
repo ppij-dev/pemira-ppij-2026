@@ -1,0 +1,45 @@
+---
+/**
+ * Navigasi bawah ponsel Admin Voting untuk Astro, mengikuti `BottomBar` dari
+ * ppij-design-system/packages/ui/src/components/bottom-bar.tsx. Shell halaman
+ * yang menempelkan bilah ini ke dasar layar dan memberi jarak pada isi.
+ */
+import type { Component } from "astro";
+
+interface Item {
+  label: string;
+  href: string;
+  icon: Component;
+  current?: boolean;
+  /** Atribut tambahan, misalnya penanda menu "Lainnya" di ponsel. */
+  attrs?: Record<string, string>;
+}
+interface Props {
+  items: Item[];
+  ariaLabel?: string;
+  class?: string;
+}
+const { items, ariaLabel = "Navigasi Admin Voting", class: className } = Astro.props;
+---
+<nav
+  data-slot="bottom-bar"
+  aria-label={ariaLabel}
+  class:list={["w-full border-t border-brand-border bg-white pb-[env(safe-area-inset-bottom)]", className]}
+>
+  <div class="grid" style={`grid-template-columns:repeat(${items.length},minmax(0,1fr))`}>
+    {items.map((item) => (
+      <a
+        href={item.href}
+        aria-current={item.current ? "page" : undefined}
+        {...item.attrs}
+        class:list={[
+          "relative flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-[11px] no-underline",
+          item.current ? "font-semibold text-brand-red" : "text-brand-muted hover:text-brand-ink",
+        ]}
+      >
+        <item.icon size={21} stroke={1.8} aria-hidden="true" />
+        <span class="max-w-full truncate">{item.label}</span>
+      </a>
+    ))}
+  </div>
+</nav>

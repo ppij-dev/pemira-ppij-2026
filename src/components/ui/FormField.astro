@@ -1,0 +1,23 @@
+---
+/**
+ * Satu medan berlabel pada formulir Admin Voting, mengikuti `FormField` dari
+ * ppij-design-system/packages/ui/src/components/form-grid.tsx: label membungkus
+ * kontrol, ditambah petunjuk tenang atau pesan galat di bawahnya.
+ */
+interface Props {
+  label: string;
+  hint?: string;
+  error?: string;
+  /** Memenuhi semua kolom FormGrid. */
+  wide?: boolean;
+  for?: string;
+  class?: string;
+}
+const { label, hint, error, wide = false, for: htmlFor, class: className } = Astro.props;
+---
+<div class:list={["grid min-w-0 gap-1.5 text-xs font-semibold text-brand-muted", wide && "col-span-full max-[600px]:col-span-1", className]}>
+  <label for={htmlFor} class="text-xs font-semibold text-brand-muted">{label}</label>
+  <slot />
+  {hint && <p class="text-xs font-normal text-brand-muted">{hint}</p>}
+  {error && <p role="alert" class="text-xs font-semibold text-destructive">{error}</p>}
+</div>

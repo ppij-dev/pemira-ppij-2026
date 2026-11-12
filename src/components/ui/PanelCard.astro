@@ -1,0 +1,67 @@
+---
+/**
+ * PPIJ design system `PanelCard` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/panel-card.tsx.
+ * Pulau putih Admin Voting: satu judul, satu deskripsi, satu aksi, satu isi.
+ * Padding: `panel` 22px (17px di bawah 700px), `page` 28px (20px di bawah
+ * 900px, 16px di bawah 600px), `none` untuk isi yang menempel tepi.
+ */
+import type { Component } from "astro";
+
+export type PanelCardPadding = "page" | "panel" | "none";
+
+interface Props {
+  title?: string;
+  description?: string;
+  padding?: PanelCardPadding;
+  /** `compact` adalah skala admin: judul 14px, deskripsi 12px, padding 16px. */
+  density?: "default" | "compact";
+  /** Tingkat heading judul; halaman menentukan kerangka dokumen. Default 2. */
+  headingLevel?: 2 | 3 | 4;
+  /** Ikon Tabler di depan judul; ukuran dan warnanya diatur komponen. */
+  icon?: Component;
+  class?: string;
+}
+
+const { title, description, padding = "panel", density = "default", headingLevel = 2, icon: Icon, class: className } = Astro.props;
+
+const paddingClass: Record<PanelCardPadding, string> = {
+  panel: "p-[22px] max-[700px]:p-[17px]",
+  page: "p-7 max-[900px]:p-5 max-[600px]:p-4",
+  none: "p-0",
+};
+const compactPaddingClass: Record<PanelCardPadding, string> = {
+  panel: "p-4",
+  page: "p-5 max-[600px]:p-4",
+  none: "p-0",
+};
+
+const compact = density === "compact";
+const Heading = `h${headingLevel}` as "h2";
+const hasHead = Boolean(title || description || Astro.slots.has("action") || Astro.slots.has("badge"));
+---
+<section
+  data-slot="panel-card"
+  data-padding={padding}
+  data-density={density}
+  class:list={["min-w-0 rounded-xl border border-brand-border bg-card text-brand-ink", compact ? compactPaddingClass[padding] : paddingClass[padding], className]}
+>
+  {hasHead && (
+    <div class:list={["flex flex-wrap items-start justify-between gap-x-4 gap-y-3", compact ? "mb-3" : "mb-4"]}>
+      <div class="flex min-w-0 items-start gap-2.5">
+        {Icon && <span aria-hidden="true" class="mt-0.5 shrink-0 text-brand-red [&_svg]:size-5"><Icon size={20} stroke={1.8} /></span>}
+        <div class="min-w-0">
+          {(title || Astro.slots.has("badge")) && (
+            <div class="flex flex-wrap items-center gap-2">
+              {title && <Heading class:list={["leading-snug font-bold tracking-tight", compact ? "text-sm" : "text-lg"]}>{title}</Heading>}
+              <slot name="badge" />
+            </div>
+          )}
+          {description && <p class:list={["mt-1 text-brand-muted", compact ? "text-xs" : "text-[13px]"]}>{description}</p>}
+        </div>
+      </div>
+      {Astro.slots.has("action") && <div class="flex shrink-0 flex-wrap items-center gap-2"><slot name="action" /></div>}
+    </div>
+  )}
+  <slot />
+</section>

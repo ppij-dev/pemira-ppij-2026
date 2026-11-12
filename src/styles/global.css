@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Token PPIJ dari paket resmi ppij-design-system (satu sumber kebenaran warna,
+   radius dan tipografi). Nilai aplikasi di bawahnya tetap menjadi penimpa
+   terakhir untuk kekhususan produk ini. */
+@import "ppij-design-system/tokens.css";
 
 /* PPIJ identity: local Latin font files; Japanese text uses the platform fallback. */
 @font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/plus-jakarta-sans-latin-400-normal.woff2") format("woff2"); }

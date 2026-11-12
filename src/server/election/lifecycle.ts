@@ -41,16 +41,19 @@ export async function lockElection(db:D1Database,cfg:ServiceApiConfig,now:Date,f
 async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,fetchImpl:typeof fetch) {
  const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
  const checks=await getReadiness(db,now); if(checks.some(c=>!c.ok)) throw new ElectionError("Kesiapan pemilihan belum terpenuhi",409,checks);
- if(!row.preview_mode) { try { await syncPemilih(db,cfg,now,fetchImpl); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
- const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())?.n??0;
- const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id").first<{n:number}>())?.n??0;
+ let finalSync: { excluded: number } | null = null;
+ if(!row.preview_mode) { try { finalSync=await syncPemilih(db,cfg,now,fetchImpl,{full:true}); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
+ // Hak pilih beku hanya menghitung baris roll yang boleh memilih (can_vote = 1);
+ // can_vote 0/NULL tidak pernah diterima saat memilih, jadi bukan bagian denominator.
+ const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
+ const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
  const frozen=count-(row.allow_admin_voting===0?admins:0);
  const candidates=(await db.prepare("SELECT id FROM candidates ORDER BY id").all<{id:number}>()).results;
  const colors=[...palette];
  for(let i=colors.length-1;i>0;i--){const j=crypto.getRandomValues(new Uint32Array(1))[0]!%(i+1); [colors[i],colors[j]]=[colors[j]!,colors[i]!];}
  const deletions=await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=1").bind(row.id).first<{n:number}>();
  const votes=deletions?.n??0;
- const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes}));
+ const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
  const statements=[db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
  let result;
  try { result=await db.batch(statements); } catch(error) { const current=await db.prepare("SELECT status_lock FROM elections WHERE id=?").bind(row.id).first<{status_lock:string}>(); if(current?.status_lock!=="draft") throw new ElectionError("Pemilihan telah dikunci oleh permintaan lain"); throw error; }

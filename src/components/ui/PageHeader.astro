@@ -1,0 +1,23 @@
+---
+/**
+ * PPIJ design system `PageHeader` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/page-header.tsx.
+ * Judul 2xl bold, deskripsi muted, aksi di kanan dan membungkus di layar sempit.
+ */
+interface Props {
+  title: string;
+  description?: string;
+  /** Label kecil di atas judul; halaman Admin Voting memakai "Admin Voting". */
+  eyebrow?: string;
+  class?: string;
+}
+const { title, description, eyebrow, class: className } = Astro.props;
+---
+<div data-slot="page-header" class:list={["flex flex-wrap items-start justify-between gap-3", className]}>
+  <div class="min-w-0">
+    {eyebrow && <p class="mb-1 text-[11px] font-bold tracking-[0.14em] text-brand-red uppercase">{eyebrow}</p>}
+    <h1 class="text-2xl leading-tight font-bold text-brand-ink max-[600px]:text-[23px]">{title}</h1>
+    {description && <p class="mt-1 max-w-prose text-sm text-brand-muted">{description}</p>}
+  </div>
+  {Astro.slots.has("default") && <div class="flex w-full flex-wrap items-center gap-2 max-[600px]:[&>*]:w-full min-[601px]:w-auto min-[601px]:shrink-0"><slot /></div>}
+</div>

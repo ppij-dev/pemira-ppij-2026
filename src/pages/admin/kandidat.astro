@@ -1,30 +1,101 @@
 ---
 import { env } from "cloudflare:workers";
+import { IconAlertTriangle, IconId, IconPlus } from "@tabler/icons-astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
+import PanelCard from "../../components/ui/PanelCard.astro";
+import Badge from "../../components/ui/Badge.astro";
+import Button from "../../components/ui/Button.astro";
+import FormField from "../../components/ui/FormField.astro";
+import Empty from "../../components/ui/Empty.astro";
+import Callout from "../../components/ui/Callout.astro";
+import { unitPathLabel, type UnitNames } from "../../lib/formatKomsat";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
-const bindings=env as unknown as AdminBindings;const authorized=await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value,bindings);const db=authorized?bindings.DB:undefined;
-const formatUnitPath=(path:string)=>path.split('/').filter(Boolean).slice(1).map((part)=>part.replace(/[-_]+/g,' ').replace(/(^|\s)\S/g,(c)=>c.toUpperCase())).join(' · ');
-const candidates=await db?.prepare('SELECT id,member_id,number,name,nickname,komsat_path,description,short_intro,color FROM candidates ORDER BY number').all()??{results:[]};
-const voters=await db?.prepare('SELECT member_id,name FROM voters WHERE status=? ORDER BY name LIMIT 500').bind('ACTIVE').all()??{results:[]};
+const bindings = env as unknown as AdminBindings;
+const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
+const db = authorized ? bindings.DB : undefined;
+const candidates = await db?.prepare('SELECT c.id,c.member_id,c.number,c.name,c.nickname,c.komsat_path,c.description,c.short_intro,c.color,v.member_number,v.member_id AS roll_member_id FROM candidates c LEFT JOIN voters v ON v.member_id=c.member_id ORDER BY c.number').all() ?? { results: [] };
+const previewMode = ((await db?.prepare('SELECT preview_mode FROM elections ORDER BY id LIMIT 1').first<{ preview_mode: number }>())?.preview_mode) === 1;
+// Kandidat dipilih lewat nomor kartu portal. Di Mode Pratinjau saja, baris
+// roll tanpa nomor kartu boleh dipilih lewat ID anggota (klaim sesi belum
+// tersinkron dengan portal).
+const voters = await db?.prepare(previewMode
+  ? "SELECT member_id,member_number,name FROM voters WHERE status='ACTIVE' ORDER BY name LIMIT 500"
+  : "SELECT member_id,member_number,name FROM voters WHERE status='ACTIVE' AND member_number IS NOT NULL ORDER BY name LIMIT 500").all() ?? { results: [] };
+const missingNumbers = (await db?.prepare("SELECT COUNT(*) AS n FROM voters WHERE status='ACTIVE' AND member_number IS NULL").first<{ n: number }>())?.n ?? 0;
+// Referensi form: nomor kartu, atau ID anggota hanya di Mode Pratinjau untuk
+// baris yang benar-benar ada di roll tanpa nomor kartu.
+const candidateRows = candidates.results.map((c: any) => ({ ...c, reference: c.member_number ?? (previewMode && c.roll_member_id ? c.member_id : "") }));
+const unitNames = (await db?.prepare('SELECT path,name FROM units').all<{ path: string; name: string }>() ?? { results: [] }).results.reduce((map, unit) => ({ ...map, [unit.path]: unit.name }), {} as UnitNames);
+const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
 ---
 <AdminLayout title="Kandidat">
-  <div class="mb-6"><h1 class="text-3xl font-bold tracking-tight">Kandidat</h1><p class="mt-2 text-muted-foreground">Kelola kandidat dari anggota aktif sebelum pemilihan dikunci.</p></div>
-  <section class="mb-6 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-6">
-    <div class="border-b border-border pb-4"><h2 class="text-lg font-semibold">Tambah / Ubah Kandidat</h2><p class="mt-1 text-sm text-muted-foreground">Susun konten artikel kandidat dalam format HTML. Nomor dan nickname setiap kandidat harus berbeda.</p></div>
-    <form id="candidate" class="mt-5 grid gap-4 sm:grid-cols-2">
-      <div><label for="candidate-member" class="text-sm font-semibold">ID anggota</label><input id="candidate-member" name="member_id" list="members" required placeholder="Pilih anggota aktif" class="mt-1 min-h-11 w-full rounded-md border border-input bg-card px-3 focus-visible:outline-2 focus-visible:outline-ring"/><datalist id="members">{voters.results.map((v:any)=><option value={v.member_id}>{v.name}</option>)}</datalist></div>
-      <div><label for="candidate-number" class="text-sm font-semibold">Nomor urut</label><input id="candidate-number" name="number" type="number" min="1" required placeholder="Nomor urut kandidat" class="mt-1 min-h-11 w-full rounded-md border border-input bg-card px-3 focus-visible:outline-2 focus-visible:outline-ring"/></div>
-      <div><label for="candidate-name" class="text-sm font-semibold">Nama</label><input id="candidate-name" name="name" required placeholder="Nama lengkap" class="mt-1 min-h-11 w-full rounded-md border border-input bg-card px-3 focus-visible:outline-2 focus-visible:outline-ring" maxlength="60"/></div>
-      <div><label for="candidate-nickname" class="text-sm font-semibold">Nama panggilan</label><input id="candidate-nickname" name="nickname" required placeholder="Nickname untuk konfirmasi suara" class="mt-1 min-h-11 w-full rounded-md border border-input bg-card px-3 focus-visible:outline-2 focus-visible:outline-ring" maxlength="24"/></div>
-      <div><label for="candidate-color" class="text-sm font-semibold">Warna kandidat</label><input id="candidate-color" name="color" type="color" class="mt-1 h-11 w-24 rounded-md border border-input bg-card p-1 focus-visible:outline-2 focus-visible:outline-ring"/></div>
-      <div class="sm:col-span-2"><label for="candidate-short-intro" class="text-sm font-semibold">Intro singkat</label><textarea id="candidate-short-intro" name="short_intro" maxlength="100" rows="2" aria-describedby="short-intro-help short-intro-count" class="mt-1 min-h-20 w-full rounded-md border border-input bg-card p-3 focus-visible:outline-2 focus-visible:outline-ring"></textarea><div class="mt-1 flex items-start justify-between gap-3 text-xs text-muted-foreground"><p id="short-intro-help">Hanya tampil di kartu kandidat. Maksimal 100 karakter.</p><span id="short-intro-count" class="shrink-0">0/100</span></div></div>
-      <div class="sm:col-span-2"><label for="candidate-description" class="text-sm font-semibold">Konten artikel (HTML)</label><p class="mt-1 text-xs text-muted-foreground">Mendukung tag HTML artikel (&lt;h2&gt;, &lt;h3&gt;, &lt;p&gt;, &lt;ul&gt;/&lt;li&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;blockquote&gt;, &lt;a&gt;, &lt;img&gt;) serta kode semat &lt;iframe&gt; dari YouTube atau SlideShare.</p><textarea id="candidate-description" name="description" placeholder="Contoh: <h2>Visi</h2><p>...</p><ul><li>...</li></ul><iframe src=&quot;https://www.youtube.com/embed/...&quot;></iframe>" class="mt-1 min-h-52 w-full rounded-md border border-input bg-card p-3 font-mono text-sm focus-visible:outline-2 focus-visible:outline-ring"></textarea></div>
-      <div class="flex flex-wrap gap-3 border-t border-border pt-4 sm:col-span-2"><button class="min-h-11 rounded-md bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Simpan Kandidat</button><button type="button" id="reset" class="min-h-11 rounded-md border border-border bg-card px-4 font-semibold hover:bg-accent">Kosongkan</button></div>
+  <PageHeader title="Kandidat" eyebrow="Admin Voting" description="Kelola kandidat dari anggota aktif sebelum pemilihan dikunci." />
+  <PanelCard title="Tambah / Ubah Kandidat" description="Nomor urut dan nama panggilan setiap kandidat harus berbeda." icon={IconId} class="mt-5">
+    {missingNumbers > 0 && (previewMode
+      ? <Callout tone="warning" icon={IconAlertTriangle} title="Mode Pratinjau" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal. Pilih anggotanya lewat ID anggota di daftar.</Callout>
+      : <Callout tone="warning" icon={IconAlertTriangle} title="Nomor kartu belum lengkap" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal sehingga belum bisa dipilih di sini. Tekan "Perbarui Nama &amp; Kategori dari Portal" di halaman Pemilih.</Callout>)}
+    <form id="candidate" class="grid grid-cols-1 items-start gap-x-3.5 gap-y-4 min-[601px]:grid-cols-2 [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11">
+      <FormField label="Nomor kartu anggota" for="candidate-member">
+        <input id="candidate-member" name="member_id" list="members" required placeholder="Pilih anggota aktif" class={control} />
+        <datalist id="members">{voters.results.map((v: any) => <option value={v.member_number ?? v.member_id}>{v.name}{v.member_number ? ` · ${v.member_number}` : " · ID anggota (Mode Pratinjau)"}</option>)}</datalist>
+      </FormField>
+      <FormField label="Nomor urut" for="candidate-number">
+        <input id="candidate-number" name="number" type="number" min="1" required placeholder="Nomor urut kandidat" class={control} />
+      </FormField>
+      <FormField label="Nama" for="candidate-name">
+        <input id="candidate-name" name="name" required placeholder="Nama lengkap" maxlength="60" class={control} />
+      </FormField>
+      <FormField label="Nama panggilan" for="candidate-nickname" hint="Tampil di surat suara dan saat konfirmasi pilihan.">
+        <input id="candidate-nickname" name="nickname" required placeholder="Nama panggilan" maxlength="24" class={control} />
+      </FormField>
+      <FormField label="Warna kandidat" for="candidate-color" hint="Warna dipakai pada nomor urut kandidat.">
+        <input id="candidate-color" name="color" type="color" class="h-11 w-24 rounded-md border border-input bg-card p-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:h-8" />
+      </FormField>
+      <FormField label="Intro singkat" for="candidate-short-intro" wide>
+        <textarea id="candidate-short-intro" name="short_intro" maxlength="100" rows="2" aria-describedby="short-intro-hint short-intro-count" class="mt-0.5 min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]"></textarea>
+        <p class="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs font-normal text-brand-muted"><span id="short-intro-hint">Hanya tampil di kartu kandidat. Maksimal 100 karakter.</span><span id="short-intro-count" class="shrink-0 tabular-nums">0/100</span></p>
+      </FormField>
+      <FormField label="Konten artikel (HTML)" for="candidate-description" hint="Mendukung tag artikel (h2, h3, p, ul/li, strong, em, blockquote, a, img) serta kode semat iframe dari YouTube atau SlideShare." wide>
+        <textarea id="candidate-description" name="description" rows="8" placeholder="Contoh: <h2>Visi</h2><p>...</p>" class="min-h-52 w-full rounded-md border border-input bg-card px-3 py-2 font-mono text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]"></textarea>
+      </FormField>
+      <div class="col-span-full flex flex-wrap items-center gap-2 border-t border-brand-border pt-4">
+        <Button type="submit" variant="primary" size="sm">Simpan Kandidat</Button>
+        <Button type="button" id="reset" variant="secondary" size="sm">Kosongkan</Button>
+      </div>
     </form>
-    <p id="message" role="status" aria-live="polite" class="mt-4 text-sm text-destructive"></p>
-  </section>
-  <section aria-labelledby="candidate-list-title"><h2 id="candidate-list-title" class="mb-4 text-lg font-semibold">Kandidat terdaftar</h2>
-    {candidates.results.length ? <div class="grid gap-3 sm:grid-cols-2">{candidates.results.map((c:any)=><article class="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5"><div class="flex items-start gap-4"><span class="flex size-11 shrink-0 items-center justify-center rounded-full font-bold text-white" style={`background-color:${c.color||'#334155'}`}>{c.number}</span><div class="min-w-0 flex-1"><h3 class="font-semibold">{c.nickname}</h3><p class="text-sm text-muted-foreground">{c.name} · {c.member_id}</p><p class="mt-1 text-xs text-muted-foreground">{formatUnitPath(c.komsat_path)}</p></div></div>{c.short_intro && <p class="mt-4 text-sm text-muted-foreground">{c.short_intro}</p>}<div class="mt-4 flex justify-end gap-4 border-t border-border pt-3"><button type="button" class="min-h-11 font-semibold text-destructive" data-delete={c.id}>Hapus</button><button type="button" class="min-h-11 font-semibold text-primary" data-edit={c.id} data-member={c.member_id} data-number={c.number} data-name={c.name} data-nickname={c.nickname} data-color={c.color||'#334155'} data-description={c.description||''} data-short-intro={c.short_intro||''}>Ubah</button></div></article>)}</div> : <div class="rounded-xl border border-border bg-card p-6 text-muted-foreground">Belum ada kandidat. Tambahkan anggota aktif menggunakan formulir di atas.</div>}
+    <p id="message" role="status" aria-live="polite" class="mt-3 mb-0 text-[13px] font-semibold text-destructive"></p>
+  </PanelCard>
+
+  <section aria-labelledby="candidate-list-title" class="mt-7">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 id="candidate-list-title" class="text-lg leading-snug font-bold tracking-tight text-brand-ink">Kandidat terdaftar</h2>
+        <p class="mt-1 text-[13px] text-brand-muted">Nomor urut, nama panggilan, dan warna tampil di surat suara.</p>
+      </div>
+      <Badge tone="outline" size="sm">{candidates.results.length} kandidat</Badge>
+    </div>
+    {candidates.results.length
+      ? <div class="grid grid-cols-1 gap-[17px] min-[641px]:grid-cols-2">
+          {candidateRows.map((c: any) => (
+            <article class="min-w-0 rounded-xl border border-brand-border bg-card p-[22px] text-brand-ink max-[700px]:p-[17px]">
+              <div class="flex items-start gap-3">
+                <span aria-hidden="true" class="grid size-11 shrink-0 place-items-center rounded-lg text-base font-extrabold text-white" style={`background-color:${c.color || '#c8102e'}`}>{c.number}</span>
+                <div class="min-w-0">
+                  <h3 class="text-base leading-snug font-bold break-words text-brand-ink">{c.nickname}</h3>
+                  <p class="mt-0.5 text-[13px] break-words text-brand-muted">{c.name} · {c.member_number ?? "Tanpa nomor kartu"}</p>
+                  <p class="mt-1 text-xs text-brand-muted">{unitPathLabel(c.komsat_path, unitNames)}</p>
+                </div>
+              </div>
+              {c.short_intro && <p class="mt-3 mb-0 text-[13px] leading-5 text-brand-ink">{c.short_intro}</p>}
+              <div class="mt-4 flex flex-wrap justify-end gap-2 border-t border-brand-border pt-3">
+                <Button type="button" variant="ghost" size="sm" data-edit={c.id} data-member={c.reference} data-number={c.number} data-name={c.name} data-nickname={c.nickname} data-color={c.color || '#c8102e'} data-description={c.description || ''} data-short-intro={c.short_intro || ''}>Ubah</Button>
+                <Button type="button" variant="ghost" size="sm" data-delete={c.id} class="text-destructive hover:bg-red-50">Hapus</Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      : <Empty icon={IconPlus} title="Belum ada kandidat" description="Tambahkan anggota aktif menggunakan formulir di atas." />}
   </section>
   <script is:inline>
 const form=document.querySelector('#candidate'),msg=document.querySelector('#message');
@@ -36,8 +107,8 @@ form.onsubmit=async e=>{
   e.preventDefault();
   const fields=Object.fromEntries(new FormData(form)),number=Number(fields.number);
   if(!Number.isInteger(number)||number<=0){msg.textContent='Nomor kandidat harus berupa bilangan bulat lebih besar dari 0.';form.elements.number.focus();return}
-  const button=form.querySelector('button:not([type="button"])');
-  button.disabled=true;button.textContent='Menyimpan…';msg.textContent='';
+  const button=form.querySelector('button[type="submit"]');
+  button.disabled=true;button.textContent='Menyimpan...';msg.textContent='';
   try{
     const id=form.dataset.id;
     const r=await fetch('/api/election/candidates'+(id?'/'+id:''),{method:id?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...fields,number})});
@@ -52,4 +123,5 @@ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
   intro.value=b.dataset.shortIntro||'';updateCount();msg.textContent='';
 });
 document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus kandidat ini?')){const r=await fetch('/api/election/candidates/'+b.dataset.delete,{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Gagal menghapus'}});
-</script></AdminLayout>
+</script>
+</AdminLayout>

@@ -1,11 +1,38 @@
 ---
+/**
+ * PPIJ design system `Button` untuk Astro.
+ * Sumber: ppij-design-system/packages/ui/src/components/button.tsx.
+ * `size="sm"` adalah skala bilah alat admin: 32px dari 600px ke atas dan
+ * minimal 44px di ponsel. Ukuran `md` (bawaan) tidak berubah dari versi
+ * sebelumnya agar halaman lama tetap sama.
+ */
 interface Props {
   href?: string;
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger" | "link";
+  size?: "md" | "sm" | "lg" | "icon";
   type?: "button" | "submit";
+  class?: string;
+  [key: string]: unknown;
 }
-const { href, variant = "primary", type = "button" } = Astro.props;
-const base = "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50";
-const variantClass = variant === "primary" ? "bg-primary text-primary-foreground hover:bg-primary-hover" : "border border-border bg-card text-card-foreground hover:bg-accent";
+const { href, variant = "primary", size = "md", type = "button", class: className, ...rest } = Astro.props;
+
+const base = "inline-flex shrink-0 items-center justify-center gap-2 rounded-md whitespace-nowrap transition-colors [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 disabled:pointer-events-none disabled:opacity-50";
+const variantClass = {
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover",
+  secondary: "border border-border bg-card text-card-foreground hover:bg-accent",
+  outline: "border border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground",
+  ghost: "text-foreground hover:bg-accent hover:text-accent-foreground",
+  danger: "bg-destructive text-white hover:bg-destructive/90",
+  link: "text-primary underline-offset-4 hover:underline",
+}[variant];
+const sizeClass = {
+  md: "min-h-11 px-4 py-2 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  sm: "min-h-11 px-3 py-2 text-sm font-medium focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:h-8 min-[600px]:min-h-8 min-[600px]:px-3 min-[600px]:py-0",
+  lg: "min-h-11 px-5 py-2 text-sm font-medium focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:min-h-10 min-[600px]:px-6",
+  icon: "min-h-11 min-w-11 p-2 font-medium focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:size-8 min-[600px]:min-h-8 min-[600px]:min-w-8",
+}[size];
+const classes = [base, variantClass, sizeClass, className];
 ---
-{href ? <a href={href} class:list={[base, variantClass]}><slot /></a> : <button type={type} class:list={[base, variantClass]}><slot /></button>}
+{href
+  ? <a href={href} class:list={classes} {...rest}><slot /></a>
+  : <button type={type} class:list={classes} {...rest}><slot /></button>}

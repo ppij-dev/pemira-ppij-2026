@@ -3,6 +3,7 @@ import type { Bindings } from "../app";
 import { requireAdmin } from "../admin/routes";
 import { AUDIT_GENESIS_HASH, type AuditRow } from "../lib/audit";
 import { formatJst, maskSecrets, verifyAuditRows } from "./audit";
+import { loadAuditLabels } from "./labels";
 
 type Env = { Bindings: Bindings };
 export const auditRoutes = new Hono<Env>();
@@ -11,7 +12,10 @@ auditRoutes.get("/audit", async (c) => {
   const before = Number(c.req.query("before_seq"));
   const cursor = Number.isSafeInteger(before) && before > 0 ? before : Number.MAX_SAFE_INTEGER;
   const result = await c.env.DB.prepare("SELECT seq,at,actor_type,actor_name,action,target,komsat_path,detail_json FROM audit_log WHERE seq < ? ORDER BY seq DESC LIMIT 50").bind(cursor).all<Pick<AuditRow,"seq"|"at"|"actor_type"|"actor_name"|"action"|"target"|"komsat_path"|"detail_json">>();
-  return c.json({ results: result.results.map((row) => ({ ...row, at: formatJst(row.at), detail_json: row.detail_json ? maskSecrets(JSON.parse(row.detail_json)) : null })) });
+  // Target dan jalur unit ditampilkan dengan nilai portal (nama, nomor kartu,
+  // nama unit), bukan UUID atau jalur mentah.
+  const labels = await loadAuditLabels(c.env.DB, result.results);
+  return c.json({ results: result.results.map((row) => ({ ...row, at: formatJst(row.at), detail_json: row.detail_json ? maskSecrets(JSON.parse(row.detail_json)) : null, target_label: labels.targetLabel(row.target), komsat_label: labels.komsatLabel(row.komsat_path) })) });
 });
 auditRoutes.get("/audit/integrity", async (c) => {
   let cursor = 0;

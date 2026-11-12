@@ -1,6 +1,11 @@
 ---
-import Base from "../layouts/Base.astro";
 import { env } from "cloudflare:workers";
+import { IconChartBar } from "@tabler/icons-astro";
+import Base from "../layouts/Base.astro";
+import Button from "../components/ui/Button.astro";
+import Callout from "../components/ui/Callout.astro";
+import PageHeader from "../components/ui/PageHeader.astro";
+import PanelCard from "../components/ui/PanelCard.astro";
 const db=(env as unknown as {DB?:D1Database}).DB;
 const config=await db?.prepare("SELECT value FROM system_config WHERE key='site_name'").first<{value:string}>();
 const row=await db?.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<{status_lock:"draft"|"locked"|"published";opens_at:string|null;closes_at:string|null;closed_early_at:string|null}>();
@@ -8,17 +13,25 @@ const published=row?.status_lock==="published";
 const siteName=config?.value||"PPIJ Pemilu";
 ---
 <Base title={`Hasil · ${siteName}`} siteName={siteName} showHasil={published}>
-  <div class="mb-6"><p class="text-sm font-semibold text-primary">PEMILIHAN</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Hasil pemilihan</h1><p class="mt-2 text-muted-foreground">Ringkasan suara dan partisipasi setelah hasil resmi diumumkan.</p></div>
-  {!published ? <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6"><h2 class="text-lg font-semibold">Hasil belum diumumkan</h2><p class="mt-2 text-muted-foreground">Hasil akan diumumkan panitia.</p><a href="/" class="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline">Kembali ke beranda</a></section> : <div id="results" class="space-y-5"><p class="rounded-xl border border-border bg-card p-5 text-muted-foreground">Memuat hasil resmi…</p></div>}
+  <PageHeader eyebrow="Pemilihan" title="Hasil pemilihan" description="Ringkasan suara dan partisipasi setelah hasil resmi diumumkan panitia." />
+
+  {!published
+    ? <div class="mt-5"><PanelCard title="Hasil belum diumumkan" description="Panitia menerbitkan hasil setelah pemungutan suara ditutup dan diperiksa." icon={IconChartBar}>
+      <Callout tone="neutral" title="Masih menunggu pengumuman">Halaman ini akan menampilkan perolehan suara dan partisipasi begitu hasil resmi diterbitkan.</Callout>
+      <Button href="/" variant="secondary" class="mt-4">Kembali ke beranda</Button>
+    </PanelCard></div>
+    : <div id="results" class="mt-5"><PanelCard><p class="text-sm text-brand-muted" role="status">Memuat hasil resmi…</p></PanelCard></div>}
   {published && <script is:inline>
     const root=document.querySelector('#results');
     const number=n=>new Intl.NumberFormat('id-ID').format(n);
     const percent=n=>new Intl.NumberFormat('id-ID',{maximumFractionDigits:1}).format(n)+'%';
     const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const card='rounded-xl border border-brand-border bg-card';
+    const stat=(label,value)=>'<article class="grid min-w-0 gap-1.5 '+card+' p-4 sm:p-5"><span class="text-sm font-medium text-brand-muted">'+label+'</span><span class="text-3xl font-bold tracking-tight text-brand-ink tabular-nums max-[600px]:text-[26px]">'+value+'</span></article>';
     fetch('/api/results').then(async r=>({r,data:await r.json()})).then(({r,data})=>{
-      if(r.status===409){root.innerHTML='<section class="rounded-xl border border-border bg-card p-6"><p>Hasil akan diumumkan panitia.</p><a class="mt-4 inline-block text-primary underline" href="/">Kembali ke beranda</a></section>';return}
+      if(r.status===409){root.innerHTML='<section class="'+card+' p-5"><p class="text-sm text-brand-muted">Hasil akan diumumkan panitia.</p><a class="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-brand-red underline underline-offset-4" href="/">Kembali ke beranda</a></section>';return}
       if(!r.ok)throw new Error(data.error||'Gagal memuat hasil.');
-      root.innerHTML='<section class="grid gap-3 sm:grid-cols-4">'+[['Hak pilih',data.eligible_count],['Sudah digunakan',data.used_count],['Belum digunakan',data.unused_count],['Partisipasi',data.turnout_percentage,percent(data.turnout_percentage)]].map(([k,v,shown])=>'<div class="rounded-xl border border-border bg-card p-4"><p class="text-sm text-muted-foreground">'+k+'</p><p class="mt-1 text-2xl font-bold">'+(shown??number(v))+'</p></div>').join('')+'</section><section class="rounded-xl border border-border bg-card p-5"><h2 class="text-xl font-bold">Perolehan suara</h2><div class="mt-4 grid gap-3 sm:grid-cols-2">'+data.candidates.map(c=>'<article class="flex items-center gap-3 rounded-xl border border-border p-4"><span class="flex size-10 items-center justify-center rounded-full font-bold text-white" style="background-color:'+esc(c.color||'#334155')+'">'+esc(c.number)+'</span><strong class="flex-1">'+esc(c.nickname)+'</strong><span class="font-bold">'+number(c.votes)+' suara</span></article>').join('')+'</div></section><section class="overflow-x-auto rounded-xl border border-border bg-card p-5"><h2 class="text-xl font-bold">Hasil per korda</h2><table class="mt-4 w-full text-left text-sm"><thead><tr class="border-b"><th class="p-2">Korda</th><th class="p-2">Hak pilih</th><th class="p-2">Partisipasi</th><th class="p-2">Suara kandidat</th></tr></thead><tbody>'+data.korda.map(k=>'<tr class="border-b"><th class="p-2">'+esc(k.name)+'</th><td class="p-2">'+number(k.eligible_count)+'</td><td class="p-2">'+(k.turnout_percentage===null?'—':percent(k.turnout_percentage))+'</td><td class="p-2">'+(k.suppressed?'Data terlalu sedikit':k.candidates.map(c=>esc(c.nickname)+': '+number(c.votes)).join(' · '))+'</td></tr>').join('')+'</tbody></table></section>';
-    }).catch(()=>{root.innerHTML='<p role="alert" class="rounded-xl bg-red-50 p-4 text-red-800">Hasil belum dapat dimuat. Muat ulang halaman.</p>'});
+      root.innerHTML='<div class="grid min-w-0 gap-4"><section class="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Partisipasi">'+stat('Hak pilih',number(data.eligible_count))+stat('Sudah digunakan',number(data.used_count))+stat('Belum digunakan',number(data.unused_count))+stat('Partisipasi',percent(data.turnout_percentage))+'</section><section class="'+card+' min-w-0 p-5"><h2 class="text-lg font-bold tracking-tight text-brand-ink">Perolehan suara</h2><div class="mt-3 grid gap-2">'+data.candidates.map(c=>'<article class="flex items-center gap-3 rounded-lg border border-brand-border p-3"><span class="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white" style="background-color:'+esc(c.color||'#334155')+'">'+esc(c.number)+'</span><strong class="min-w-0 flex-1 break-words text-sm text-brand-ink">'+esc(c.nickname)+'</strong><span class="shrink-0 text-sm font-bold text-brand-ink tabular-nums">'+number(c.votes)+' suara</span></article>').join('')+'</div></section><section class="'+card+' min-w-0 p-5"><h2 class="text-lg font-bold tracking-tight text-brand-ink">Hasil per korda</h2><p class="mt-1 text-xs text-brand-muted">Jumlah suara disembunyikan pada korda dengan data terlalu sedikit.</p><div class="mt-3 min-w-0 overflow-x-auto"><table class="w-full min-w-[34rem] text-left text-sm"><thead><tr class="border-b border-brand-border text-xs text-brand-muted"><th class="py-2 pr-3 font-semibold">Korda</th><th class="py-2 pr-3 font-semibold">Hak pilih</th><th class="py-2 pr-3 font-semibold">Partisipasi</th><th class="py-2 font-semibold">Suara kandidat</th></tr></thead><tbody>'+data.korda.map(k=>'<tr class="border-b border-brand-border text-brand-ink"><th class="py-2 pr-3 font-semibold break-words">'+esc(k.name)+'</th><td class="py-2 pr-3 tabular-nums">'+number(k.eligible_count)+'</td><td class="py-2 pr-3 tabular-nums">'+(k.turnout_percentage===null?'—':percent(k.turnout_percentage))+'</td><td class="py-2">'+(k.suppressed?'Data terlalu sedikit':k.candidates.map(c=>esc(c.nickname)+': '+number(c.votes)).join(' · '))+'</td></tr>').join('')+'</tbody></table></div></section></div>';
+    }).catch(()=>{root.innerHTML='<div class="rounded-xl border border-[#f0ccd4] bg-[#fdf2f4] p-4 text-sm font-medium text-[#8f1730]" role="alert">Hasil belum dapat dimuat. Periksa koneksi lalu muat ulang halaman.</div>'});
   </script>}
 </Base>

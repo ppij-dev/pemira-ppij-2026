@@ -1,0 +1,60 @@
+---
+/**
+ * Bilah atas Admin Voting untuk Astro, mengikuti `AdminTopBar` dari
+ * ppij-design-system/packages/ui/src/components/admin-top-bar.tsx.
+ * Desktop: jejak halaman, fakta tenang, dan identitas. Ponsel: logo, label,
+ * dan sasaran identitas 44px.
+ */
+import { IconChevronRight } from "@tabler/icons-astro";
+
+interface Props {
+  variant: "desktop" | "phone";
+  /** Jejak di atas judul halaman, misalnya "Admin Voting". */
+  path?: { label: string; href?: string }[];
+  title: string;
+  /** Fakta tenang; disembunyikan di bawah 1100px. */
+  meta?: string[];
+  identity: { name: string; initials: string };
+  brand?: { src: string; alt: string; label: string };
+  class?: string;
+}
+const { variant, path = [], title, meta = [], identity, brand, class: className } = Astro.props;
+---
+{variant === "phone" ? (
+  <header data-slot="admin-top-bar" data-variant="phone" class:list={["sticky top-0 z-25 flex h-15 shrink-0 items-center justify-between border-b border-brand-border bg-card px-4 min-[701px]:hidden", className]}>
+    {brand ? (
+      <a href="/admin/dasbor" class="flex min-w-0 items-center gap-2 text-[15px] font-bold text-brand-ink no-underline">
+        <img src={brand.src} alt={brand.alt} class="size-[34px] shrink-0 rounded-md border border-brand-border object-contain" />
+        <span class="truncate">{brand.label}</span>
+      </a>
+    ) : <span class="truncate text-[15px] font-bold text-brand-ink">{title}</span>}
+    <div class="ml-auto flex shrink-0 items-center gap-2">
+      <a
+        href="/akun"
+        aria-label={`Akun: ${identity.name}`}
+        class="grid size-11 shrink-0 place-items-center rounded-[10px] bg-brand-red/8 text-[13px] font-extrabold text-brand-red no-underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      >{identity.initials}</a>
+    </div>
+  </header>
+) : (
+  <header data-slot="admin-top-bar" data-variant="desktop" class:list={["sticky top-0 z-20 flex h-[68px] shrink-0 items-center justify-between gap-4 border-b border-brand-border bg-card px-[clamp(24px,3vw,48px)] max-[700px]:hidden", className]}>
+    <nav aria-label="Jejak halaman" class="min-w-0">
+      <ol class="m-0 flex min-w-0 list-none items-center gap-2.5 p-0 text-sm text-brand-muted">
+        {path.map((item) => (
+          <li class="flex min-w-0 items-center gap-2.5">
+            {item.href ? <a href={item.href} class="truncate no-underline hover:text-brand-ink">{item.label}</a> : <span class="truncate">{item.label}</span>}
+            <IconChevronRight size={16} stroke={1.8} class="shrink-0 text-brand-border" aria-hidden="true" />
+          </li>
+        ))}
+        <li class="min-w-0"><strong aria-current="page" class="block truncate font-bold text-brand-ink">{title}</strong></li>
+      </ol>
+    </nav>
+    <div class="flex shrink-0 items-center gap-2.5 text-[13px] text-brand-muted">
+      {meta.length > 0 && <span class="hidden items-center gap-2.5 min-[1100px]:flex">{meta.join(" · ")}</span>}
+      <a href="/akun" class="flex items-center gap-2 rounded-full pr-1 pl-0.5 no-underline transition-colors hover:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none max-[600px]:min-h-11 min-[600px]:h-8">
+        <span aria-hidden="true" class="grid size-8 place-items-center rounded-full bg-brand-red/8 text-xs font-extrabold text-brand-red">{identity.initials}</span>
+        <span class="hidden max-w-40 truncate font-bold text-brand-ink min-[900px]:block">{identity.name}</span>
+      </a>
+    </div>
+  </header>
+)}
