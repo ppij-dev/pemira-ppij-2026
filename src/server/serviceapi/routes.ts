@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../app";
+import { describeSyncFailure } from "./errors";
 import { assertSyncAllowed, enrichRollNames, syncPemilih } from "./sync";
 type ServiceBindings = Bindings & { ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string };
 
@@ -15,8 +16,8 @@ serviceApiRoutes.post("/admin/sync", async (c) => {
     }, new Date());
     return c.json(result);
   } catch (error) {
-    const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 502;
-    return c.json({ error: error instanceof Error ? error.message : "Service API sync failed" }, status as 409 | 502);
+    const failure = describeSyncFailure(error);
+    return c.json(failure.body, failure.status as 401 | 403 | 409 | 429 | 502 | 504);
   }
 });
 
@@ -32,6 +33,7 @@ serviceApiRoutes.post("/admin/sync-names", async (c) => {
     }, new Date());
     return c.json(result);
   } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : "Service API sync failed" }, 502);
+    const failure = describeSyncFailure(error);
+    return c.json(failure.body, failure.status as 401 | 403 | 409 | 429 | 502 | 504);
   }
 });

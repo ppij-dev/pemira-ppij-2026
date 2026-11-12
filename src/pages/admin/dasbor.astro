@@ -57,6 +57,8 @@ import { IconAlertCircle, IconAlertTriangle, IconRefresh } from "@tabler/icons-a
         countdown();
       }catch(e){error.textContent=(e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.';error.removeAttribute('hidden')}finally{refresh.disabled=false;refreshLabel.textContent='Muat Ulang Data'}
     }
-    refresh.addEventListener('click',load);load();
+    // Penjaga null: tanpa tombol, skrip tetap tidak boleh melempar galat.
+    if(refresh)refresh.addEventListener('click',load);
+    if(root)load();
   </script>
 </AdminLayout>

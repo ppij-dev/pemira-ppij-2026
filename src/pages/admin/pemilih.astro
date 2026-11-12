@@ -36,9 +36,10 @@ const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3
 ---
 <AdminLayout title="Pemilih">
   <PageHeader title="Daftar Pemilih" eyebrow="Admin Voting" description="Cari anggota, periksa status partisipasi, dan sinkronkan daftar secara manual.">
-    <Button id="sync" type="button" variant="secondary" size="sm"><IconRefresh size={16} stroke={1.8} aria-hidden="true" /> Sinkronkan Data Pemilih</Button>
-    <Button id="sync-names" type="button" variant="secondary" size="sm">Perbarui Nama &amp; Kategori dari Portal</Button>
+    <Button id="sync" type="button" variant="secondary" size="sm" aria-controls="sync-status"><IconRefresh size={16} stroke={1.8} aria-hidden="true" /> Sinkronkan Data Pemilih</Button>
+    <Button id="sync-names" type="button" variant="secondary" size="sm" aria-controls="sync-status">Perbarui Nama &amp; Kategori dari Portal</Button>
   </PageHeader>
+  <Callout id="sync-status" tone="info" role="status" aria-live="polite" hidden class="mt-4"><span id="sync-status-text"></span></Callout>
   <PanelCard title="Pencarian anggota" description={`Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}`} icon={IconSearch} class="mt-5">
     {undetermined > 0 && <Callout tone="warning" icon={IconAlertTriangle} title="Hak pilih belum ditentukan" class="mb-4">{undetermined} anggota belum ditentukan hak pilihnya oleh portal dan belum bisa memilih. Minta Admin Portal menetapkan kategori anggota, lalu tekan "Perbarui Nama &amp; Kategori dari Portal".</Callout>}
     <form class="grid items-start gap-x-3.5 gap-y-4 min-[601px]:grid-cols-2 min-[1101px]:grid-cols-[minmax(12rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_auto] min-[1101px]:items-end [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11 [&_select]:min-[600px]:h-8 [&_select]:max-[600px]:min-h-11">
@@ -60,7 +61,6 @@ const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3
       </FormField>
       <Button type="submit" variant="primary" size="sm" class="min-[601px]:col-span-2 min-[1101px]:col-span-1">Cari</Button>
     </form>
-    <p id="sync-result" role="status" aria-live="polite" class="mt-4 mb-0 text-[13px] text-brand-muted"></p>
   </PanelCard>
   <DataTable
     class="mt-5"
@@ -118,6 +118,75 @@ const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3
       : <Empty icon={IconUsers} title="Tidak ada pemilih yang cocok" description="Ubah kata kunci, komsat, atau status suara lalu cari kembali." class="m-4 border-0 bg-transparent" />}
   </DataTable>
   <script is:inline>
-document.querySelector('#sync').onclick=async()=>{const out=document.querySelector('#sync-result');out.textContent='Sinkronisasi berjalan...';try{const r=await fetch('/api/admin/sync',{method:'POST'});const d=await r.json();out.textContent=r.ok?`Sinkronisasi selesai: +${d.added??0} baru / -${d.removed??0} keluar${d.excluded?` · ${d.excluded} tanpa hak pilih`:''}`:(d.error||'Sinkronisasi gagal')}catch{out.textContent='Sinkronisasi gagal. Periksa jaringan lalu coba kembali.'}};document.querySelector('#sync-names').onclick=async()=>{const out=document.querySelector('#sync-result');out.textContent='Memperbarui nama, nomor kartu, dan kategori...';try{const r=await fetch('/api/admin/sync-names',{method:'POST'});const d=await r.json();out.textContent=r.ok?`Data diperbarui untuk ${d.updated??0} pemilih`:(d.error||'Pembaruan gagal')}catch{out.textContent='Pembaruan gagal. Periksa jaringan lalu coba kembali.'}}
+(function () {
+  // Tombol aksi admin: setiap tombol mengirim permintaannya sendiri dan hasilnya
+  // tampil tepat di bawah judul halaman. Sebelumnya hasil ditulis di panel
+  // pencarian, jauh di bawah tombol, sehingga di ponsel sebuah klik tampak
+  // tidak melakukan apa-apa. Pendengar juga dipasang dengan penjaga null supaya
+  // satu elemen yang hilang tidak mematikan sisa skrip.
+  const status = document.querySelector('#sync-status');
+  const statusText = document.querySelector('#sync-status-text');
+  const syncButton = document.querySelector('#sync');
+  const namesButton = document.querySelector('#sync-names');
+  const buttons = [syncButton, namesButton];
+  const TONE_CLASSES = {
+    info: ['bg-[#f0f4fa]', 'text-[#4c627b]'],
+    success: ['bg-[#f1f5f3]', 'text-[#35604a]'],
+    danger: ['border', 'border-[#f0ccd4]', 'bg-[#fdf2f4]', 'text-[#8f1730]'],
+  };
+  const ALL_TONES = TONE_CLASSES.info.concat(TONE_CLASSES.success, TONE_CLASSES.danger);
+  function showStatus(tone, text) {
+    if (!status || !statusText) return;
+    status.hidden = false;
+    status.setAttribute('data-tone', tone);
+    status.setAttribute('role', tone === 'danger' ? 'alert' : 'status');
+    ALL_TONES.forEach(function (name) { status.classList.remove(name); });
+    TONE_CLASSES[tone].forEach(function (name) { status.classList.add(name); });
+    statusText.textContent = text;
+  }
+  function setBusy(busy) {
+    buttons.forEach(function (button) {
+      if (!button) return;
+      button.disabled = busy;
+      button.setAttribute('aria-busy', busy ? 'true' : 'false');
+    });
+  }
+  function failureText(response, body) {
+    // Server mengirim pesan Bahasa Indonesia; balasan tanpa JSON (mis. halaman
+    // galat Cloudflare) diterjemahkan dari kode status.
+    if (body && typeof body.error === 'string' && body.error) return body.error;
+    if (response.status === 401) return 'Sesi Anda tidak diizinkan menyinkronkan data (401). Masuk kembali lalu coba lagi.';
+    if (response.status === 403) return 'Akun ini tidak berwenang menyinkronkan data (403). Masuk sebagai Admin Voting.';
+    if (response.status === 409) return 'Sinkronisasi hanya bisa dijalankan saat pemilihan berstatus draf (409).';
+    if (response.status === 502 || response.status === 504) return 'Portal belum bisa dihubungi (' + response.status + '). Coba lagi beberapa saat.';
+    return 'Sinkronisasi gagal (' + response.status + '). Coba lagi beberapa saat.';
+  }
+  async function run(button, path, busyText, done) {
+    if (!button || button.disabled) return;
+    setBusy(true);
+    showStatus('info', busyText);
+    try {
+      const response = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { accept: 'application/json' } });
+      let body = null;
+      try { body = await response.json(); } catch { body = null; }
+      if (response.ok) showStatus('success', done(body || {}));
+      else showStatus('danger', failureText(response, body));
+    } catch {
+      showStatus('danger', 'Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (syncButton) syncButton.addEventListener('click', function () {
+    run(syncButton, '/api/admin/sync', 'Menyinkronkan data pemilih dari portal...', function (body) {
+      return 'Sinkronisasi selesai: ' + (body.added || 0) + ' pemilih baru, ' + (body.removed || 0) + ' keluar.' + (body.excluded ? ' ' + body.excluded + ' anggota tanpa hak pilih tidak dimasukkan.' : '');
+    });
+  });
+  if (namesButton) namesButton.addEventListener('click', function () {
+    run(namesButton, '/api/admin/sync-names', 'Memperbarui nama, nomor kartu, dan kategori dari portal...', function (body) {
+      return 'Nama, nomor kartu, dan kategori diperbarui untuk ' + (body.updated || 0) + ' pemilih.';
+    });
+  });
+})();
 </script>
 </AdminLayout>
