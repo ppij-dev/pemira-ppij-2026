@@ -105,22 +105,34 @@ const navItems = [
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class:list={["min-h-dvh text-brand-ink antialiased", canvas === "white" ? "bg-white" : "bg-background"]}>
+    <a href="#konten" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-card focus:px-4 focus:py-3 focus:font-semibold focus:outline-2 focus:outline-ring">Lewati ke konten</a>
     <header class="sticky top-0 z-20 border-b border-brand-border bg-card/95 backdrop-blur">
-      <div class="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
-        <a href="/" aria-label={`${siteName} · Beranda`} class="inline-flex min-h-11 min-w-0 items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-ring">
-          <img src={logo.src} alt="" class="size-9 shrink-0 object-contain" />
-          <span class="min-w-0 truncate text-[15px] font-bold tracking-tight text-brand-ink sm:text-base">{siteName}</span>
+      <div class="mx-auto flex min-h-14 w-full max-w-3xl flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-1.5 sm:px-6">
+        <a href="/" aria-label={`${siteName} · Beranda`} class="inline-flex min-h-11 min-w-0 items-center gap-2.5 rounded-lg text-brand-ink focus-visible:outline-2 focus-visible:outline-ring">
+          <img src={logo.src} alt="" class="block h-9 w-auto shrink-0 object-contain" />
+          <span class="min-w-0 truncate border-l border-brand-border pl-2.5 text-[15px] font-bold tracking-tight text-brand-ink sm:text-base">{siteName}</span>
         </a>
-        {session
-          ? <a href="/akun" aria-label={`Akun: ${session.name}`} aria-current={path === "/akun" ? "page" : undefined} class:list={["flex size-11 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-ring", path === "/akun" ? "border-brand-red text-brand-red" : "border-brand-border text-brand-ink hover:bg-accent"]}>{accountInitial}</a>
-          : <Button href={loginHref} variant="secondary" size="sm">Masuk</Button>}
+        <nav aria-label="Navigasi pemilih" class="hidden md:block">
+          <ul class="flex items-center gap-1">
+            {navItems.map((item) => (
+              <li>
+                <a href={item.href} aria-current={item.current ? "page" : undefined} class:list={["flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring", item.current ? "text-brand-red" : "text-brand-muted hover:text-brand-ink"]}>{item.label}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div class="ms-auto flex min-w-0 shrink-0 items-center gap-2">
+          {session
+            ? <a href="/akun" aria-label={`Akun: ${session.name}`} aria-current={path === "/akun" ? "page" : undefined} class:list={["flex size-11 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-ring", path === "/akun" ? "border-brand-red text-brand-red" : "border-brand-border text-brand-ink hover:bg-accent"]}>{accountInitial}</a>
+            : <Button href={loginHref} variant="secondary" size="sm">Masuk</Button>}
+        </div>
       </div>
     </header>
-    <main class="mx-auto w-full max-w-3xl px-4 py-6 pb-28 sm:px-6 sm:py-8 sm:pb-32">
+    <main id="konten" class="mx-auto w-full max-w-3xl px-4 py-6 pb-28 sm:px-6 sm:py-8 md:pb-12">
       {hasMasukParam && <script is:inline>try{const u=new URL(location.href);if(u.searchParams.has('masuk')){u.searchParams.delete('masuk');history.replaceState(null,'',u.pathname+u.search+u.hash)}}catch{}</script>}
       <slot />
     </main>
-    <div class="fixed inset-x-0 bottom-0 z-10 shadow-[0_-8px_24px_-20px_rgba(28,31,35,0.4)]">
+    <div class="fixed inset-x-0 bottom-0 z-10 shadow-[0_-8px_24px_-20px_rgba(28,31,35,0.4)] md:hidden">
       <BottomBar items={navItems} ariaLabel="Navigasi pemilih" />
     </div>
   </body>
