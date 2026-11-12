@@ -1,7 +1,12 @@
 ---
 import { env } from "cloudflare:workers";
-import { IconLogout, IconRosetteDiscountCheck, IconShieldCheck, IconSpeakerphone, IconUserCircle } from "@tabler/icons-astro";
+import { IconId, IconLogout, IconRosetteDiscountCheck, IconShieldCheck, IconSpeakerphone, IconUserCircle } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
+import Button from "../components/ui/Button.astro";
+import Callout from "../components/ui/Callout.astro";
+import FactList from "../components/ui/FactList.astro";
+import PageHeader from "../components/ui/PageHeader.astro";
+import PanelCard from "../components/ui/PanelCard.astro";
 import { AUTH_STAGE_COOKIE, AUTH_STAGE_PATH, SESSION_COOKIE, openAuthStage, openSession, type SessionData } from "../server/auth/session";
 import { classifyRecovery, recoveryCopy, helpCode } from "../server/auth/recovery";
 import { isAdminPageAuthorized, type AdminBindings } from "./admin/admin-auth";
@@ -59,61 +64,68 @@ const claimsLookLikeId = session ? session.name.trim() === session.member_id : f
 const displayName = rollName && rollName.trim() && rollName !== session?.member_id ? rollName : claimsLookLikeId ? null : session?.name ?? null;
 const affiliationPath = Array.isArray(session?.affiliation) ? session!.affiliation[0] : session?.affiliation ?? null;
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", dateStyle: "long", timeStyle: "short" }).format(new Date(value)) + " JST";
+const stageLabel = currentStage ? ({ draft: "Draf", scheduled: "Terjadwal", open: "Dibuka", closed: "Ditutup", published: "Diumumkan" } as const)[currentStage] : null;
+const identityFacts = [
+  ...(memberNumber ? [{ label: "Kartu anggota", value: memberNumber }] : []),
+  { label: "Unit", value: affiliationPath ? unitPathLabel(affiliationPath, unitNames) : "Belum tersedia" },
+  { label: "Kategori", value: memberCategory ? memberCategoryLabel(memberCategory) : "Belum ditentukan portal" },
+  { label: "Keanggotaan", value: affiliationPath ? "Aktif" : "Tidak aktif" },
+];
 ---
 
 <Base title="Akun · PPIJ Pemilu">
-  <div class="mb-6"><p class="text-sm font-semibold text-primary">AKUN</p><h1 class="mt-1 text-3xl font-bold tracking-tight">Akun</h1><p class="mt-2 text-muted-foreground">Sesi, status pemilihan, dan aksi akun Anda di situs ini.</p></div>
+  <PageHeader eyebrow="Akun" title="Akun" description="Sesi, status pemilihan, dan aksi akun Anda di situs ini." />
 
-  {!session && recovery && recoveryInfo ? <section class="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6 text-amber-900" role="alert">
-    <h2 class="text-xl font-semibold">{recoveryInfo.title}</h2>
-    <p class="mt-2 text-sm leading-6">{recoveryInfo.body}</p>
-    <a href={retryHref} class="mt-5 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">{recoveryInfo.retryLabel}</a>
-    {recovery.kind === "session_unavailable" && <p class="mt-4 text-xs leading-5 text-amber-900/80">Bila berulang, periksa apakah peramban memblokir cookie untuk situs ini, atau coba jendela penjelajahan pribadi.</p>}
-    {helpCodeValue && <p class="mt-2 text-xs leading-5 text-amber-900/80">Masih belum berhasil? Laporkan kode bantuan <strong class="font-mono">{helpCodeValue}</strong> ke panitia pemilihan.</p>}
-  </section>
-  : !session ? <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-    <h2 class="text-xl font-semibold">Belum masuk</h2>
-    <p class="mt-2 text-muted-foreground">Masuk dengan PPIJ One Login untuk melihat status keanggotaan dan pemilihan Anda.</p>
-    <a href="/api/auth/login?return_to=/akun" class="mt-5 inline-flex min-h-11 items-center rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Masuk</a>
-  </section> : <div class="grid gap-4">
-    <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <h2 class="text-lg font-semibold">Identitas</h2>
-      <div class="mt-4 flex items-center gap-4">
-        <span class="flex size-14 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-800" aria-hidden="true"><IconUserCircle size={34} stroke={1.5} /></span>
-        <div class="min-w-0">
-          {displayName ? <p class="break-words text-lg font-semibold">{displayName}</p> : <p class="break-words text-lg font-semibold text-muted-foreground">Nama belum tersedia dari portal</p>}
-          {memberNumber && <p class="mt-0.5 text-xs font-semibold text-muted-foreground">Kartu anggota <span class="font-mono">{memberNumber}</span></p>}
-          {!memberNumber && <p class="mt-0.5 text-xs text-muted-foreground">Nomor kartu belum tersedia dari portal</p>}
+  <div class="mt-5 grid gap-4">
+    {!session && recovery && recoveryInfo ? <PanelCard title={recoveryInfo.title} description="Masuk belum berhasil diselesaikan." icon={IconShieldCheck}>
+      <Callout tone="warning" title="Masuk belum selesai">{recoveryInfo.body}</Callout>
+      <Button href={retryHref} class="mt-4">{recoveryInfo.retryLabel}</Button>
+      {recovery.kind === "session_unavailable" && <p class="mt-3 text-xs leading-5 text-brand-muted">Bila berulang, periksa apakah peramban memblokir cookie untuk situs ini, atau coba jendela penjelajahan pribadi.</p>}
+      {helpCodeValue && <p class="mt-2 text-xs leading-5 text-brand-muted">Masih belum berhasil? Laporkan kode bantuan <strong class="font-mono text-brand-ink">{helpCodeValue}</strong> ke panitia pemilihan.</p>}
+    </PanelCard>
+    : !session ? <PanelCard title="Belum masuk" description="Masuk dengan PPIJ One Login untuk melihat status keanggotaan dan pemilihan Anda." icon={IconUserCircle}>
+      <p class="text-sm leading-6 text-brand-muted">Situs ini hanya memakai data keanggotaan dari portal PPIJ; kata sandi Anda tidak pernah disimpan di sini.</p>
+      <Button href="/api/auth/login?return_to=/akun" class="mt-4">Masuk</Button>
+    </PanelCard>
+    : <>
+      <PanelCard title="Identitas" description="Data mengikuti portal keanggotaan PPIJ." icon={IconUserCircle}>
+        <div class="flex items-center gap-3.5">
+          <span class="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-800" aria-hidden="true"><IconUserCircle size={30} stroke={1.6} /></span>
+          <div class="min-w-0">
+            {displayName ? <p class="break-words text-lg leading-tight font-bold text-brand-ink">{displayName}</p> : <p class="break-words text-lg leading-tight font-bold text-brand-muted">Nama belum tersedia dari portal</p>}
+            <p class="mt-0.5 text-xs text-brand-muted">{memberNumber ? <>Kartu anggota <span class="font-mono text-brand-ink">{memberNumber}</span></> : "Nomor kartu belum tersedia dari portal"}</p>
+          </div>
         </div>
-      </div>
-      <dl class="mt-5 space-y-3 border-t border-border pt-4 text-sm">
-        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Unit</dt><dd class="font-semibold">{affiliationPath ? unitPathLabel(affiliationPath, unitNames) : "—"}</dd></div>
-        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Kategori</dt><dd>{memberCategory ? <span class="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">{memberCategoryLabel(memberCategory)}</span> : <span class="text-muted-foreground">Belum ditentukan portal</span>}</dd></div>
-        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Keanggotaan</dt><dd>{affiliationPath ? <span class="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Aktif</span> : <span class="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">Tidak aktif</span>}</dd></div>
-      </dl>
-      <p class="mt-4 text-xs leading-5 text-muted-foreground">Data keanggotaan dikelola portal PPIJ; nama resmi mengikuti daftar pemilih hasil sinkronisasi. Perubahan data diri dilakukan di portal, bukan di situs pemilihan ini.</p>
-    </section>
+        <div class="mt-4 border-t border-brand-border pt-1"><FactList items={identityFacts} variant="rows" /></div>
+        <p class="mt-3 text-xs leading-5 text-brand-muted">Nama resmi mengikuti daftar pemilih hasil sinkronisasi portal. Perubahan data diri dilakukan di portal PPIJ, bukan di situs pemilihan ini.</p>
+      </PanelCard>
 
-    <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <h2 class="text-lg font-semibold">Status pemilihan</h2>
-      {votedAt ? <div class="mt-3 flex flex-wrap items-center justify-between gap-3"><p class="flex items-center gap-2 text-sm"><IconRosetteDiscountCheck size={20} class="text-emerald-700" aria-hidden="true" />Anda sudah memilih pada {formatJst(votedAt)}.</p><a href="/surat-suara" class="inline-flex min-h-11 items-center rounded-md border border-border px-4 font-semibold hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">Buka Bukti Suara</a></div>
-      : currentStage === "open" ? <div class="mt-3 flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-muted-foreground">Anda belum menggunakan suara Anda.</p><a href="/pilih-suara" class="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring"><IconSpeakerphone size={18} aria-hidden="true" />Pilih Sekarang</a></div>
-      : <p class="mt-3 text-sm text-muted-foreground">{currentStage === "scheduled" ? "Pemungutan suara belum dibuka." : currentStage === "closed" || currentStage === "published" ? "Pemungutan suara telah ditutup." : "Pemilihan masih dalam persiapan."}</p>}
-    </section>
+      <PanelCard title="Status pemilihan" description={stageLabel ? `Tahap saat ini: ${stageLabel}.` : "Tahap pemilihan belum tersedia."} icon={IconSpeakerphone}>
+        {votedAt
+          ? <div class="grid gap-3">
+              <Callout tone="success" title="Suara Anda sudah tercatat">Tercatat pada {formatJst(votedAt)}. Simpan kode bukti Anda untuk pemeriksaan mandiri.</Callout>
+              <div><Button href="/surat-suara" variant="secondary"><IconRosetteDiscountCheck size={18} stroke={1.8} aria-hidden="true" />Buka Bukti Suara</Button></div>
+            </div>
+          : currentStage === "open"
+            ? <div class="grid gap-3">
+                <Callout tone="info" title="Anda belum menggunakan suara Anda">Pemungutan suara sedang dibuka. Satu suara per anggota, dan pilihan Anda rahasia.</Callout>
+                <div><Button href="/pilih-suara"><IconSpeakerphone size={18} stroke={1.8} aria-hidden="true" />Pilih Sekarang</Button></div>
+              </div>
+            : <Callout tone="neutral" title="Belum ada suara tercatat">{currentStage === "scheduled" ? "Pemungutan suara belum dibuka. Jadwal tampil di beranda." : currentStage === "closed" || currentStage === "published" ? "Pemungutan suara telah ditutup." : "Pemilihan masih dalam persiapan."}</Callout>}
+      </PanelCard>
 
-    {isAdmin && <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <h2 class="text-lg font-semibold">Admin Voting</h2>
-      <p class="mt-2 text-sm text-muted-foreground">Anda terdaftar sebagai Admin Voting pemilihan ini.</p>
-      <a href="/admin/dasbor" class="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-border px-4 font-semibold hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"><IconShieldCheck size={18} aria-hidden="true" />Buka Admin</a>
-    </section>}
+      {isAdmin && <PanelCard title="Admin Voting" description="Anda terdaftar sebagai Admin Voting pemilihan ini." icon={IconShieldCheck}>
+        <p class="text-sm leading-6 text-brand-muted">Panel Admin Voting memuat dasbor, daftar pemilih, kandidat, jadwal, dan audit. Setiap aksi panitia tercatat.</p>
+        <Button href="/admin/dasbor" variant="secondary" class="mt-4"><IconShieldCheck size={18} stroke={1.8} aria-hidden="true" />Buka Admin</Button>
+      </PanelCard>}
 
-    <section class="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-      <h2 class="text-lg font-semibold">Keluar</h2>
-      <p class="mt-2 text-sm text-muted-foreground">Mengakhiri sesi di perangkat ini. Anda dapat masuk kembali kapan saja.</p>
-      <button id="logout" type="button" class="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-red-200 px-4 font-semibold text-destructive hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-ring"><IconLogout size={18} aria-hidden="true" />Keluar</button>
-      <p id="logout-status" class="mt-2 text-sm text-muted-foreground" role="status"></p>
-    </section>
-  </div>}
+      <PanelCard title="Keluar" description="Mengakhiri sesi di perangkat ini. Anda dapat masuk kembali kapan saja." icon={IconId}>
+        <p class="text-sm leading-6 text-brand-muted">Kode bukti yang tersimpan di peramban tetap ada setelah keluar, tetapi pilihan kandidat hanya tampil bila kode cocok dengan perangkat ini.</p>
+        <Button id="logout" type="button" variant="secondary" class="mt-4 border-red-200 text-destructive hover:bg-red-50"><IconLogout size={18} stroke={1.8} aria-hidden="true" />Keluar</Button>
+        <p id="logout-status" class="mt-2 text-sm text-brand-muted" role="status"></p>
+      </PanelCard>
+    </>}
+  </div>
 
   <script is:inline>
 const logout=document.querySelector('#logout'),status=document.querySelector('#logout-status');logout?.addEventListener('click',async()=>{if(!confirm('Keluar dari situs ini?'))return;status.textContent='Keluar…';try{await fetch('/api/auth/logout',{method:'POST'});location.assign('/')}catch{status.textContent='Keluar belum berhasil. Coba kembali.'}});
