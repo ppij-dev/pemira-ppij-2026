@@ -106,8 +106,10 @@ const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3
           <div class="min-[760px]:hidden">
             {rows.results.map((v: any) => (
               <ListRow title={v.name} subtitle={`${v.member_number ?? "Nomor kartu belum tersedia"} · ${unitPathLabel(v.komsat_path, unitNames)}`}>
-                <span slot="badge"><Badge tone={v.can_vote === 1 ? "brand" : v.can_vote === 0 ? "danger" : "warning"} size="sm">{v.can_vote === 1 ? memberCategoryLabel(v.category) : v.can_vote === 0 ? "Tidak berhak memilih" : "Belum ditentukan"}</Badge></span>
-                <span slot="trailing"><Badge tone={v.voted ? "success" : "neutral"} size="sm">{v.voted ? "Sudah memilih" : "Belum memilih"}</Badge></span>
+                <span slot="trailing" class="flex flex-col items-end gap-1">
+                  <Badge tone={v.voted ? "success" : "neutral"} size="sm">{v.voted ? "Sudah memilih" : "Belum memilih"}</Badge>
+                  <Badge tone={v.can_vote === 1 ? "brand" : v.can_vote === 0 ? "danger" : "warning"} size="sm">{v.can_vote === 1 ? memberCategoryLabel(v.category) : v.can_vote === 0 ? "Tidak berhak memilih" : "Belum ditentukan"}</Badge>
+                </span>
               </ListRow>
             ))}
           </div>

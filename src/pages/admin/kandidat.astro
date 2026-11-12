@@ -52,9 +52,9 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
       <FormField label="Warna kandidat" for="candidate-color" hint="Warna dipakai pada nomor urut kandidat.">
         <input id="candidate-color" name="color" type="color" class="h-11 w-24 rounded-md border border-input bg-card p-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:h-8" />
       </FormField>
-      <FormField label="Intro singkat" for="candidate-short-intro" hint="Hanya tampil di kartu kandidat. Maksimal 100 karakter." wide>
-        <textarea id="candidate-short-intro" name="short_intro" maxlength="100" rows="2" aria-describedby="short-intro-count" class="mt-0.5 min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]"></textarea>
-        <p class="mt-1 flex justify-end text-xs text-brand-muted"><span id="short-intro-count" class="shrink-0 tabular-nums">0/100</span></p>
+      <FormField label="Intro singkat" for="candidate-short-intro" wide>
+        <textarea id="candidate-short-intro" name="short_intro" maxlength="100" rows="2" aria-describedby="short-intro-hint short-intro-count" class="mt-0.5 min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]"></textarea>
+        <p class="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs font-normal text-brand-muted"><span id="short-intro-hint">Hanya tampil di kartu kandidat. Maksimal 100 karakter.</span><span id="short-intro-count" class="shrink-0 tabular-nums">0/100</span></p>
       </FormField>
       <FormField label="Konten artikel (HTML)" for="candidate-description" hint="Mendukung tag artikel (h2, h3, p, ul/li, strong, em, blockquote, a, img) serta kode semat iframe dari YouTube atau SlideShare." wide>
         <textarea id="candidate-description" name="description" rows="8" placeholder="Contoh: <h2>Visi</h2><p>...</p>" class="min-h-52 w-full rounded-md border border-input bg-card px-3 py-2 font-mono text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]"></textarea>
