@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
+import unitsSql from "../migrations/0002_units.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import { sealSession } from "../src/server/auth/session";
 import { buildAuditInsert, type AuditEntry } from "../src/server/lib/audit";
 import { auditRoutes } from "../src/server/audit/routes";
@@ -13,13 +15,16 @@ async function request(path: string, member = "admin-1") {
   const cookie = await sealSession({ member_id: member, name: member, affiliation: "/ppij/test", auth_time: Math.floor(Date.now()/1000) }, key);
   return auditRoutes.request(path.replace(/^\/api/, ""), { headers: { cookie: `ppij_session=${cookie}` } }, bindings);
 }
-async function append(action: string, detail: object | null = null) {
-  const entry: AuditEntry = { at: "2026-01-01T00:00:00.000Z", actor_type: "system", actor_member_id: null, actor_name: "test", action, target: null, komsat_path: null, detail_json: detail ? JSON.stringify(detail) : null };
+async function append(action: string, detail: object | null = null, overrides: Partial<AuditEntry> = {}) {
+  const entry: AuditEntry = { at: "2026-01-01T00:00:00.000Z", actor_type: "system", actor_member_id: null, actor_name: "test", action, target: null, komsat_path: null, detail_json: detail ? JSON.stringify(detail) : null, ...overrides };
   await env.DB.batch([await buildAuditInsert(env.DB, entry)]);
 }
 beforeEach(async () => {
   await reset();
   await env.DB.batch(initSql.split(";").map((s) => s.trim()).filter(Boolean).map((s) => env.DB.prepare(s)));
+  await env.DB.batch(unitsSql.split(";").map((s) => s.trim()).filter(Boolean).map((s) => env.DB.prepare(s)));
+  // Kolom member_number dipakai label target audit ("Nama · Nomor kartu").
+  await env.DB.batch(memberNumberSql.split(";").map((s) => s.trim()).filter(Boolean).map((s) => env.DB.prepare(s)));
   await env.DB.batch([env.DB.prepare("ALTER TABLE elections ADD COLUMN closing_snapshot_hash TEXT"), env.DB.prepare("ALTER TABLE elections ADD COLUMN closing_snapshot_at TEXT")]);
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('initialized','1'),('site_scope','/ppij/test')").run();
   await env.DB.prepare("INSERT INTO admin_voting (member_id,name,is_technical,created_at) VALUES ('admin-1','Admin',0,'now')").run();
@@ -33,6 +38,19 @@ describe("audit API", () => {
     expect(body.results.map(x => x.action)).toEqual(["second", "first"]);
     expect(body.results[0].at).toContain("+09:00");
     expect(body.results[0].detail_json).toEqual({api_key:"••••••••"});
+  });
+  it("labels member targets and unit paths with portal values", async () => {
+    await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,member_number) VALUES ('11111111-1111-1111-1111-111111111111','Budi Santoso','/ppij/test/komsat','ACTIVE','now','OKA-2026-0001')").run();
+    await env.DB.prepare("INSERT INTO units (path,name,parent_path,type) VALUES ('/ppij/test/komsat','PPI Komsat','/ppij/test','komsat')").run();
+    await append("member", null, { target: "11111111-1111-1111-1111-111111111111", komsat_path: "/ppij/test/komsat" });
+    await append("gone", null, { target: "22222222-2222-2222-2222-222222222222" });
+    const body = await (await request("/api/audit")).json() as { results: Array<{ target: string | null; target_label: string | null; komsat_label: string | null }> };
+    const [gone, member] = body.results;
+    expect(member?.target_label).toBe("Budi Santoso · OKA-2026-0001");
+    expect(member?.komsat_label).toBe("PPI Komsat");
+    // UUID yang tidak ada di roll tidak pernah ditampilkan apa adanya.
+    expect(gone?.target).toBe("22222222-2222-2222-2222-222222222222");
+    expect(gone?.target_label).toBe("Anggota di luar daftar pemilih");
   });
   it("walks pages by sequence exactly once", async () => {
     for (let i=0;i<55;i++) await append(`a${i}`);

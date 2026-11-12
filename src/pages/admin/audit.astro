@@ -48,7 +48,7 @@ const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)
   </>}
 </AdminLayout>
 {authorized && <script>
- type Entry={seq:number;at:string;actor_type:string;actor_name:string|null;action:string;target:string|null;komsat_path:string|null;detail_json:Record<string,unknown>|null};
+ type Entry={seq:number;at:string;actor_type:string;actor_name:string|null;action:string;target:string|null;target_label:string|null;komsat_path:string|null;komsat_label:string|null;detail_json:Record<string,unknown>|null};
  const entries=document.querySelector<HTMLElement>('#entries')!, empty=document.querySelector<HTMLElement>('#empty-state')!, more=document.querySelector<HTMLButtonElement>('#load-more')!;
  const messages={integrity:document.querySelector<HTMLElement>('#integrity-error')!,entries:document.querySelector<HTMLElement>('#entries-error')!,more:document.querySelector<HTMLElement>('#more-error')!,snapshot:document.querySelector<HTMLElement>('#snapshot-error')!}; let before:number|null=null, hasMore=false;
  async function json(url:string){const response=await fetch(url);if(!response.ok)throw new Error(`Permintaan gagal (${response.status}).`);return response.json()}
@@ -63,7 +63,7 @@ const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)
    const actor=document.createElement('span');actor.className='inline-flex w-fit shrink-0 items-center justify-center rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-foreground';actor.textContent=({admin:'Admin Voting',voter:'Pemilih',system:'Sistem'} as Record<string,string>)[row.actor_type]||row.actor_type;
    head.append(seq,time,actor);article.append(head);
    const action=document.createElement('p');action.className='m-0 text-sm leading-snug font-semibold text-brand-ink';action.textContent=row.action;article.append(action);
-   if(row.target||row.komsat_path){const target=document.createElement('p');target.className='m-0 text-xs text-brand-muted';target.textContent=[row.target,row.komsat_path].filter(Boolean).join(' · ');article.append(target)}
+   if(row.target_label||row.komsat_label){const target=document.createElement('p');target.className='m-0 text-xs text-brand-muted';target.textContent=[row.target_label,row.komsat_label].filter(Boolean).join(' · ');article.append(target)}
    if(row.detail_json&&Object.keys(row.detail_json).length){const details=document.createElement('details');details.className='mt-1 border-t border-brand-border pt-2';const summary=document.createElement('summary');summary.className='min-h-11 cursor-pointer text-[13px] font-bold text-brand-red underline-offset-2 hover:underline min-[600px]:min-h-8';summary.textContent='Detail';details.append(summary,detailRows(row.detail_json));article.append(details)}
    entries.append(article)
  }

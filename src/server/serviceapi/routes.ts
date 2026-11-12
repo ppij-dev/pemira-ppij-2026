@@ -20,8 +20,8 @@ serviceApiRoutes.post("/admin/sync", async (c) => {
   }
 });
 
-// Perbarui nama resmi + nomor kartu baris roll yang sudah ada; aman pada
-// pemilihan yang sudah dibekukan karena tidak mengubah keanggotaan roll.
+// Perbarui nama resmi, nomor kartu dan kategori baris roll yang sudah ada;
+// aman pada pemilihan yang sudah dibekukan karena tidak mengubah keanggotaan roll.
 serviceApiRoutes.post("/admin/sync-names", async (c) => {
   try {
     const result = await enrichRollNames(c.env.DB, {

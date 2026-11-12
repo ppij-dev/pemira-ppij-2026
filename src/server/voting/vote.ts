@@ -8,6 +8,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { affiliationInScope } from "../admin/routes";
 import { AUDIT_GENESIS_HASH, canonicalRow, type AuditEntry } from "../lib/audit";
+import { REGULAR_MEMBER_CATEGORY } from "../../lib/memberCategory";
 import { generateReceipt } from "./receipt";
 
 async function sha256Hex(input: string): Promise<string> {
@@ -52,6 +53,10 @@ export interface VoterRow {
   name: string;
   komsat_path: string;
   status: string;
+  /** Kategori AD/ART dari portal; untuk tampilan saja. */
+  category: string | null;
+  /** Hak pilih dari portal: 1 boleh, 0 tidak, null belum ditentukan. */
+  can_vote: number | null;
 }
 
 const ELECTION_SQL =
@@ -87,18 +92,24 @@ export function previewKomsatPath(affiliation: string | string[] | null, scope: 
   return paths.find((path) => path.startsWith(scope)) ?? scope;
 }
 
-/** Daftarkan pemilih Mode Pratinjau dari klaim sesi; idempoten. */
+/**
+ * Daftarkan pemilih Mode Pratinjau dari klaim sesi; idempoten. Baris pratinjau
+ * lama yang belum punya keputusan portal (can_vote NULL, mis. dari versi
+ * sebelum kolom ini ada) disembuhkan ke BIASA/1 saat anggotanya masuk lagi —
+ * Mode Pratinjau tidak punya Service API yang bisa menyegarkan roll.
+ */
 async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, scope: string): Promise<VoterRow> {
   await db
     .prepare(
-      `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at)
-       VALUES (?, ?, ?, ?, 'ACTIVE', ?)
-       ON CONFLICT(member_id) DO NOTHING`,
+      `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at, category, can_vote)
+       VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, 1)
+       ON CONFLICT(member_id) DO UPDATE SET category = COALESCE(voters.category, ?), can_vote = 1
+         WHERE voters.can_vote IS NULL`,
     )
-    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString())
+    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString(), REGULAR_MEMBER_CATEGORY, REGULAR_MEMBER_CATEGORY)
     .run();
   const voter = await db
-    .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
+    .prepare("SELECT member_id,name,komsat_path,status,category,can_vote FROM voters WHERE member_id = ?")
     .bind(session.member_id)
     .first<VoterRow>();
   if (!voter) throw new VoteError("Pendaftaran otomatis gagal. Coba lagi.", 403, "auto_register_failed");
@@ -145,16 +156,25 @@ export async function authorizeVoter(
 
   // Pemilih harus ada di roll beku dan berstatus ACTIVE. Pada Mode Pratinjau
   // keanggotaan aktif dalam cakupan sudah terbukti dari klaim sesi, sehingga
-  // pemilih terdaftar otomatis tanpa menunggu sinkronisasi daftar beku.
+  // pemilih terdaftar otomatis tanpa menunggu sinkronisasi daftar beku; baris
+  // pratinjau lama yang belum punya keputusan portal (can_vote null) juga
+  // disembuhkan di sini karena Mode Pratinjau tidak bisa menyegarkan dari
+  // Service API.
   let voter = await db
-    .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
+    .prepare("SELECT member_id,name,komsat_path,status,category,can_vote FROM voters WHERE member_id = ?")
     .bind(session.member_id)
     .first<VoterRow>();
-  if (!voter && election.preview_mode === 1) {
+  if (election.preview_mode === 1 && (!voter || voter.can_vote === null || voter.can_vote === undefined)) {
     voter = await autoRegisterPreviewVoter(db, session, scope.value);
   }
   if (!voter) throw new VoteError("Anda tidak terdaftar dalam daftar pemilih yang dibekukan.", 403, "not_in_roll");
   if (voter.status.toUpperCase() !== "ACTIVE") throw new VoteError("Keanggotaan Anda belum aktif.", 403, "not_active");
+  // Hak pilih mengikuti AD/ART: nilai can_vote dari portal adalah sumber
+  // kebenaran (bukan turunan ACTIVE+BIASA di sini); kategori hanya untuk
+  // tampilan. can_vote null = portal belum menentukan, jadi ditolak sampai
+  // portal menetapkannya dan roll disegarkan.
+  if (voter.can_vote === null || voter.can_vote === undefined) throw new VoteError("Kategori keanggotaan Anda belum ditentukan portal PPIJ. Hubungi panitia pemilihan.", 403, "category_unknown");
+  if (voter.can_vote !== 1) throw new VoteError("Hanya Anggota Biasa yang berhak memilih pada pemilihan ini.", 403, "not_regular_member");
 
   return { election, voter };
 }

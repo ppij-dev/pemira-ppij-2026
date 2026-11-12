@@ -3,7 +3,8 @@ import { IconArrowLeft, IconBoxMultiple } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import { stage } from "../../server/lib/stage";
-import { formatKomsatPath } from "../../lib/formatKomsat";
+import { unitNameOf, type UnitNames } from "../../lib/formatKomsat";
+import { loadUnitNames } from "../../server/lib/units";
 import { renderMarkdown } from "../../server/lib/markdown";
 import { candidatePhotoSrc, PLACEHOLDER_CANDIDATE_PHOTO } from "../../lib/candidatePhoto";
 
@@ -33,6 +34,8 @@ if (election?.opens_at && election?.closes_at) {
   }
 }
 const content = candidate?.description?.trim() ? renderMarkdown(candidate.description) : "";
+let unitNames: UnitNames = {};
+try { unitNames = db ? await loadUnitNames(db) : {}; } catch { unitNames = {}; }
 const photoSrc = candidatePhotoSrc(candidate?.photo_key);
 const hasCustomPhoto = photoSrc !== PLACEHOLDER_CANDIDATE_PHOTO;
 // Deskripsi pratinjau berbagi: short_intro, atau paragraf teks pertama dari
@@ -66,7 +69,7 @@ const ogDescription = candidate?.short_intro?.trim() || plainIntro;
         <span class="inline-flex size-8 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
         <h1 class="mt-4 break-words text-3xl font-bold leading-tight tracking-tight sm:text-5xl">{candidate.name}</h1>
         <p class="mt-2 break-words text-lg font-medium text-muted-foreground sm:text-xl">{candidate.nickname}</p>
-        <p class="mt-4 break-words text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{formatKomsatPath(candidate.komsat_path)}</span></p>
+        <p class="mt-4 break-words text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{unitNameOf(candidate.komsat_path, unitNames)}</span></p>
       </header>
       <section aria-labelledby="profile-heading" class="col-span-2 row-start-2 mt-8 border-t border-border pt-7 sm:col-span-1 sm:col-start-1 sm:mt-6 sm:pt-6">
         <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>

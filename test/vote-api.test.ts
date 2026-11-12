@@ -11,6 +11,8 @@ import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
 import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import previewSql from "../migrations/0006_preview_mode.sql?raw";
+import categorySql from "../migrations/0009_voter_category.sql?raw";
+import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -54,9 +56,9 @@ function getRequest(path: string, cookie: string | null) {
   return testApp.request(path, { headers }, bindings);
 }
 
-async function seedVoter(memberId: string, opts: { status?: string; path?: string; name?: string } = {}) {
-  await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at) VALUES (?,?,?,?,?)")
-    .bind(memberId, opts.name ?? memberId, opts.path ?? `${SCOPE}/komsat-1`, opts.status ?? "ACTIVE", new Date().toISOString())
+async function seedVoter(memberId: string, opts: { status?: string; path?: string; name?: string; category?: string | null; canVote?: number | null } = {}) {
+  await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,category,can_vote) VALUES (?,?,?,?,?,?,?)")
+    .bind(memberId, opts.name ?? memberId, opts.path ?? `${SCOPE}/komsat-1`, opts.status ?? "ACTIVE", new Date().toISOString(), opts.category === undefined ? "BIASA" : opts.category, opts.canVote === undefined ? 1 : opts.canVote)
     .run();
 }
 
@@ -84,7 +86,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -183,6 +185,36 @@ describe("POST /api/votes", () => {
     const res = await voteRequest(await sessionCookie("voter-suspended"), { candidate_id: 1, confirmation_text: "Budi" });
     expect(res.status).toBe(403);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("403 Anggota Luar Biasa di roll: hanya Anggota Biasa yang berhak memilih", async () => {
+    await seedVoter("voter-luar", { name: "Luar Biasa", category: "LUAR_BIASA", canVote: 0 });
+    const res = await voteRequest(await sessionCookie("voter-luar"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("not_regular_member");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("403 kategori belum ditentukan portal: panitia harus melengkapi data", async () => {
+    await seedVoter("voter-unknown", { name: "Belum Ditentukan", category: null, canVote: null });
+    const res = await voteRequest(await sessionCookie("voter-unknown"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { error: string }).error).toBe("category_unknown");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("can_vote dari portal adalah sumber kebenaran, kategori hanya tampilan", async () => {
+    // Portal menyatakan tidak boleh walau label kategorinya Biasa.
+    await seedVoter("voter-flag-no", { name: "Flag No", category: "BIASA", canVote: 0 });
+    const denied = await voteRequest(await sessionCookie("voter-flag-no"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(denied.status).toBe(403);
+    expect((await denied.json() as { error: string }).error).toBe("not_regular_member");
+    // Portal menyatakan boleh: Pemira tidak menurunkan ulang ACTIVE+BIASA.
+    await seedVoter("voter-flag-yes", { name: "Flag Yes", category: "LUAR_BIASA", canVote: 1 });
+    const allowed = await voteRequest(await sessionCookie("voter-flag-yes"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(allowed.status).toBe(201);
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
   });
 
   it("403 Admin Voting saat pengaturan allow_admin_voting mati", async () => {
@@ -370,5 +402,14 @@ describe("GET /api/votes/eligibility", () => {
     expect((await outScope.json() as Record<string, unknown>).reason).toBe("out_of_scope");
     const notRoll = await getRequest("/api/votes/eligibility", await sessionCookie("joiner-late"));
     expect((await notRoll.json() as Record<string, unknown>).reason).toBe("not_in_roll");
+  });
+
+  it("reason kategori Anggota Luar Biasa dan kategori belum ditentukan dibedakan", async () => {
+    await seedVoter("voter-luar", { name: "Luar Biasa", category: "LUAR_BIASA", canVote: 0 });
+    await seedVoter("voter-unknown", { name: "Belum Ditentukan", category: null, canVote: null });
+    const luar = await getRequest("/api/votes/eligibility", await sessionCookie("voter-luar"));
+    expect((await luar.json() as Record<string, unknown>).reason).toBe("not_regular_member");
+    const unknown = await getRequest("/api/votes/eligibility", await sessionCookie("voter-unknown"));
+    expect((await unknown.json() as Record<string, unknown>).reason).toBe("category_unknown");
   });
 });

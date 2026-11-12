@@ -15,8 +15,8 @@ const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)
 const [admins, invitations] = authorized && bindings.DB ? await Promise.all([
   // Nama tampilan: nama resmi dari roll (sinkronisasi) menang atas nama dari
   // sesi saat undangan diterima; UUID tidak ditampilkan sebagai nama.
-  bindings.DB.prepare("SELECT a.member_id, v.name AS roll_name, a.name AS invite_name, a.is_technical, a.created_at FROM admin_voting a LEFT JOIN voters v ON v.member_id=a.member_id ORDER BY a.created_at").all(),
-  bindings.DB.prepare("SELECT i.token_hash AS id,i.member_id,COALESCE(NULLIF(v.name,''),i.member_id) AS member_name,i.created_at,i.expires_at,i.accepted_at,i.cancelled_at FROM invitations i LEFT JOIN voters v ON v.member_id=i.member_id ORDER BY i.created_at DESC").all(),
+  bindings.DB.prepare("SELECT a.member_id, v.name AS roll_name, v.member_number AS roll_number, a.name AS invite_name, a.is_technical, a.created_at FROM admin_voting a LEFT JOIN voters v ON v.member_id=a.member_id ORDER BY a.created_at").all(),
+  bindings.DB.prepare("SELECT i.token_hash AS id,i.member_id,v.name AS member_name,v.member_number AS member_number,i.created_at,i.expires_at,i.accepted_at,i.cancelled_at FROM invitations i LEFT JOIN voters v ON v.member_id=i.member_id ORDER BY i.created_at DESC").all(),
 ]) : [{ results: [] }, { results: [] }];
 // Nama tampilan: nama resmi dari roll menang; label undangan ("Technical
 // Admin") memakai nama sesi; UUID tidak pernah ditampilkan sebagai nama.
@@ -36,18 +36,18 @@ const invitationState = (inv: any) =>
     <PanelCard title="Admin Voting" description="Semua Admin Voting memiliki hak yang sama." icon={IconUsers}>
       {admins.results.length
         ? <div>{admins.results.map((a: any) => (
-            <ListRow title={displayName(a.roll_name, a.invite_name, a.member_id) ?? "Nama belum tersedia dari portal"} subtitle={a.member_id} tone={displayName(a.roll_name, a.invite_name, a.member_id) ? "default" : "muted"}>
+            <ListRow title={displayName(a.roll_name, a.invite_name, a.member_id) ?? "Nama belum tersedia dari portal"} subtitle={a.roll_number ?? "Nomor kartu belum tersedia dari portal"} tone={displayName(a.roll_name, a.invite_name, a.member_id) ? "default" : "muted"}>
               {a.is_technical ? <span slot="badge"><Badge tone="brand" size="sm">Technical Admin</Badge></span> : null}
               <span slot="meta" class="whitespace-nowrap">{formatJst(a.created_at)}</span>
               <span slot="trailing"><Button type="button" variant="ghost" size="sm" data-remove={a.member_id} class="text-destructive hover:bg-red-50">Hapus</Button></span>
             </ListRow>
           ))}</div>
-        : <Empty icon={IconUsers} title="Belum ada Admin Voting" description="Undang anggota aktif dengan ID anggota di formulir sebelah." />}
+        : <Empty icon={IconUsers} title="Belum ada Admin Voting" description="Undang anggota aktif dengan nomor kartu di formulir sebelah." />}
     </PanelCard>
     <div class="grid content-start gap-[17px]">
       <PanelCard title="Undang Admin Voting" description="Buat tautan undangan untuk anggota yang sudah ada di daftar pemilih." icon={IconUserPlus}>
         <form id="invite" class="grid items-start gap-x-3.5 gap-y-4 [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11">
-          <FormField label="ID anggota atau nomor kartu" for="member_id" hint="Contoh: OKA-2026-0001 atau UUID anggota.">
+          <FormField label="Nomor kartu anggota" for="member_id" hint="Contoh: OKA-2026-0001. UUID anggota juga diterima.">
             <input class="w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]" name="member_id" id="member_id" required placeholder="OKA-2026-0001" />
           </FormField>
           <Button type="submit" variant="primary" size="sm" class="w-fit">Buat undangan</Button>
@@ -57,7 +57,7 @@ const invitationState = (inv: any) =>
       <PanelCard title="Undangan" description="Undangan yang belum diterima tetap dapat dibatalkan." icon={IconMail}>
         {invitations.results.length
           ? <div>{invitations.results.map((inv: any) => (
-              <ListRow title={inv.member_name ?? inv.member_id} subtitle={`Dibuat ${formatJst(inv.created_at)} · Berakhir ${formatJst(inv.expires_at)}`}>
+              <ListRow title={inv.member_name ?? "Anggota di luar daftar pemilih"} subtitle={`${inv.member_number ?? "Nomor kartu belum tersedia dari portal"} · Dibuat ${formatJst(inv.created_at)} · Berakhir ${formatJst(inv.expires_at)}`}>
                 <span slot="badge"><Badge tone={invitationState(inv).tone} size="sm">{invitationState(inv).label}</Badge></span>
                 {!inv.accepted_at && !inv.cancelled_at && <span slot="trailing"><Button type="button" variant="ghost" size="sm" data-cancel={inv.id} class="text-destructive hover:bg-red-50">Batalkan</Button></span>}
               </ListRow>

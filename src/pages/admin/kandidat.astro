@@ -1,6 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import { IconId, IconPlus } from "@tabler/icons-astro";
+import { IconAlertTriangle, IconId, IconPlus } from "@tabler/icons-astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import PanelCard from "../../components/ui/PanelCard.astro";
@@ -8,22 +8,37 @@ import Badge from "../../components/ui/Badge.astro";
 import Button from "../../components/ui/Button.astro";
 import FormField from "../../components/ui/FormField.astro";
 import Empty from "../../components/ui/Empty.astro";
+import Callout from "../../components/ui/Callout.astro";
+import { unitPathLabel, type UnitNames } from "../../lib/formatKomsat";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
 const db = authorized ? bindings.DB : undefined;
-const formatUnitPath = (path: string) => path.split('/').filter(Boolean).slice(1).map((part) => part.replace(/[-_]+/g, ' ').replace(/(^|\s)\S/g, (c) => c.toUpperCase())).join(' · ');
-const candidates = await db?.prepare('SELECT id,member_id,number,name,nickname,komsat_path,description,short_intro,color FROM candidates ORDER BY number').all() ?? { results: [] };
-const voters = await db?.prepare('SELECT member_id,name FROM voters WHERE status=? ORDER BY name LIMIT 500').bind('ACTIVE').all() ?? { results: [] };
+const candidates = await db?.prepare('SELECT c.id,c.member_id,c.number,c.name,c.nickname,c.komsat_path,c.description,c.short_intro,c.color,v.member_number,v.member_id AS roll_member_id FROM candidates c LEFT JOIN voters v ON v.member_id=c.member_id ORDER BY c.number').all() ?? { results: [] };
+const previewMode = ((await db?.prepare('SELECT preview_mode FROM elections ORDER BY id LIMIT 1').first<{ preview_mode: number }>())?.preview_mode) === 1;
+// Kandidat dipilih lewat nomor kartu portal. Di Mode Pratinjau saja, baris
+// roll tanpa nomor kartu boleh dipilih lewat ID anggota (klaim sesi belum
+// tersinkron dengan portal).
+const voters = await db?.prepare(previewMode
+  ? "SELECT member_id,member_number,name FROM voters WHERE status='ACTIVE' ORDER BY name LIMIT 500"
+  : "SELECT member_id,member_number,name FROM voters WHERE status='ACTIVE' AND member_number IS NOT NULL ORDER BY name LIMIT 500").all() ?? { results: [] };
+const missingNumbers = (await db?.prepare("SELECT COUNT(*) AS n FROM voters WHERE status='ACTIVE' AND member_number IS NULL").first<{ n: number }>())?.n ?? 0;
+// Referensi form: nomor kartu, atau ID anggota hanya di Mode Pratinjau untuk
+// baris yang benar-benar ada di roll tanpa nomor kartu.
+const candidateRows = candidates.results.map((c: any) => ({ ...c, reference: c.member_number ?? (previewMode && c.roll_member_id ? c.member_id : "") }));
+const unitNames = (await db?.prepare('SELECT path,name FROM units').all<{ path: string; name: string }>() ?? { results: [] }).results.reduce((map, unit) => ({ ...map, [unit.path]: unit.name }), {} as UnitNames);
 const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
 ---
 <AdminLayout title="Kandidat">
   <PageHeader title="Kandidat" eyebrow="Admin Voting" description="Kelola kandidat dari anggota aktif sebelum pemilihan dikunci." />
   <PanelCard title="Tambah / Ubah Kandidat" description="Nomor urut dan nama panggilan setiap kandidat harus berbeda." icon={IconId} class="mt-5">
+    {missingNumbers > 0 && (previewMode
+      ? <Callout tone="warning" icon={IconAlertTriangle} title="Mode Pratinjau" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal. Pilih anggotanya lewat ID anggota di daftar.</Callout>
+      : <Callout tone="warning" icon={IconAlertTriangle} title="Nomor kartu belum lengkap" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal sehingga belum bisa dipilih di sini. Tekan "Perbarui Nama &amp; Kategori dari Portal" di halaman Pemilih.</Callout>)}
     <form id="candidate" class="grid grid-cols-1 items-start gap-x-3.5 gap-y-4 min-[601px]:grid-cols-2 [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11">
-      <FormField label="ID anggota" for="candidate-member">
+      <FormField label="Nomor kartu anggota" for="candidate-member">
         <input id="candidate-member" name="member_id" list="members" required placeholder="Pilih anggota aktif" class={control} />
-        <datalist id="members">{voters.results.map((v: any) => <option value={v.member_id}>{v.name}</option>)}</datalist>
+        <datalist id="members">{voters.results.map((v: any) => <option value={v.member_number ?? v.member_id}>{v.name}{v.member_number ? ` · ${v.member_number}` : " · ID anggota (Mode Pratinjau)"}</option>)}</datalist>
       </FormField>
       <FormField label="Nomor urut" for="candidate-number">
         <input id="candidate-number" name="number" type="number" min="1" required placeholder="Nomor urut kandidat" class={control} />
@@ -62,19 +77,19 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
     </div>
     {candidates.results.length
       ? <div class="grid grid-cols-1 gap-[17px] min-[641px]:grid-cols-2">
-          {candidates.results.map((c: any) => (
+          {candidateRows.map((c: any) => (
             <article class="min-w-0 rounded-xl border border-brand-border bg-card p-[22px] text-brand-ink max-[700px]:p-[17px]">
               <div class="flex items-start gap-3">
                 <span aria-hidden="true" class="grid size-11 shrink-0 place-items-center rounded-lg text-base font-extrabold text-white" style={`background-color:${c.color || '#c8102e'}`}>{c.number}</span>
                 <div class="min-w-0">
                   <h3 class="text-base leading-snug font-bold break-words text-brand-ink">{c.nickname}</h3>
-                  <p class="mt-0.5 text-[13px] break-words text-brand-muted">{c.name} · {c.member_id}</p>
-                  <p class="mt-1 text-xs text-brand-muted">{formatUnitPath(c.komsat_path)}</p>
+                  <p class="mt-0.5 text-[13px] break-words text-brand-muted">{c.name} · {c.member_number ?? "Tanpa nomor kartu"}</p>
+                  <p class="mt-1 text-xs text-brand-muted">{unitPathLabel(c.komsat_path, unitNames)}</p>
                 </div>
               </div>
               {c.short_intro && <p class="mt-3 mb-0 text-[13px] leading-5 text-brand-ink">{c.short_intro}</p>}
               <div class="mt-4 flex flex-wrap justify-end gap-2 border-t border-brand-border pt-3">
-                <Button type="button" variant="ghost" size="sm" data-edit={c.id} data-member={c.member_id} data-number={c.number} data-name={c.name} data-nickname={c.nickname} data-color={c.color || '#c8102e'} data-description={c.description || ''} data-short-intro={c.short_intro || ''}>Ubah</Button>
+                <Button type="button" variant="ghost" size="sm" data-edit={c.id} data-member={c.reference} data-number={c.number} data-name={c.name} data-nickname={c.nickname} data-color={c.color || '#c8102e'} data-description={c.description || ''} data-short-intro={c.short_intro || ''}>Ubah</Button>
                 <Button type="button" variant="ghost" size="sm" data-delete={c.id} class="text-destructive hover:bg-red-50">Hapus</Button>
               </div>
             </article>
