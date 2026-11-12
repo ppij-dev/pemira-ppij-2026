@@ -1,15 +1,19 @@
 ---
-import { IconArrowRight } from "@tabler/icons-astro";
+import { env } from "cloudflare:workers";
+import { IconArrowRight, IconListCheck, IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from "@tabler/icons-astro";
 import Base from "../layouts/Base.astro";
 import CandidateCard from "../components/CandidateCard.astro";
 import { unitPathLabel } from "../lib/formatKomsat";
 import { loadUnitNames } from "../server/lib/units";
-import Card from "../components/ui/Card.astro";
 import Badge from "../components/ui/Badge.astro";
-import Alert from "../components/ui/Alert.astro";
+import Button from "../components/ui/Button.astro";
+import Callout from "../components/ui/Callout.astro";
+import FactList from "../components/ui/FactList.astro";
+import ListRow from "../components/ui/ListRow.astro";
+import PageHeader from "../components/ui/PageHeader.astro";
+import PanelCard from "../components/ui/PanelCard.astro";
 import { SESSION_COOKIE, openSession } from "../server/auth/session";
 import type { SessionData } from "../server/auth/session";
-import { env } from "cloudflare:workers";
 import type { Bindings } from "../server/app";
 import { stage as getStage } from "../server/lib/stage";
 import { getSiteLogo } from "../server/lib/logo";
@@ -37,31 +41,99 @@ let extensionNotice = false;
 if (currentStage === "open" && election?.closed_early_at == null && db) {
   try { extensionNotice = Boolean(await db.prepare("SELECT seq FROM audit_log WHERE action = ? ORDER BY seq DESC LIMIT 1").bind("Waktu penutupan diperpanjang").first()); } catch { extensionNotice = false; }
 }
+const stageLabel = ({draft:"Draf",scheduled:"Terjadwal",open:"Dibuka",closed:"Ditutup",published:"Diumumkan"} as const)[currentStage];
 const formatJst = (value:string) => new Intl.DateTimeFormat("id-ID", { timeZone:"Asia/Tokyo", dateStyle:"medium", timeStyle:"short" }).format(new Date(value)) + " JST";
+const scheduleFacts = [
+  ...(election?.opens_at ? [{ label: "Dibuka", value: formatJst(election.opens_at) }] : []),
+  ...(election?.closes_at ? [{ label: "Ditutup", value: formatJst(election.closes_at) }] : []),
+  { label: "Tahap", value: stageLabel },
+];
 ---
+
 <Base title={`${siteName} · Pemilihan`} siteName={siteName} siteLogoPath={logo.src} showHasil={showHasil}>
-  <Card><div class="p-4 sm:p-6">
-    <div class="flex flex-wrap items-center gap-3">
-      <img src={logo.src} alt="" class="size-11 shrink-0 object-contain" />
-      <h1 class="min-w-0 flex-1 text-xl font-semibold leading-tight tracking-tight">{election?.title || "Pemilihan"}</h1>
-      <Badge tone="brand">{({draft:"Draf",scheduled:"Terjadwal",open:"Dibuka",closed:"Ditutup",published:"Diumumkan"} as const)[currentStage]}</Badge>
+  <section aria-labelledby="election-title" class="overflow-hidden rounded-xl border border-brand-border bg-card">
+    <div class="bg-gradient-to-br from-brand-900 via-brand-700 to-brand-600 p-5 text-white sm:p-7">
+      <div class="flex items-start gap-3">
+        <img src={logo.src} alt="" class="size-11 shrink-0 rounded-lg bg-white p-1 object-contain" />
+        <div class="min-w-0 flex-1">
+          <p class="text-[11px] font-bold tracking-[0.14em] text-white/80 uppercase">Pemilihan</p>
+          <h1 id="election-title" class="mt-1 break-words text-2xl leading-tight font-bold tracking-tight sm:text-3xl">{election?.title || "Pemilihan"}</h1>
+        </div>
+        <span class="inline-flex shrink-0 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-semibold whitespace-nowrap">{stageLabel}</span>
+      </div>
+      {election?.description && <p class="mt-3 max-w-xl text-sm leading-6 text-white/90">{election.description}</p>}
     </div>
-    <div class="mt-5 space-y-4 border-t border-border pt-4">
-      {currentStage === "draft" && <p class="rounded-md bg-muted p-4 font-medium">Persiapan sedang berlangsung. Informasi kandidat dan jadwal akan diperbarui panitia.</p>}
-      {currentStage === "scheduled" && <><div><p class="text-sm font-semibold text-muted-foreground">Pemungutan suara dibuka dalam</p><p class="mt-1 break-words font-mono text-2xl font-bold text-brand-800 sm:text-3xl" data-countdown data-target={election?.opens_at}>—</p></div><p class="text-sm text-muted-foreground">Pilih Sekarang tersedia saat pemungutan suara dibuka.</p></>}
-      {currentStage === "open" && <><div><p class="text-sm font-semibold text-muted-foreground">Pemungutan suara ditutup dalam</p><p class="mt-1 break-words font-mono text-2xl font-bold text-brand-800 sm:text-3xl" data-countdown data-target={election?.closes_at}>—</p></div>{extensionNotice && election?.closes_at && <p class="text-sm font-semibold text-amber-800">Diperpanjang hingga {formatJst(election.closes_at)}</p>}<a class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring sm:w-auto" href={voted?"/surat-suara":"/pilih-suara"}>{voted?"Lihat Bukti Suara":"Pilih Sekarang"}<IconArrowRight size={19} aria-hidden="true" /></a></>}
-      {currentStage === "closed" && <p class="rounded-md bg-muted p-4 font-medium">Pemungutan suara sudah ditutup. Hasil akan diumumkan panitia.</p>}
-      {currentStage === "published" && <a href="/hasil" class="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-5 py-3 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Lihat Hasil<IconArrowRight size={19} aria-hidden="true" /></a>}
+
+    <div class="grid gap-4 p-5 sm:p-6">
+      {currentStage === "draft" && <Callout tone="neutral" title="Persiapan sedang berlangsung">Informasi kandidat dan jadwal akan diperbarui panitia. Anda belum dapat memberikan suara.</Callout>}
+
+      {currentStage === "scheduled" && <>
+        <div>
+          <p class="text-sm font-medium text-brand-muted">Pemungutan suara dibuka dalam</p>
+          <p class="mt-1 break-words font-mono text-2xl font-bold text-brand-ink tabular-nums sm:text-3xl" data-countdown data-target={election?.opens_at}>—</p>
+        </div>
+        <Callout tone="info" title="Belum dibuka">Tombol Pilih Sekarang aktif saat pemungutan suara dibuka.</Callout>
+      </>}
+
+      {currentStage === "open" && <>
+        <div>
+          <p class="text-sm font-medium text-brand-muted">Pemungutan suara ditutup dalam</p>
+          <p class="mt-1 break-words font-mono text-2xl font-bold text-brand-ink tabular-nums sm:text-3xl" data-countdown data-target={election?.closes_at}>—</p>
+        </div>
+        {extensionNotice && election?.closes_at && <Callout tone="warning" title="Jadwal diperpanjang">Pemungutan suara diperpanjang hingga {formatJst(election.closes_at)}.</Callout>}
+        <Button href={voted ? "/surat-suara" : "/pilih-suara"} class="w-full sm:w-auto">
+          {voted ? "Lihat Bukti Suara" : "Pilih Sekarang"}<IconArrowRight size={19} stroke={1.8} aria-hidden="true" />
+        </Button>
+        <p class="text-xs text-brand-muted">Satu suara per anggota. Pilihan Anda rahasia dan tidak ditampilkan di beranda.</p>
+      </>}
+
+      {currentStage === "closed" && <Callout tone="neutral" title="Pemungutan suara ditutup">Hasil akan diumumkan panitia. Anda sudah dapat memeriksa papan bukti suara.</Callout>}
+
+      {currentStage === "published" && <>
+        <Callout tone="success" title="Hasil sudah diumumkan">Hasil resmi pemilihan dapat Anda lihat beserta ringkasan partisipasi.</Callout>
+        <Button href="/hasil" class="w-full sm:w-auto">Lihat Hasil<IconArrowRight size={19} stroke={1.8} aria-hidden="true" /></Button>
+      </>}
     </div>
-  </div></Card>
-  {election?.preview_mode === 1 && <div class="mt-5"><Alert tone="warning" title="Mode uji coba aktif">Semua pilihan hanya untuk tes.</Alert></div>}
-  {boardReady && <a href="/papan-bukti" class="mt-5 flex min-h-20 items-center justify-between gap-4 rounded-xl border border-border bg-card p-5 transition hover:border-brand-400 focus-visible:outline-2 focus-visible:outline-ring"><span><strong class="block font-semibold">Papan bukti</strong><span class="mt-1 block text-sm text-muted-foreground">Periksa daftar bukti suara setelah pemungutan ditutup.</span></span><IconArrowRight size={20} class="shrink-0 text-primary" aria-hidden="true" /></a>}
-  <section class="mt-8" aria-labelledby="candidates-heading">
-    <h2 id="candidates-heading" class="mb-4 text-xl font-semibold">Kandidat</h2>
-    {candidates.length
-      ? <div class="grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} />)}</div>
-      : <p class="rounded-xl border border-border bg-card p-6 text-muted-foreground">Informasi kandidat belum tersedia.</p>}
   </section>
-  {showHasil && <section id="hasil" class="mt-8 rounded-xl border border-border bg-card p-4 shadow-sm sm:p-6"><h2 class="text-xl font-semibold">Hasil pemilihan</h2><p class="mt-2 text-muted-foreground">Hasil resmi telah diumumkan.</p><a href="/hasil" class="mt-4 inline-flex min-h-11 items-center font-semibold text-primary underline">Lihat hasil dan statistik</a></section>}
+
+  {election?.preview_mode === 1 && <div class="mt-4"><Callout tone="warning" title="Mode uji coba aktif">Semua pilihan hanya untuk tes dan akan dihapus saat pemilihan dikunci.</Callout></div>}
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2">
+    <PanelCard title="Jadwal pemungutan" description="Waktu dalam zona Jepang (JST)." icon={IconListCheck} density="compact">
+      <FactList items={scheduleFacts} variant="inline" />
+    </PanelCard>
+    <PanelCard title="Cara memberi suara" description="Tiga langkah, tanpa perlu aplikasi lain." icon={IconSpeakerphone} density="compact">
+      <div class="grid">
+        <ListRow title="Masuk dengan PPIJ One Login" subtitle="Gunakan akun portal keanggotaan Anda." />
+        <ListRow title="Pilih satu kandidat" subtitle="Periksa nomor dan nama sebelum mengirim." />
+        <ListRow title="Simpan kode bukti" subtitle="Kode hanya muncul sekali setelah suara terkirim." />
+      </div>
+    </PanelCard>
+  </div>
+
+  {boardReady && <div class="mt-4"><PanelCard title="Papan bukti" description="Periksa daftar bukti suara setelah pemungutan ditutup." icon={IconRosetteDiscountCheck} density="compact" padding="panel">
+    <Button href="/papan-bukti" variant="secondary" size="sm">Buka papan bukti<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
+  </PanelCard></div>}
+
+  <section class="mt-8" aria-labelledby="candidates-heading">
+    <PageHeader title="Kandidat" description={candidates.length ? "Urut sesuai nomor pada surat suara." : undefined}>
+      {candidates.length > 0 && <Button href="/kandidat" variant="ghost" size="sm">Lihat semua kandidat<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>}
+    </PageHeader>
+    {candidates.length
+      ? <div class="mt-4 grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} />)}</div>
+      : <div class="mt-4"><PanelCard density="compact" class="border-dashed"><div class="flex items-center gap-2.5 text-brand-muted"><IconUsers size={20} stroke={1.8} aria-hidden="true" /><p class="text-sm">Informasi kandidat belum tersedia.</p></div></PanelCard></div>}
+  </section>
+
+  {showHasil && <section id="hasil" class="mt-8" aria-labelledby="hasil-heading">
+    <PanelCard title="Hasil pemilihan" description="Hasil resmi telah diumumkan panitia." icon={IconRosetteDiscountCheck}>
+      <div class="flex flex-wrap items-center gap-3">
+        <Button href="/hasil" size="sm">Lihat hasil dan statistik<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
+        {boardReady && <a href="/papan-bukti" class="inline-flex min-h-11 items-center text-sm font-semibold text-brand-red underline underline-offset-4 hover:text-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Papan bukti</a>}
+      </div>
+    </PanelCard>
+  </section>}
+
+  <p class="mt-8 flex items-center justify-center gap-2 text-xs text-brand-muted"><Badge tone="outline" size="sm">Rahasia</Badge><span>Partisipasi dan surat suara tercatat terpisah agar pilihan Anda tidak dapat ditelusuri.</span></p>
+
   <script is:inline>document.querySelectorAll('[data-countdown]').forEach((el)=>{const tick=()=>{const seconds=Math.max(0,Math.floor((Date.parse(el.dataset.target)-Date.now())/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;const clock=[h,m,s].map((v)=>String(v).padStart(2,'0')).join(':');el.textContent=d>0?`${d} hari ${clock}`:clock};tick();setInterval(tick,1000)});</script>
 </Base>
