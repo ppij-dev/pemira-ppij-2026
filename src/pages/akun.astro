@@ -7,7 +7,9 @@ import { classifyRecovery, recoveryCopy, helpCode } from "../server/auth/recover
 import { isAdminPageAuthorized, type AdminBindings } from "./admin/admin-auth";
 import { getVoteMe } from "../server/voting/vote";
 import { stage as getStage, type Stage } from "../server/lib/stage";
-import { formatUnitPath } from "../lib/formatKomsat";
+import { unitPathLabel, type UnitNames } from "../lib/formatKomsat";
+import { memberCategoryLabel } from "../lib/memberCategory";
+import { loadUnitNames } from "../server/lib/units";
 import type { Bindings } from "../server/app";
 
 const bindings = env as unknown as Bindings;
@@ -32,14 +34,18 @@ let votedAt: string | null = null;
 let currentStage: Stage | null = null;
 let rollName: string | null = null;
 let memberNumber: string | null = null;
+let memberCategory: string | null = null;
+let unitNames: UnitNames = {};
 if (session) {
   const adminBindings = bindings as unknown as AdminBindings;
   isAdmin = await isAdminPageAuthorized(raw ?? undefined, adminBindings);
   try {
-    const voter = await bindings.DB.prepare("SELECT name, member_number FROM voters WHERE member_id = ?").bind(session.member_id).first<{ name: string; member_number: string | null }>();
+    const voter = await bindings.DB.prepare("SELECT name, member_number, category FROM voters WHERE member_id = ?").bind(session.member_id).first<{ name: string; member_number: string | null; category: string | null }>();
     rollName = voter?.name ?? null;
     memberNumber = voter?.member_number ?? null;
+    memberCategory = voter?.category ?? null;
   } catch { rollName = null; }
+  try { unitNames = await loadUnitNames(bindings.DB); } catch { unitNames = {}; }
   try { votedAt = (await getVoteMe(bindings.DB, session)).voted_at; } catch { votedAt = null; }
   try {
     const election = await bindings.DB.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<any>();
@@ -77,11 +83,12 @@ const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone
         <div class="min-w-0">
           {displayName ? <p class="break-words text-lg font-semibold">{displayName}</p> : <p class="break-words text-lg font-semibold text-muted-foreground">Nama belum tersedia dari portal</p>}
           {memberNumber && <p class="mt-0.5 text-xs font-semibold text-muted-foreground">Kartu anggota <span class="font-mono">{memberNumber}</span></p>}
-          <p class="mt-0.5 break-all font-mono text-xs text-muted-foreground">{session.member_id}</p>
+          {!memberNumber && <p class="mt-0.5 text-xs text-muted-foreground">Nomor kartu belum tersedia dari portal</p>}
         </div>
       </div>
       <dl class="mt-5 space-y-3 border-t border-border pt-4 text-sm">
-        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Unit</dt><dd class="font-semibold">{affiliationPath ? formatUnitPath(affiliationPath) : "—"}</dd></div>
+        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Unit</dt><dd class="font-semibold">{affiliationPath ? unitPathLabel(affiliationPath, unitNames) : "—"}</dd></div>
+        <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Kategori</dt><dd>{memberCategory ? <span class="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">{memberCategoryLabel(memberCategory)}</span> : <span class="text-muted-foreground">Belum ditentukan portal</span>}</dd></div>
         <div class="flex flex-wrap items-center justify-between gap-2"><dt class="text-muted-foreground">Keanggotaan</dt><dd>{affiliationPath ? <span class="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Aktif</span> : <span class="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">Tidak aktif</span>}</dd></div>
       </dl>
       <p class="mt-4 text-xs leading-5 text-muted-foreground">Data keanggotaan dikelola portal PPIJ; nama resmi mengikuti daftar pemilih hasil sinkronisasi. Perubahan data diri dilakukan di portal, bukan di situs pemilihan ini.</p>

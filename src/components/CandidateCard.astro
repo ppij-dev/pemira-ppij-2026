@@ -5,6 +5,8 @@ import { candidatePhotoSrc } from "../lib/candidatePhoto";
 
 interface Props {
   headingLevel?: 2 | 3;
+  /** Nama unit resmi portal untuk kartu; tanpa nilai, jalur dipecah sebagai cadangan. */
+  unitName?: string;
   candidate: {
     number: number;
     name: string;
@@ -16,9 +18,9 @@ interface Props {
   };
 }
 
-const { candidate, headingLevel = 3 } = Astro.props;
+const { candidate, unitName, headingLevel = 3 } = Astro.props;
 const Heading = headingLevel === 2 ? "h2" : "h3";
-const unit = formatUnitPath(candidate.komsat_path) || "PPI Jepang";
+const unit = unitName || formatUnitPath(candidate.komsat_path) || "PPI Jepang";
 ---
 <a
   href={`/kandidat/${candidate.number}-${encodeURIComponent(candidate.nickname)}`}

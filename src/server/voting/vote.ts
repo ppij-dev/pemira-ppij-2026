@@ -8,6 +8,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { affiliationInScope } from "../admin/routes";
 import { AUDIT_GENESIS_HASH, canonicalRow, type AuditEntry } from "../lib/audit";
+import { isRegularMember, REGULAR_MEMBER_CATEGORY } from "../../lib/memberCategory";
 import { generateReceipt } from "./receipt";
 
 async function sha256Hex(input: string): Promise<string> {
@@ -52,6 +53,8 @@ export interface VoterRow {
   name: string;
   komsat_path: string;
   status: string;
+  /** Kategori AD/ART dari portal; null = belum ditentukan. */
+  category: string | null;
 }
 
 const ELECTION_SQL =
@@ -91,14 +94,14 @@ export function previewKomsatPath(affiliation: string | string[] | null, scope: 
 async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, scope: string): Promise<VoterRow> {
   await db
     .prepare(
-      `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at)
-       VALUES (?, ?, ?, ?, 'ACTIVE', ?)
+      `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at, category)
+       VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
        ON CONFLICT(member_id) DO NOTHING`,
     )
-    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString())
+    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString(), REGULAR_MEMBER_CATEGORY)
     .run();
   const voter = await db
-    .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
+    .prepare("SELECT member_id,name,komsat_path,status,category FROM voters WHERE member_id = ?")
     .bind(session.member_id)
     .first<VoterRow>();
   if (!voter) throw new VoteError("Pendaftaran otomatis gagal. Coba lagi.", 403, "auto_register_failed");
@@ -147,7 +150,7 @@ export async function authorizeVoter(
   // keanggotaan aktif dalam cakupan sudah terbukti dari klaim sesi, sehingga
   // pemilih terdaftar otomatis tanpa menunggu sinkronisasi daftar beku.
   let voter = await db
-    .prepare("SELECT member_id,name,komsat_path,status FROM voters WHERE member_id = ?")
+    .prepare("SELECT member_id,name,komsat_path,status,category FROM voters WHERE member_id = ?")
     .bind(session.member_id)
     .first<VoterRow>();
   if (!voter && election.preview_mode === 1) {
@@ -155,6 +158,11 @@ export async function authorizeVoter(
   }
   if (!voter) throw new VoteError("Anda tidak terdaftar dalam daftar pemilih yang dibekukan.", 403, "not_in_roll");
   if (voter.status.toUpperCase() !== "ACTIVE") throw new VoteError("Keanggotaan Anda belum aktif.", 403, "not_active");
+  // Hak pilih mengikuti AD/ART: hanya Anggota Biasa (portal: BIASA) yang
+  // boleh memilih; kategori yang belum ditentukan ditolak sampai portal
+  // menetapkannya dan roll disegarkan.
+  if (!voter.category) throw new VoteError("Kategori keanggotaan Anda belum ditentukan portal PPIJ. Hubungi panitia pemilihan.", 403, "category_unknown");
+  if (!isRegularMember(voter.category)) throw new VoteError("Hanya Anggota Biasa yang berhak memilih pada pemilihan ini.", 403, "not_regular_member");
 
   return { election, voter };
 }
