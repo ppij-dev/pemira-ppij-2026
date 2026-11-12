@@ -1,7 +1,10 @@
 ---
 import { env } from "cloudflare:workers";
+import { IconUsers } from "@tabler/icons-astro";
 import Base from "../../layouts/Base.astro";
 import CandidateCard from "../../components/CandidateCard.astro";
+import Empty from "../../components/ui/Empty.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
 import { unitPathLabel } from "../../lib/formatKomsat";
 import { loadUnitNames } from "../../server/lib/units";
 const db=(env as unknown as {DB?:D1Database}).DB;
@@ -9,10 +12,11 @@ let candidates:Array<{number:number;nickname:string;name:string;komsat_path:stri
 let unitNames:Record<string,string>={};
 try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,short_intro,color,photo_key FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results??[]; } catch { candidates=[]; }
 try { unitNames=db?await loadUnitNames(db):{}; } catch { unitNames={}; }
+const heading = candidates.length === 1 ? "1 kandidat" : `${candidates.length} kandidat`;
 ---
 <Base title="Kandidat · PPIJ Pemilu">
-  <h1 class="mb-6 text-3xl font-bold tracking-tight">Kandidat</h1>
+  <PageHeader eyebrow="Pemilihan" title="Kandidat" description={candidates.length ? `${heading} pada pemilihan ini. Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara.` : "Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara."} />
   {candidates.length
-    ? <div class="grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} />)}</div>
-    : <section class="rounded-xl border border-border bg-card p-6 shadow-sm"><h2 class="text-lg font-semibold">Belum ada kandidat</h2><p class="mt-2 text-muted-foreground">Informasi kandidat akan tersedia di sini.</p></section>}
+    ? <div class="mt-6 grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} />)}</div>
+    : <div class="mt-6"><Empty title="Belum ada kandidat" description="Informasi kandidat akan tampil di sini setelah panitia menambahkannya." icon={IconUsers} /></div>}
 </Base>

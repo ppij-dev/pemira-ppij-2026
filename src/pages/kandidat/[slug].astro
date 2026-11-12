@@ -1,7 +1,9 @@
 ---
-import { IconArrowLeft, IconBoxMultiple } from "@tabler/icons-astro";
+import { IconArrowLeft, IconBoxMultiple, IconUserSearch } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
+import Button from "../../components/ui/Button.astro";
+import Empty from "../../components/ui/Empty.astro";
 import { stage } from "../../server/lib/stage";
 import { unitNameOf, type UnitNames } from "../../lib/formatKomsat";
 import { loadUnitNames } from "../../server/lib/units";
@@ -48,45 +50,47 @@ const plainIntro = fallbackIntro.replace(/[*_>`[\]()#-]/g, "").replace(/\s+/g, "
 const ogDescription = candidate?.short_intro?.trim() || plainIntro;
 ---
 
-<Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"} canvas="white" ogType="profile" ogImage={photoSrc} ogDescription={ogDescription}>
-  <a href="/kandidat" class="mb-8 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+<Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"} ogType="profile" ogImage={photoSrc} ogDescription={ogDescription}>
+  <a href="/kandidat" class="mb-4 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-brand-red hover:underline focus-visible:outline-2 focus-visible:outline-ring">
     <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" /> Semua Kandidat
   </a>
 
-  {candidate ? <article>
-    <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-x-8">
-      <figure class="col-start-1 row-start-1 sm:col-start-2 sm:row-span-2">
-        {hasCustomPhoto ? (
-          <button type="button" id="photo-zoom" aria-label="Perbesar foto kandidat" class="block w-full cursor-zoom-in overflow-hidden rounded-md bg-muted focus-visible:outline-2 focus-visible:outline-ring">
-            <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full object-cover" />
-          </button>
-        ) : (
-          <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-md bg-muted object-cover" />
-        )}
-        <figcaption class="mt-2 text-xs leading-5 text-muted-foreground">{hasCustomPhoto ? "Tap untuk memperbesar" : "Foto belum tersedia"}</figcaption>
-      </figure>
-      <header class="col-start-2 row-start-1 min-w-0 sm:col-start-1">
-        <span class="inline-flex size-8 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
-        <h1 class="mt-4 break-words text-3xl font-bold leading-tight tracking-tight sm:text-5xl">{candidate.name}</h1>
-        <p class="mt-2 break-words text-lg font-medium text-muted-foreground sm:text-xl">{candidate.nickname}</p>
-        <p class="mt-4 break-words text-sm text-muted-foreground">Komsat <span class="font-semibold text-foreground">{unitNameOf(candidate.komsat_path, unitNames)}</span></p>
-      </header>
-      <section aria-labelledby="profile-heading" class="col-span-2 row-start-2 mt-8 border-t border-border pt-7 sm:col-span-1 sm:col-start-1 sm:mt-6 sm:pt-6">
-        <h2 id="profile-heading" class="text-2xl font-bold tracking-tight">Tentang kandidat</h2>
-        {content
-          ? <div class="markdown mt-4 max-w-[70ch] text-base leading-8 text-foreground sm:text-lg sm:leading-9" set:html={content} />
-          : <p class="mt-4 text-muted-foreground">Deskripsi kandidat belum tersedia.</p>}
-      </section>
+  {candidate ? <article class="min-w-0 overflow-hidden rounded-xl border border-brand-border bg-card">
+    <div class="p-4 sm:p-6">
+      <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-x-8">
+        <figure class="col-start-1 row-start-1 sm:col-start-2 sm:row-span-2">
+          {hasCustomPhoto ? (
+            <button type="button" id="photo-zoom" aria-label="Perbesar foto kandidat" class="block w-full cursor-zoom-in overflow-hidden rounded-lg bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+              <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full object-cover" />
+            </button>
+          ) : (
+            <img src={photoSrc} alt="" width="600" height="800" class="aspect-[3/4] w-full rounded-lg bg-muted object-cover" />
+          )}
+          <figcaption class="mt-2 text-xs leading-5 text-brand-muted">{hasCustomPhoto ? "Ketuk untuk memperbesar" : "Foto belum tersedia"}</figcaption>
+        </figure>
+        <header class="col-start-2 row-start-1 min-w-0 sm:col-start-1">
+          <span class="inline-flex size-9 items-center justify-center rounded-full text-sm font-bold text-white" style={`background-color:${candidate.color || "#334155"}`}><span class="sr-only">Nomor urut </span>{candidate.number}</span>
+          <h1 class="mt-3 break-words text-[26px] leading-tight font-bold tracking-tight text-brand-ink sm:mt-4 sm:text-5xl">{candidate.name}</h1>
+          <p class="mt-1 break-words text-base font-semibold text-brand-muted sm:mt-2 sm:text-xl">{candidate.nickname}</p>
+          <p class="mt-3 break-words text-sm text-brand-muted sm:mt-4">Komsat <span class="font-semibold text-brand-ink">{unitNameOf(candidate.komsat_path, unitNames)}</span></p>
+        </header>
+      </div>
     </div>
 
-    {isOpen && <footer class="mt-9 border-t border-border pt-6 sm:pt-8">
-      <a href="/pilih-suara" class="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-5 font-semibold text-primary-foreground hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-ring"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Pilih Sekarang</a>
-      <p class="mt-2 text-xs text-muted-foreground">Satu suara per anggota, dijaga kerahasiaannya.</p>
+    <section aria-labelledby="profile-heading" class="border-t border-brand-border p-4 sm:p-6">
+      <h2 id="profile-heading" class="text-xl font-bold tracking-tight text-brand-ink sm:text-2xl">Tentang kandidat</h2>
+      {content
+        ? <div class="markdown mt-3 max-w-[70ch] text-base leading-8 text-brand-ink sm:mt-4" set:html={content} />
+        : <p class="mt-3 text-brand-muted">Deskripsi kandidat belum tersedia.</p>}
+    </section>
+
+    {isOpen && <footer class="border-t border-brand-border bg-background/60 p-4 sm:p-6">
+      <Button href="/pilih-suara"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Pilih Sekarang</Button>
+      <p class="mt-2 text-xs text-brand-muted">Satu suara per anggota, dijaga kerahasiaannya. Pilihan Anda tidak ditampilkan di halaman ini.</p>
     </footer>}
-  </article> : <section class="rounded-xl border border-border bg-card p-6 shadow-sm">
-    <h1 class="text-2xl font-bold">Kandidat tidak ditemukan</h1>
-    <p class="mt-2 text-muted-foreground">Data kandidat yang diminta tidak tersedia.</p>
-  </section>}
+  </article> : <Empty title="Kandidat tidak ditemukan" description="Data kandidat yang diminta tidak tersedia. Kembali ke daftar kandidat untuk melihat nomor urut yang benar." icon={IconUserSearch}>
+    <Button href="/kandidat" variant="secondary">Lihat daftar kandidat</Button>
+  </Empty>}
 
   <div id="photo-lightbox" hidden role="dialog" aria-modal="true" aria-label="Foto kandidat diperbesar" class="fixed inset-0 z-40 flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm">
     <button type="button" id="lightbox-close" aria-label="Tutup foto" class="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full bg-card text-foreground shadow-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
