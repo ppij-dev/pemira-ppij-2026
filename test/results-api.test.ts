@@ -3,6 +3,7 @@ import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
+import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -37,7 +38,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql]) {
+  for (const file of [initSql, unitsSql, lockSql, canVoteSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -47,7 +48,7 @@ async function seedBase() {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO system_config (key, value) VALUES ('initialized', '1'), ('site_scope', ?), ('site_base_url', 'https://election.test')").bind(SCOPE),
     env.DB.prepare("INSERT INTO admin_voting (member_id, name, is_technical, created_at) VALUES ('admin-1', 'Admin 1', 1, ?)").bind(new Date().toISOString()),
-    env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at) VALUES ('admin-1', 'Admin 1', ?, 'ACTIVE', ?)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()),
+    env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES ('admin-1', 'Admin 1', ?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()),
     env.DB.prepare("INSERT INTO units (path, name, parent_path, type) VALUES ('/ppij/okayama', 'Korda Okayama', '/ppij', 'korda'), ('/ppij/tokyo', 'Korda Tokyo', '/ppij', 'korda')"),
   ]);
 }
@@ -76,7 +77,7 @@ async function seedElection(opts: {
 
 async function seedCandidates() {
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at) VALUES ('cand-1', 'Kandidat Satu', ?, 'ACTIVE', ?), ('cand-2', 'Kandidat Dua', ?, 'ACTIVE', ?)").bind(SCOPE, new Date().toISOString(), SCOPE, new Date().toISOString()),
+    env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES ('cand-1', 'Kandidat Satu', ?, 'ACTIVE', ?, 1), ('cand-2', 'Kandidat Dua', ?, 'ACTIVE', ?, 1)").bind(SCOPE, new Date().toISOString(), SCOPE, new Date().toISOString()),
     env.DB.prepare("INSERT INTO candidates (id, member_id, number, name, nickname, komsat_path, color) VALUES (1, 'cand-1', 1, 'Kandidat Satu', 'Satu', ?, '#ff0000'), (2, 'cand-2', 2, 'Kandidat Dua', 'Dua', ?, '#0000ff')").bind(SCOPE, SCOPE),
   ]);
 }
@@ -91,7 +92,7 @@ async function castBallot(candidateId: number, path: string, isTest = 0) {
 
 async function recordParticipation(memberId: string, path: string, isTest = 0) {
   await env.DB.prepare(
-    "INSERT OR IGNORE INTO voters (member_id, name, komsat_path, status, synced_at) VALUES (?, ?, ?, 'ACTIVE', ?)",
+    "INSERT OR IGNORE INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, 1)",
   ).bind(memberId, memberId, path, new Date().toISOString()).run();
   await env.DB.prepare(
     "INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, ?, ?, ?, ?)",
@@ -165,7 +166,7 @@ describe("Results API - Dashboard Metrics and Freezing", () => {
   it("falls back to current roll during Draf and respects allow_admin_voting", async () => {
     // 1 admin voter already in seedBase; add 4 regular voters.
     for (let i = 1; i <= 4; i++) {
-      await env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at) VALUES (?, ?, ?, 'ACTIVE', ?)").bind(`v-${i}`, `V ${i}`, `${SCOPE}/komsat-a`, new Date().toISOString()).run();
+      await env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, 1)").bind(`v-${i}`, `V ${i}`, `${SCOPE}/komsat-a`, new Date().toISOString()).run();
     }
     // allow_admin_voting = 0: 5 total voters minus 1 admin = 4 eligible.
     await seedElection({ status: "draft", allowAdminVoting: 0 });
@@ -177,6 +178,49 @@ describe("Results API - Dashboard Metrics and Freezing", () => {
     const data = (await res.json()) as DashboardPayload;
     expect(data.eligible_count).toBe(6);
     expect(data.stage).toBe("draft");
+  });
+
+  it("counts only can_vote = 1 roll rows as Hak pilih and turnout denominator during Draf", async () => {
+    // Replace the seeded roll with a mixed one: only can_vote = 1 may vote, so
+    // can_vote 0 and NULL rows must not become eligible or a denominator.
+    await env.DB.prepare("DELETE FROM voters").run();
+    const seedVoter = (memberId: string, path: string, canVote: number | null) =>
+      env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, ?)")
+        .bind(memberId, memberId, path, new Date().toISOString(), canVote).run();
+    // Okayama: 3 eligible, 2 without voting right, 1 the portal has not decided.
+    await seedVoter("ok-eligible-1", `${SCOPE}/komsat-a`, 1);
+    await seedVoter("ok-eligible-2", `${SCOPE}/komsat-b`, 1);
+    await seedVoter("ok-eligible-3", `${SCOPE}/komsat-a`, 1);
+    await seedVoter("ok-blocked-1", `${SCOPE}/komsat-a`, 0);
+    await seedVoter("ok-blocked-2", `${SCOPE}/komsat-a`, 0);
+    await seedVoter("ok-undecided", `${SCOPE}/komsat-a`, null);
+    // Tokyo: 2 eligible, 1 undecided.
+    await seedVoter("tk-eligible-1", "/ppij/tokyo/komsat-a", 1);
+    await seedVoter("tk-eligible-2", "/ppij/tokyo/komsat-b", 1);
+    await seedVoter("tk-undecided", "/ppij/tokyo/komsat-a", null);
+    await seedElection({ status: "draft", allowAdminVoting: 1 });
+    // One eligible Okayama voter has already voted (scoreboard denominator).
+    await env.DB.prepare(
+      "INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, 'ok-eligible-1', 'ok-eligible-1', ?, 0)",
+    ).bind(new Date().toISOString()).run();
+
+    const res = await requestDashboard();
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as DashboardPayload;
+    expect(data.eligible_count).toBe(5);
+    expect(data.used_count).toBe(1);
+    expect(data.unused_count).toBe(4);
+    expect(data.turnout_percentage).toBe(20);
+
+    const okayama = data.korda.find((k) => k.key === "/ppij/okayama");
+    expect(okayama?.eligible_count).toBe(3);
+    expect(okayama?.used_count).toBe(1);
+    expect(okayama?.turnout_percentage).toBe(33.3);
+
+    const tokyo = data.korda.find((k) => k.key === "/ppij/tokyo");
+    expect(tokyo?.eligible_count).toBe(2);
+    expect(tokyo?.used_count).toBe(0);
+    expect(tokyo?.turnout_percentage).toBe(0);
   });
 
   it("includes zero-vote candidates in overall candidate tally", async () => {
