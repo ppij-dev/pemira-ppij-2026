@@ -101,7 +101,7 @@ const scheduleFacts = [
   {election?.preview_mode === 1 && <div class="mt-4"><Callout tone="warning" title="Mode uji coba aktif">Semua pilihan hanya untuk tes dan akan dihapus saat pemilihan dikunci.</Callout></div>}
 
   <div class="mt-6 grid gap-4 sm:grid-cols-2">
-    <PanelCard title="Jadwal pemungutan" description="Waktu dalam zona Jepang (JST)." icon={IconListCheck} density="compact">
+    <PanelCard title="Jadwal pemungutan" description="Waktu dalam zona Jepang (JST)." icon={IconListCheck} density="compact" class="self-start">
       <FactList items={scheduleFacts} variant="inline" />
     </PanelCard>
     <PanelCard title="Cara memberi suara" description="Tiga langkah, tanpa perlu aplikasi lain." icon={IconSpeakerphone} density="compact">
@@ -122,7 +122,7 @@ const scheduleFacts = [
       {candidates.length > 0 && <Button href="/kandidat" variant="ghost" size="sm">Lihat semua kandidat<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>}
     </PageHeader>
     {candidates.length
-      ? <div class="mt-4 grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} />)}</div>
+      ? <div class="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} />)}</div>
       : <div class="mt-4"><PanelCard density="compact" class="border-dashed"><div class="flex items-center gap-2.5 text-brand-muted"><IconUsers size={20} stroke={1.8} aria-hidden="true" /><p class="text-sm">Informasi kandidat belum tersedia.</p></div></PanelCard></div>}
   </section>
 

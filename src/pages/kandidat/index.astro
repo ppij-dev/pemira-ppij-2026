@@ -17,6 +17,6 @@ const heading = candidates.length === 1 ? "1 kandidat" : `${candidates.length} k
 <Base title="Kandidat · PPIJ Pemilu">
   <PageHeader eyebrow="Pemilihan" title="Kandidat" description={candidates.length ? `${heading} pada pemilihan ini. Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara.` : "Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara."} />
   {candidates.length
-    ? <div class="mt-6 grid gap-5 sm:grid-cols-2">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} />)}</div>
+    ? <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} />)}</div>
     : <div class="mt-6"><Empty title="Belum ada kandidat" description="Informasi kandidat akan tampil di sini setelah panitia menambahkannya." icon={IconUsers} /></div>}
 </Base>
