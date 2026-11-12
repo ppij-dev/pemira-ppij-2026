@@ -56,10 +56,12 @@ const scheduleFacts = [
       <div class="flex items-start gap-3">
         <img src={logo.src} alt="" class="size-11 shrink-0 rounded-lg bg-white p-1 object-contain" />
         <div class="min-w-0 flex-1">
-          <p class="text-[11px] font-bold tracking-[0.14em] text-white/80 uppercase">Pemilihan</p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-[11px] font-bold tracking-[0.14em] text-white/80 uppercase">Pemilihan</p>
+            <span class="inline-flex shrink-0 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-semibold whitespace-nowrap">{stageLabel}</span>
+          </div>
           <h1 id="election-title" class="mt-1 break-words text-2xl leading-tight font-bold tracking-tight sm:text-3xl">{election?.title || "Pemilihan"}</h1>
         </div>
-        <span class="inline-flex shrink-0 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-semibold whitespace-nowrap">{stageLabel}</span>
       </div>
       {election?.description && <p class="mt-3 max-w-xl text-sm leading-6 text-white/90">{election.description}</p>}
     </div>
@@ -81,7 +83,7 @@ const scheduleFacts = [
           <p class="mt-1 break-words font-mono text-2xl font-bold text-brand-ink tabular-nums sm:text-3xl" data-countdown data-target={election?.closes_at}>—</p>
         </div>
         {extensionNotice && election?.closes_at && <Callout tone="warning" title="Jadwal diperpanjang">Pemungutan suara diperpanjang hingga {formatJst(election.closes_at)}.</Callout>}
-        <Button href={voted ? "/surat-suara" : "/pilih-suara"} class="w-full sm:w-auto">
+        <Button href={voted ? "/surat-suara" : "/pilih-suara"} class="w-full sm:w-auto sm:justify-self-start">
           {voted ? "Lihat Bukti Suara" : "Pilih Sekarang"}<IconArrowRight size={19} stroke={1.8} aria-hidden="true" />
         </Button>
         <p class="text-xs text-brand-muted">Satu suara per anggota. Pilihan Anda rahasia dan tidak ditampilkan di beranda.</p>
@@ -91,7 +93,7 @@ const scheduleFacts = [
 
       {currentStage === "published" && <>
         <Callout tone="success" title="Hasil sudah diumumkan">Hasil resmi pemilihan dapat Anda lihat beserta ringkasan partisipasi.</Callout>
-        <Button href="/hasil" class="w-full sm:w-auto">Lihat Hasil<IconArrowRight size={19} stroke={1.8} aria-hidden="true" /></Button>
+        <Button href="/hasil" class="w-full sm:w-auto sm:justify-self-start">Lihat Hasil<IconArrowRight size={19} stroke={1.8} aria-hidden="true" /></Button>
       </>}
     </div>
   </section>
@@ -111,7 +113,7 @@ const scheduleFacts = [
     </PanelCard>
   </div>
 
-  {boardReady && <div class="mt-4"><PanelCard title="Papan bukti" description="Periksa daftar bukti suara setelah pemungutan ditutup." icon={IconRosetteDiscountCheck} density="compact" padding="panel">
+  {currentStage === "closed" && <div class="mt-4"><PanelCard title="Papan bukti" description="Periksa daftar bukti suara setelah pemungutan ditutup." icon={IconRosetteDiscountCheck} density="compact" padding="panel">
     <Button href="/papan-bukti" variant="secondary" size="sm">Buka papan bukti<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
   </PanelCard></div>}
 
