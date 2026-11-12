@@ -43,8 +43,10 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
  const checks=await getReadiness(db,now); if(checks.some(c=>!c.ok)) throw new ElectionError("Kesiapan pemilihan belum terpenuhi",409,checks);
  let finalSync: { excluded: number } | null = null;
  if(!row.preview_mode) { try { finalSync=await syncPemilih(db,cfg,now,fetchImpl,{full:true}); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
- const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())?.n??0;
- const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id").first<{n:number}>())?.n??0;
+ // Hak pilih beku hanya menghitung baris roll yang boleh memilih (can_vote = 1);
+ // can_vote 0/NULL tidak pernah diterima saat memilih, jadi bukan bagian denominator.
+ const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
+ const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
  const frozen=count-(row.allow_admin_voting===0?admins:0);
  const candidates=(await db.prepare("SELECT id FROM candidates ORDER BY id").all<{id:number}>()).results;
  const colors=[...palette];
