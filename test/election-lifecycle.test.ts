@@ -23,16 +23,16 @@ describe("mode kandidat tunggal",()=>{
  beforeEach(()=>setup());
  it("mengaktifkan dan menonaktifkan lewat Pengaturan saat Draf dengan satu entri audit per permintaan",async()=>{
   expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:false,editable:true});
-  await setSingleCandidateMode(env.DB,NOW,true);
+  await setSingleCandidateMode(env.DB,NOW,true,{member_id:"member-8",name:"Admin"});
   expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:1});
   expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:true});
   expect(await actions()).toEqual(["Mode kandidat tunggal diaktifkan"]);
   await setSingleCandidateMode(env.DB,NOW,false);
   expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:0});
   expect(await actions()).toEqual(["Mode kandidat tunggal diaktifkan","Mode kandidat tunggal dinonaktifkan"]);
-  // Entri audit hanya mencatat tindakan panitia, tanpa anggota atau surat suara.
-  const detail=await env.DB.prepare("SELECT actor_type,target,komsat_path,detail_json FROM audit_log ORDER BY seq LIMIT 1").first<Record<string,unknown>>();
-  expect(detail).toEqual({actor_type:"admin",target:null,komsat_path:null,detail_json:JSON.stringify({single_candidate_mode:true})});
+  // Entri audit mencatat pelakunya, tanpa rujukan anggota roll atau surat suara.
+  const detail=await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name,target,komsat_path,detail_json FROM audit_log ORDER BY seq LIMIT 1").first<Record<string,unknown>>();
+  expect(detail).toEqual({actor_type:"admin",actor_member_id:"member-8",actor_name:"Admin",target:null,komsat_path:null,detail_json:JSON.stringify({single_candidate_mode:true})});
  });
  it("menolak perubahan mode setelah Kunci tanpa entri audit",async()=>{
   await env.DB.prepare("UPDATE elections SET status_lock='locked',single_candidate_mode=1").run();

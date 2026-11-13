@@ -6,7 +6,9 @@ import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
 import { isVoteChoice, type VoteChoice } from "../voting/choice";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
-async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:null,actor_name:"",action,target,komsat_path:null,detail_json:detail}); }
+async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null,actor?:AdminActor) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action,target,komsat_path:null,detail_json:detail}); }
+/** Admin Voting yang memicu tindakan; dipakai entri audit yang mencatat pelakunya. */
+export interface AdminActor { member_id: string; name: string }
 export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessCheck[]> {
  const e=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{opens_at:string|null;closes_at:string|null;preview_mode:number;single_candidate_mode:number}>();
  const candidates=await db.prepare("SELECT COUNT(*) AS n FROM candidates").first<{n:number}>();
@@ -40,7 +42,7 @@ export async function getSingleCandidateMode(db:D1Database):Promise<{enabled:boo
  * kandidat atau lebih terdaftar, karena Kunci & Jadwalkan menuntut tepat satu.
  * Setiap perubahan diterima dicatat di audit (tanpa rujukan anggota/surat suara).
  */
-export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:boolean) {
+export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor) {
  if(typeof enabled!=="boolean") throw new ElectionError("Nilai mode kandidat tunggal tidak valid",400);
  const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
@@ -51,7 +53,7 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
  }
  await db.batch([
   db.prepare("UPDATE elections SET single_candidate_mode=? WHERE status_lock='draft'").bind(enabled?1:0),
-  await audit(db,now,enabled?"Mode kandidat tunggal diaktifkan":"Mode kandidat tunggal dinonaktifkan",null,JSON.stringify({single_candidate_mode:enabled})),
+  await audit(db,now,enabled?"Mode kandidat tunggal diaktifkan":"Mode kandidat tunggal dinonaktifkan",null,JSON.stringify({single_candidate_mode:enabled}),actor),
  ]);
  return {enabled};
 }

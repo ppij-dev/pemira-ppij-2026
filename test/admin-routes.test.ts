@@ -198,6 +198,8 @@ describe("Single candidate mode switch route", () => {
     expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: true, editable: true });
     expect((await toggle(false)).status).toBe(200);
     expect(await auditActions()).toEqual(["Mode kandidat tunggal diaktifkan", "Mode kandidat tunggal dinonaktifkan"]);
+    // Pelaku tercatat dari sesi Admin Voting.
+    expect(await env.DB.prepare("SELECT actor_type,actor_member_id FROM audit_log ORDER BY seq LIMIT 1").first()).toEqual({ actor_type: "admin", actor_member_id: "admin-1" });
   });
 
   it("refuses the switch with two candidates, a non-boolean value and a non-admin session", async () => {
