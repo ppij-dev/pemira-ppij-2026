@@ -55,7 +55,7 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
               <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Mode kandidat tunggal</h3>
               <Badge tone={singleCandidateMode ? 'brand' : 'neutral'} size="sm">{singleCandidateMode ? 'Aktif' : 'Tidak aktif'}</Badge>
             </div>
-            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, Kunci &amp; Jadwalkan menuntut tepat satu kandidat dan surat suara menanyakan Setuju, Tidak Setuju, atau Abstain untuk kandidat itu.</p>
+            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, Kunci &amp; Jadwalkan menuntut tepat satu kandidat dan surat suara menanyakan Setuju atau Tidak Setuju untuk kandidat itu.</p>
           </div>
           <label for="single-candidate-mode" class="mt-1 inline-flex shrink-0 cursor-pointer items-center">
             <input id="single-candidate-mode" type="checkbox" role="switch" aria-label="Mode kandidat tunggal" class="peer sr-only" checked={singleCandidateMode} disabled={!singleCandidateEditable} data-editable={singleCandidateEditable ? '1' : '0'} />

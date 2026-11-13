@@ -8,13 +8,19 @@ import PageHeader from "../components/ui/PageHeader.astro";
 import PanelCard from "../components/ui/PanelCard.astro";
 import { SESSION_COOKIE,openSession } from "../server/auth/session";
 import { getEligibility } from "../server/voting/vote";
+import { candidatePhotoSrc } from "../lib/candidatePhoto";
+import { formatUnitPath } from "../lib/formatKomsat";
 import type { Bindings } from "../server/app";
 const bindings=env as unknown as Bindings; const raw=Astro.request.headers.get("cookie")??Astro.cookies.get(SESSION_COOKIE)?.value; const session=raw&&bindings.APP_MASTER_KEY?await openSession(raw,bindings.APP_MASTER_KEY):null;
 let eligibility:any={allowed:false,reason:session?"unavailable":"not_logged_in",fresh_login_needed:!session,stage:null};
 try { eligibility=await getEligibility(bindings.DB,session); } catch {}
-let candidates:any[]=[];try{candidates=(await bindings.DB.prepare("SELECT id,number,nickname,name,komsat_path,color FROM candidates ORDER BY number").all()).results??[]}catch{}
+let candidates:any[]=[];try{candidates=(await bindings.DB.prepare("SELECT id,number,nickname,name,komsat_path,color,photo_key FROM candidates ORDER BY number").all()).results??[]}catch{}
 const reasons:Record<string,string>={out_of_scope:"Keanggotaan Anda berada di luar cakupan pemilihan.",not_in_roll:"Nama Anda tidak tercantum dalam daftar pemilih yang telah dibekukan.",not_active:"Status keanggotaan Anda belum aktif.",not_regular_member:"Hanya Anggota Biasa yang berhak memilih pada pemilihan ini. Kategori keanggotaan Anda di portal adalah Anggota Luar Biasa.",category_unknown:"Kategori keanggotaan Anda belum ditentukan portal PPIJ. Hubungi panitia pemilihan untuk melengkapinya.",admin_voting_not_allowed:"Admin Voting tidak diperbolehkan memberikan suara.",already_voted:"Anda sudah memilih.",auto_register_failed:"Pendaftaran otomatis gagal. Muat ulang halaman dan coba lagi."};
-let previewMode=false;try{previewMode=((await bindings.DB.prepare("SELECT preview_mode FROM elections ORDER BY id LIMIT 1").first<{preview_mode:number}>())?.preview_mode===1)}catch{}
+// Mode kandidat tunggal: surat suara menanyakan Setuju / Tidak Setuju untuk satu
+// kandidat, tanpa nomor urut. Nilainya dibekukan saat Kunci & Jadwalkan.
+let previewMode=false,singleCandidateMode=false;
+try{const row=await bindings.DB.prepare("SELECT preview_mode,single_candidate_mode FROM elections ORDER BY id LIMIT 1").first<{preview_mode:number;single_candidate_mode:number}>();previewMode=row?.preview_mode===1;singleCandidateMode=row?.single_candidate_mode===1}catch{}
+const singleCandidate:any=singleCandidateMode?(candidates[0]??null):null;
 // Satu keadaan tampil per kunjungan, mengikuti urutan pemeriksaan server.
 const reasonText = reasons[eligibility.reason] ?? null;
 const view = !session
@@ -35,7 +41,7 @@ const notOpenTitle = eligibility.stage === "scheduled" ? "Pemilihan terjadwal" :
 const notOpenText = eligibility.stage === "scheduled" ? "Pemungutan suara belum dimulai. Kembali saat jadwal dibuka." : "Saat ini pemungutan suara tidak dibuka.";
 ---
 <Base title="Pilih Suara · PPIJ Pemilu">
-  <PageHeader eyebrow="Pemilih" title="Pilih Suara" description="Pilih satu kandidat. Setelah dikirim, suara tidak dapat diubah." />
+  <PageHeader eyebrow="Pemilih" title="Pilih Suara" description={singleCandidateMode ? "Tentukan sikap Anda terhadap kandidat. Setelah dikirim, suara tidak dapat diubah." : "Pilih satu kandidat. Setelah dikirim, suara tidak dapat diubah."} />
   {previewMode && <div class="mt-4"><Callout tone="warning" title="Mode uji coba">Suara yang masuk hanya untuk tes dan akan dihapus saat pemilihan dikunci.</Callout></div>}
 
   <div class="mt-5 grid gap-4">
@@ -73,7 +79,7 @@ const notOpenText = eligibility.stage === "scheduled" ? "Pemungutan suara belum 
 
     {view === "ballot" && <>
       <div id="ballot-entry">
-        <PanelCard title="Siap memilih?" description="Surat suara berisi semua kandidat. Pilih satu, periksa lagi, lalu kirim." icon={IconBoxMultiple}>
+        <PanelCard title="Siap memilih?" description={singleCandidateMode ? "Surat suara berisi satu kandidat. Tentukan sikap Anda, periksa lagi, lalu kirim." : "Surat suara berisi semua kandidat. Pilih satu, periksa lagi, lalu kirim."} icon={IconBoxMultiple}>
           <div class="flex flex-col items-center gap-4 text-center">
             <img src="/voting-ballot-box.svg" alt="" class="size-20" width="80" height="80" />
             <Button id="open-ballot" type="button"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Buka surat suara</Button>
@@ -83,14 +89,34 @@ const notOpenText = eligibility.stage === "scheduled" ? "Pemungutan suara belum 
       </div>
 
       <div id="sheet-backdrop" hidden class="fixed inset-0 z-20 bg-foreground/40"></div>
-      <section id="ballot-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title" class="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+      <section id="ballot-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-single={singleCandidateMode?'1':'0'} data-candidate-id={singleCandidate?.id??''} data-candidate-nickname={singleCandidate?.nickname??''} class="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
         <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
         <div id="sheet-list">
-          <h2 id="sheet-title" class="text-xl font-bold tracking-tight text-brand-ink">Pilih satu kandidat</h2>
-          <p class="mt-1 text-sm text-brand-muted">Periksa nomor dan nama sebelum melanjutkan.</p>
-          <div class="mt-4 grid gap-2" role="radiogroup" aria-label="Kandidat">
-            {candidates.map((c)=><label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-brand-border bg-card p-3 transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50/60 hover:bg-accent"><input type="radio" name="candidate" class="peer sr-only" value={c.id} data-nickname={c.nickname} data-number={c.number}/><span class="flex size-10 shrink-0 items-center justify-center rounded-full font-bold text-white" style={`background-color:${c.color||'#334155'}`}>{c.number}</span><span class="min-w-0 flex-1"><strong class="block break-words text-brand-ink">{c.nickname}</strong><span class="block truncate text-sm text-brand-muted">{c.name}</span></span><span class="size-5 shrink-0 rounded-full border-2 border-input peer-checked:border-4 peer-checked:border-primary" aria-hidden="true"></span></label>)}
-          </div>
+          {singleCandidateMode
+            ? <>
+              <h2 id="sheet-title" class="text-xl font-bold tracking-tight text-brand-ink">Sikap Anda terhadap kandidat</h2>
+              <p class="mt-1 text-sm text-brand-muted">Pilih satu jawaban, lalu periksa lagi sebelum mengirim.</p>
+              {singleCandidate && <div class="mt-4 flex items-center gap-3 rounded-xl border border-brand-border p-3">
+                <img src={candidatePhotoSrc(singleCandidate.photo_key)} alt="" width="80" height="107" loading="lazy" decoding="async" class="h-[74px] w-[56px] shrink-0 rounded-lg object-cover" data-candidate-portrait />
+                <div class="min-w-0 flex-1">
+                  <strong class="block break-words text-brand-ink">{singleCandidate.nickname}</strong>
+                  <span class="block break-words text-sm text-brand-muted">{singleCandidate.name}</span>
+                  <span class="mt-0.5 block break-words text-xs text-brand-muted">{formatUnitPath(singleCandidate.komsat_path)||'PPI Jepang'}</span>
+                  <span class="mt-2 block h-1.5 w-12 rounded-full" style={`background-color:${singleCandidate.color||'#c8102e'}`} aria-hidden="true" data-candidate-color></span>
+                </div>
+              </div>}
+              <div class="mt-4 grid gap-2" role="radiogroup" aria-label="Jawaban surat suara">
+                {[{value:'setuju',label:'Setuju'},{value:'tidak_setuju',label:'Tidak Setuju'}].map((answer)=><label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-brand-border bg-card p-3 transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50/60 hover:bg-accent"><input type="radio" name="choice" class="peer sr-only" value={answer.value} data-label={answer.label}/><span class="min-w-0 flex-1"><strong class="block break-words text-brand-ink">{answer.label}</strong></span><span class="size-5 shrink-0 rounded-full border-2 border-input peer-checked:border-4 peer-checked:border-primary" aria-hidden="true"></span></label>)}
+              </div>
+            </>
+            : <>
+              <h2 id="sheet-title" class="text-xl font-bold tracking-tight text-brand-ink">Pilih satu kandidat</h2>
+              <p class="mt-1 text-sm text-brand-muted">Periksa nomor dan nama sebelum melanjutkan.</p>
+              <div class="mt-4 grid gap-2" role="radiogroup" aria-label="Kandidat">
+                {candidates.map((c)=><label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-brand-border bg-card p-3 transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50/60 hover:bg-accent"><input type="radio" name="candidate" class="peer sr-only" value={c.id} data-nickname={c.nickname} data-number={c.number}/><span class="flex size-10 shrink-0 items-center justify-center rounded-full font-bold text-white" style={`background-color:${c.color||'#334155'}`}>{c.number}</span><span class="min-w-0 flex-1"><strong class="block break-words text-brand-ink">{c.nickname}</strong><span class="block truncate text-sm text-brand-muted">{c.name}</span></span><span class="size-5 shrink-0 rounded-full border-2 border-input peer-checked:border-4 peer-checked:border-primary" aria-hidden="true"></span></label>)}
+              </div>
+            </>}
+        </div>
           <div class="mt-5 flex gap-3">
             <Button id="sheet-continue" type="button" disabled class="flex-1">Lanjut</Button>
             <Button id="sheet-cancel" type="button" variant="secondary">Batal</Button>
@@ -99,10 +125,15 @@ const notOpenText = eligibility.stage === "scheduled" ? "Pemungutan suara belum 
         <div id="sheet-confirm" hidden>
           <h2 class="text-xl font-bold tracking-tight text-brand-ink">Konfirmasi pilihan</h2>
           <p class="mt-2 text-sm text-brand-muted">Pilihan Anda: <strong id="confirm-name" class="break-words text-brand-ink"></strong>.</p>
+          {singleCandidateMode && <div class="mt-3">
+            <label for="confirm-nickname" class="block text-xs font-semibold text-brand-muted">Ketik nama panggilan kandidat</label>
+            <input id="confirm-nickname" type="text" autocomplete="off" spellcheck="false" class="mt-1.5 min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm" aria-describedby="confirm-nickname-help" />
+            <p id="confirm-nickname-help" class="mt-1.5 text-xs leading-5 text-brand-muted">Ketik "{singleCandidate?.nickname ?? ''}" untuk mengaktifkan Kirim suara.</p>
+          </div>}
           <p class="mt-1 text-sm text-brand-muted">Pastikan sudah sesuai. Suara tidak dapat diubah setelah dikirim.</p>
           <p id="vote-error" class="mt-3 text-sm font-medium text-destructive" role="status"></p>
           <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
-            <Button id="send-vote" type="button" class="flex-1">Kirim suara</Button>
+            <Button id="send-vote" type="button" class="flex-1" disabled={singleCandidateMode}>Kirim suara</Button>
             <Button id="confirm-back" type="button" variant="secondary">Ubah pilihan</Button>
           </div>
         </div>
@@ -125,9 +156,18 @@ const notOpenText = eligibility.stage === "scheduled" ? "Pemungutan suara belum 
   </div>
 
   {view === "ballot" && <script is:inline>
-const errors={belum_masuk:'Silakan masuk kembali.',stale_session:'Sesi masuk tidak valid. Silakan masuk kembali.',out_of_scope:'Anda berada di luar cakupan pemilihan.',not_in_roll:'Nama Anda tidak tercantum pada daftar pemilih.',not_active:'Status keanggotaan Anda belum aktif.',not_regular_member:'Hanya Anggota Biasa yang berhak memilih.',category_unknown:'Kategori keanggotaan Anda belum ditentukan portal. Hubungi panitia pemilihan.',admin_voting_not_allowed:'Admin Voting tidak diperbolehkan memilih.',origin_tidak_diizinkan:'Permintaan tidak dapat diverifikasi. Muat ulang halaman.',confirmation_mismatch:'Konfirmasi tidak cocok. Buka ulang pilihan Anda.',invalid_body:'Data pilihan tidak valid.',candidate_not_found:'Kandidat tidak ditemukan.',not_locked:'Pemilihan belum siap dibuka.',not_open:'Pemungutan suara sedang ditutup.',already_voted:'Anda sudah memilih.',rate_limited:'Terlalu banyak percobaan. Coba kembali nanti.',audit_tip_changed:'Pemilihan sedang menerima suara lain. Coba lagi.',auto_register_failed:'Pendaftaran otomatis gagal. Muat ulang halaman.'};
-const sheet=document.querySelector('#ballot-sheet'),backdrop=document.querySelector('#sheet-backdrop'),listStep=document.querySelector('#sheet-list'),confirmStep=document.querySelector('#sheet-confirm'),continueBtn=document.querySelector('#sheet-continue'),sendBtn=document.querySelector('#send-vote'),msg=document.querySelector('#vote-error');
-let selected=null;
+const errors={belum_masuk:'Silakan masuk kembali.',stale_session:'Sesi masuk tidak valid. Silakan masuk kembali.',out_of_scope:'Anda berada di luar cakupan pemilihan.',not_in_roll:'Nama Anda tidak tercantum pada daftar pemilih.',not_active:'Status keanggotaan Anda belum aktif.',not_regular_member:'Hanya Anggota Biasa yang berhak memilih.',category_unknown:'Kategori keanggotaan Anda belum ditentukan portal. Hubungi panitia pemilihan.',admin_voting_not_allowed:'Admin Voting tidak diperbolehkan memilih.',origin_tidak_diizinkan:'Permintaan tidak dapat diverifikasi. Muat ulang halaman.',confirmation_mismatch:'Konfirmasi tidak cocok. Buka ulang pilihan Anda.',invalid_body:'Data pilihan tidak valid.',invalid_choice:'Pilihan jawaban tidak dikenali. Muat ulang halaman.',candidate_mismatch:'Kandidat tidak sesuai dengan surat suara. Muat ulang halaman.',candidate_not_found:'Kandidat tidak ditemukan.',not_locked:'Pemilihan belum siap dibuka.',not_open:'Pemungutan suara sedang ditutup.',already_voted:'Anda sudah memilih.',rate_limited:'Terlalu banyak percobaan. Coba kembali nanti.',audit_tip_changed:'Pemilihan sedang menerima suara lain. Coba lagi.',auto_register_failed:'Pendaftaran otomatis gagal. Muat ulang halaman.'};
+const sheet=document.querySelector('#ballot-sheet'),backdrop=document.querySelector('#sheet-backdrop'),listStep=document.querySelector('#sheet-list'),confirmStep=document.querySelector('#sheet-confirm'),continueBtn=document.querySelector('#sheet-continue'),sendBtn=document.querySelector('#send-vote'),msg=document.querySelector('#vote-error'),confirmNameEl=document.querySelector('#confirm-name'),nicknameInput=document.querySelector('#confirm-nickname');
+// Mode kandidat tunggal: kandidat sudah pasti, yang dipilih hanya jawabannya.
+const single=sheet.dataset.single==='1';
+let selected=null,answer=null;
+sheet.querySelectorAll('input[name="candidate"]').forEach((radio)=>{radio.addEventListener('change',()=>{selected={id:Number(radio.value),nickname:radio.dataset.nickname,number:radio.dataset.number};refreshContinue()})});
+sheet.querySelectorAll('input[name="choice"]').forEach((radio)=>{radio.addEventListener('change',()=>{answer={value:radio.value,label:radio.dataset.label};refreshContinue()})});
+const normalizeName=(value)=>String(value??'').trim().toLowerCase().replace(/\s+/g,' ');
+const nicknameMatches=()=>Boolean(selected&&normalizeName(nicknameInput&&nicknameInput.value)===normalizeName(selected.nickname));
+const refreshContinue=()=>{continueBtn.disabled=!(selected&&(!single||answer))};
+const confirmText=()=>!selected?'':single&&answer?`${answer.label} terhadap ${selected.nickname}`:`${selected.nickname} (no. ${selected.number})`;
+if(single){const id=Number(sheet.dataset.candidateId);if(id)selected={id,nickname:sheet.dataset.candidateNickname};}
 let sheetSequence=0;
 const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
 const stopMotion=()=>{sheet.getAnimations().forEach(animation=>animation.cancel());backdrop.getAnimations().forEach(animation=>animation.cancel())};
@@ -141,7 +181,7 @@ const openSheet=()=>{
     sheet.animate([{transform:'translateY(100%)'},{transform:'translateY(0)'}],{duration:380,easing:'cubic-bezier(0.16, 1, 0.3, 1)'});
     backdrop.animate([{opacity:0},{opacity:1}],{duration:300,easing:'ease-out'});
   }
-  (sheet.querySelector('input[name="candidate"]')??continueBtn).focus();
+  (sheet.querySelector('input[name="candidate"],input[name="choice"]')??continueBtn).focus();
 };
 const closeSheet=async(restoreFocus=true)=>{
   if(sheet.hidden)return;
@@ -158,15 +198,16 @@ const closeSheet=async(restoreFocus=true)=>{
   if(restoreFocus)document.querySelector('#open-ballot').focus();
 };
 const showList=()=>{listStep.hidden=false;confirmStep.hidden=true;msg.textContent=''};
-const showConfirm=()=>{listStep.hidden=true;confirmStep.hidden=false;msg.textContent='';sendBtn.focus()};
+const showConfirm=()=>{listStep.hidden=true;confirmStep.hidden=false;msg.textContent='';if(confirmNameEl)confirmNameEl.textContent=confirmText();if(single){if(nicknameInput){nicknameInput.value=''}sendBtn.disabled=true}sendBtn.focus()};
+if(nicknameInput)nicknameInput.addEventListener('input',()=>{sendBtn.disabled=!nicknameMatches()});
 document.querySelector('#open-ballot').addEventListener('click',openSheet);
 document.querySelector('#sheet-cancel').addEventListener('click',()=>closeSheet());
 backdrop.addEventListener('click',()=>closeSheet());
-continueBtn.addEventListener('click',()=>{if(selected)showConfirm()});
+continueBtn.addEventListener('click',()=>{if(selected&&(!single||answer))showConfirm()});
 document.querySelector('#confirm-back').addEventListener('click',showList);
 sheet.querySelectorAll('input[name="candidate"]').forEach((radio)=>{radio.addEventListener('change',()=>{selected={id:Number(radio.value),nickname:radio.dataset.nickname,number:radio.dataset.number};continueBtn.disabled=false;document.querySelector('#confirm-name').textContent=`${selected.nickname} (no. ${selected.number})`})});
 sheet.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeSheet();return}if(e.key!=='Tab')return;const controls=[...sheet.querySelectorAll('input:not([disabled]),button:not([disabled])')].filter(el=>!el.closest('[hidden]'));if(!controls.length)return;const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}});
-sendBtn.addEventListener('click',async()=>{if(!selected)return;sendBtn.disabled=true;msg.textContent='Mengirim suara…';try{const r=await fetch('/api/votes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({candidate_id:selected.id,confirmation_text:selected.nickname})});const d=await r.json();if(r.status===201&&typeof d.receipt_code==='string'){const code=d.receipt_code;await closeSheet(false);document.querySelector('#ballot-entry').hidden=true;document.querySelector('#receipt-code').textContent=code;document.querySelector('#receipt-link').href='/surat-suara#'+encodeURIComponent(code);document.querySelector('#success').hidden=false;document.querySelector('#copy-code').focus();try{localStorage.setItem('ppij_receipt_code',code)}catch{document.querySelector('#storage-warning').hidden=false}try{localStorage.setItem('ppij_receipt_choice',JSON.stringify({nickname:selected.nickname,number:Number(selected.number),receiptCode:code}))}catch{}return}if(r.status===409&&d.error==='already_voted'){location.assign('/surat-suara');return}msg.textContent=errors[d.error]||'Suara belum dapat dikirim. Coba kembali.'}catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.'}sendBtn.disabled=false});
+sendBtn.addEventListener('click',async()=>{if(!selected||(single&&(!answer||!nicknameMatches())))return;sendBtn.disabled=true;msg.textContent='Mengirim suara…';try{const body=single?{candidate_id:selected.id,confirmation_text:normalizeName(nicknameInput.value),choice:answer.value}:{candidate_id:selected.id,confirmation_text:selected.nickname};const r=await fetch('/api/votes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(r.status===201&&typeof d.receipt_code==='string'){const code=d.receipt_code;await closeSheet(false);document.querySelector('#ballot-entry').hidden=true;document.querySelector('#receipt-code').textContent=code;document.querySelector('#receipt-link').href='/surat-suara#'+encodeURIComponent(code);document.querySelector('#success').hidden=false;document.querySelector('#copy-code').focus();try{localStorage.setItem('ppij_receipt_code',code)}catch{document.querySelector('#storage-warning').hidden=false}try{localStorage.setItem('ppij_receipt_choice',JSON.stringify(single?{nickname:selected.nickname,choice:answer.value,choiceLabel:answer.label,receiptCode:code}:{nickname:selected.nickname,number:Number(selected.number),receiptCode:code}))}catch{}return}if(r.status===409&&d.error==='already_voted'){location.assign('/surat-suara');return}msg.textContent=errors[d.error]||'Suara belum dapat dikirim. Coba kembali.'}catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.'}sendBtn.disabled=single?!(nicknameMatches()):false});
 document.querySelector('#copy-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(document.querySelector('#receipt-code').textContent);document.querySelector('#copy-code').textContent='Tersalin'}catch{document.querySelector('#copy-code').textContent='Salin manual'}});
 </script>}
 </Base>

@@ -119,7 +119,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 8. UI: single-candidate ballot (voter)
 
-- [ ] 8.1 `src/pages/pilih-suara.astro`: while the mode is on show the single candidate
+- [x] 8.1 `src/pages/pilih-suara.astro`: while the mode is on show the single candidate
       with the two answers "Setuju" and "Tidak Setuju" (radio-style cards, no Abstain),
       require a selection before the confirmation sheet opens, then the existing sheet
       (type the nickname) and "Kirim Suara"; the ballot and the sheet show no nomor urut
