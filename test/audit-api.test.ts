@@ -75,17 +75,19 @@ describe("audit API", () => {
     const body = await (await request("/api/audit")).json() as { results: Array<{ detail_json: unknown }> };
     expect(body.results[0].detail_json).toEqual({ outer: { api_key: "••••••••" }, list: ["token-y"] });
   });
+  // 601 baris berantai hash butuh ~1,7 detik sendiri; batas 20 detik menjaga tes
+  // ini tidak gagal hanya karena suite berjalan paralel.
   it("verifies an intact chain across batches and detects second-batch tampering", async () => {
     await appendMany(601);
     expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: true, broken_at: null, entries: 601 });
     await env.DB.prepare("UPDATE audit_log SET detail_json='{}' WHERE seq=600").run();
     expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: false, broken_at: 600 });
-  });
+  }, 20_000);
   it("detects a deleted row in the second batch", async () => {
     await appendMany(601);
     await env.DB.prepare("DELETE FROM audit_log WHERE seq=550").run();
     expect(await (await request("/api/audit/integrity")).json()).toMatchObject({ intact: false, broken_at: 551 });
-  });
+  }, 20_000);
   it("returns closing snapshot values", async () => {
     expect(await (await request("/api/audit/snapshot")).json()).toEqual({closing_snapshot_hash:null,closing_snapshot_at:null});
     await env.DB.prepare("UPDATE elections SET closing_snapshot_hash='abc',closing_snapshot_at='2026-01-01T00:00:00Z'").run();

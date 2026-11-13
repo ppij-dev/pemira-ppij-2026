@@ -151,6 +151,6 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       tally view recorded, never a choice), manual refresh only, roles wording ("Admin
       Voting"), Bahasa Indonesia copy with no emoji.
 - [x] 10.3 `openspec validate add-single-candidate-mode --strict` passes before handoff.
-- [ ] 10.4 Give the two 601-row tests in `test/audit-api.test.ts` an explicit 20 s timeout
+- [x] 10.4 Give the two 601-row tests in `test/audit-api.test.ts` an explicit 20 s timeout
       (they take ~1.7 s alone and flake against vitest's 5 s default under the full
       parallel run).
