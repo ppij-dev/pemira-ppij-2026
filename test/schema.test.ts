@@ -4,6 +4,8 @@ import migrationSql from "../migrations/0001_init.sql?raw";
 import unitsMigrationSql from "../migrations/0002_units.sql?raw";
 import electionLockMigrationSql from "../migrations/0003_election_lock.sql?raw";
 import closingSnapshotMigrationSql from "../migrations/0005_closing_snapshot.sql?raw";
+import singleCandidateModeMigrationSql from "../migrations/0011_single_candidate_mode.sql?raw";
+import ballotChoiceMigrationSql from "../migrations/0012_ballot_choice.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -27,7 +29,14 @@ const TABLES = [
 
 beforeEach(async () => {
   await reset();
-  const statements = [migrationSql, unitsMigrationSql, electionLockMigrationSql, closingSnapshotMigrationSql].join(";")
+  const statements = [
+    migrationSql,
+    unitsMigrationSql,
+    electionLockMigrationSql,
+    closingSnapshotMigrationSql,
+    singleCandidateModeMigrationSql,
+    ballotChoiceMigrationSql,
+  ].join(";")
     .split(";")
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -86,6 +95,8 @@ describe("migrations/0001_init.sql", () => {
       name: string;
     }>();
     const columns = results.map((row) => row.name);
+    // choice hanya berisi jawaban Setuju/Tidak Setuju/Abstain (mode kandidat
+    // tunggal); tidak ada kolom anggota dan tidak ada kolom waktu.
     expect(columns).toEqual([
       "id",
       "election_id",
@@ -93,6 +104,7 @@ describe("migrations/0001_init.sql", () => {
       "komsat_path",
       "receipt_hash",
       "is_test",
+      "choice",
     ]);
   });
 
@@ -107,6 +119,35 @@ describe("migrations/0001_init.sql", () => {
     await expect(
       env.DB.prepare("SELECT rowid FROM ballots LIMIT 1").all()
     ).rejects.toThrow(/no such column: rowid/);
+  });
+
+  it("mode kandidat tunggal mati secara bawaan dan hanya menerima 0/1", async () => {
+    await insertElection(1);
+    expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections WHERE id = 1").first())
+      .toEqual({ single_candidate_mode: 0 });
+    await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1 WHERE id = 1").run();
+    expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections WHERE id = 1").first())
+      .toEqual({ single_candidate_mode: 1 });
+    await expect(env.DB.prepare("UPDATE elections SET single_candidate_mode = 2 WHERE id = 1").run())
+      .rejects.toThrow(/CHECK constraint failed/);
+  });
+
+  it("menerima hanya tiga pilihan dan NULL pada ballots.choice", async () => {
+    await insertElection(1);
+    await insertCandidate(1, "m-c-1");
+    const insertBallot = (id: string, choice: string | null) =>
+      env.DB.prepare(
+        "INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test, choice) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+        .bind(id, 1, 1, "PPIJ/PPI Okayama", `hash-${id}`, 0, choice)
+        .run();
+    // NULL = surat suara multi-kandidat biasa; tiga pilihan hanya dipakai di mode kandidat tunggal.
+    await insertBallot("b-null", null);
+    for (const choice of ["setuju", "tidak_setuju", "abstain"]) await insertBallot(`b-${choice}`, choice);
+    await expect(insertBallot("b-bad", "setuju-banget")).rejects.toThrow(/CHECK constraint failed/);
+    await expect(insertBallot("b-empty", "")).rejects.toThrow(/CHECK constraint failed/);
+    const { results } = await env.DB.prepare("SELECT choice FROM ballots ORDER BY id").all<{ choice: string | null }>();
+    expect(results.map((row) => row.choice)).toEqual(["abstain", null, "setuju", "tidak_setuju"]);
   });
 
   it("menolak receipt_hash yang sama", async () => {
