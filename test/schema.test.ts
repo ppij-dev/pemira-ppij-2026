@@ -95,8 +95,8 @@ describe("migrations/0001_init.sql", () => {
       name: string;
     }>();
     const columns = results.map((row) => row.name);
-    // choice hanya berisi jawaban Setuju/Tidak Setuju/Abstain (mode kandidat
-    // tunggal); tidak ada kolom anggota dan tidak ada kolom waktu.
+    // choice hanya berisi jawaban Setuju/Tidak Setuju (mode kandidat tunggal);
+    // tidak ada kolom anggota dan tidak ada kolom waktu.
     expect(columns).toEqual([
       "id",
       "election_id",

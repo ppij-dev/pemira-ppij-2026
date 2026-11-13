@@ -75,7 +75,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       `choice` only while the mode is on, enforce `candidate_id` = the single registered
       candidate, write `choice` in the existing single D1 batch, keep the nickname
       confirmation and one-vote-per-member guards identical; run the group's tests green.
-- [ ] 4.3 Revisi W7 Q37: `choice` accepts only `setuju` and `tidak_setuju` in both the
+- [x] 4.3 Revisi W7 Q37: `choice` accepts only `setuju` and `tidak_setuju` in both the
       Pemilih vote path and `castTestVote` ('abstain' → HTTP 400); update
       `test/vote-api.test.ts`, `test/election-lifecycle.test.ts` and the single-mode
       receipt-board test.

@@ -99,15 +99,17 @@ describe("mode kandidat tunggal",()=>{
  it("menyimpan pilihan pada suara Uji Coba saat mode hidup dan menolak pilihan saat mode mati",async()=>{
   await readySingle();
   // Rehearsal surat suara tunggal: panitia memilih salah satu jawaban.
-  const test=await castTestVote(env.DB,NOW,1,"member-8","abstain");
+  const test=await castTestVote(env.DB,NOW,1,"member-8","tidak_setuju");
   expect(test.receipt_hash).toMatch(/^[0-9a-f]{64}$/);
   const testBallot=await env.DB.prepare("SELECT candidate_id,choice,is_test FROM ballots").first();
-  expect(testBallot).toEqual({candidate_id:1,choice:"abstain",is_test:1});
+  expect(testBallot).toEqual({candidate_id:1,choice:"tidak_setuju",is_test:1});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM participation WHERE is_test=1").first()).toEqual({n:1});
   // Suara uji tanpa pilihan sah ditolak dan tidak menulis apa pun.
   await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
   await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   await expect(castTestVote(env.DB,NOW,1,"member-8")).rejects.toMatchObject({status:400});
+  // Tanpa Abstain (W7 Q37): nilai lama itu ditolak seperti nilai lain di luar dua jawaban.
+  await expect(castTestVote(env.DB,NOW,1,"member-8","abstain")).rejects.toMatchObject({status:400});
   await expect(castTestVote(env.DB,NOW,1,"member-8","setuju-banget")).rejects.toMatchObject({status:400});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
   // Mode mati: bentuk suara uji tidak berubah (choice NULL) dan pilihan ditolak.

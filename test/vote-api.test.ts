@@ -365,7 +365,8 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
     await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
   }
-  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
+  // Hanya dua jawaban: tidak ada Abstain (W7 Q37).
+  const choices = ["setuju", "tidak_setuju"] as const;
 
   it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
     await enableSingleMode();
@@ -383,11 +384,11 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
   });
 
-  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
+  it("menolak permintaan tanpa pilihan, Abstain, atau pilihan di luar dua jawaban tanpa menulis baris", async () => {
     await enableSingleMode();
     const cookie = await sessionCookie("voter-1");
     // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
-    for (const choice of [undefined, null, "setuju-banget", "SETUJU", ""]) {
+    for (const choice of [undefined, null, "abstain", "setuju-banget", "SETUJU"]) {
       const res = await voteRequest(cookie, choice === undefined ? { candidate_id: 1, confirmation_text: "Budi" } : { candidate_id: 1, confirmation_text: "Budi", choice });
       expect(res.status).toBe(400);
       expect((await res.json() as { error: string }).error).toBe("invalid_choice");
@@ -421,7 +422,7 @@ describe("POST /api/votes mode kandidat tunggal", () => {
 
   it("menulis partisipasi dan surat suara dalam satu batch tanpa data waktu di surat suara", async () => {
     await enableSingleMode();
-    expect((await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" })).status).toBe(201);
+    expect((await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "tidak_setuju" })).status).toBe(201);
     expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
     const columns = (await env.DB.prepare("PRAGMA table_info(ballots)").all<{ name: string }>()).results.map((row) => row.name);
     expect(columns).toEqual(["id", "election_id", "candidate_id", "komsat_path", "receipt_hash", "is_test", "choice"]);

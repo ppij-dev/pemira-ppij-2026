@@ -187,7 +187,7 @@ export async function authorizeVoter(
 export interface VoteRequest {
   candidate_id: number;
   confirmation_text: string;
-  /** Jawaban Setuju/Tidak Setuju/Abstain; hanya mode kandidat tunggal. */
+  /** Jawaban Setuju/Tidak Setuju; hanya mode kandidat tunggal. */
   choice?: string | null;
 }
 
@@ -220,7 +220,7 @@ export async function castVote(
   if (typeof req.confirmation_text !== "string") throw new VoteError("confirmation_text tidak valid.", 400, "invalid_body");
 
   // Mode kandidat tunggal: surat suara menyimpan kandidat tunggal plus jawaban
-  // setuju/tidak_setuju/abstain. Di luar mode itu pilihan harus kosong, supaya
+  // setuju/tidak_setuju (tanpa Abstain). Di luar mode itu pilihan harus kosong, supaya
   // perilaku pemilihan multi-kandidat tidak berubah.
   const requestedChoice: unknown = req.choice ?? null;
   const single = (await db.prepare(ELECTION_SQL).first<ElectionRow>())?.single_candidate_mode === 1;
