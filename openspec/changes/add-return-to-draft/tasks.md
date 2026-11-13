@@ -70,12 +70,12 @@ needed; no task touches the schema.
 
 ## 5. Backend: audit entry (audit-log)
 
-- [ ] 5.1 Failing test first in the audit tests: an accepted "Kembali ke Draf" appends
+- [x] 5.1 Failing test first in the audit tests: an accepted "Kembali ke Draf" appends
       exactly one entry with action "Pemilihan dikembalikan ke Draf", the actor, the
       stage left (Terjadwal/Dibuka/Ditutup), preview flag and kept
       ballot/participation counts, chained onto the current tip hash; a refused attempt
       (wrong phrase, wrong stage) appends nothing and leaves the tip unchanged.
-- [ ] 5.2 Wire the audit insert into the return batch via the existing
+- [x] 5.2 Wire the audit insert into the return batch via the existing
       `buildAuditInsert` path; run the group's tests green.
 
 ## 6. UI: Pengaturan action and confirmation dialog (admin)

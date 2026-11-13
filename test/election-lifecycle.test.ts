@@ -5,6 +5,7 @@ import {createCandidate} from "../src/server/election/candidates";
 import intro from "../migrations/0007_candidate_short_intro.sql?raw";import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import {castTestVote,closeEarly,extendClosing,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
 import {stage} from "../src/server/lib/stage";
+import {verifyChain,type AuditRow} from "../src/server/lib/audit";
 import {app} from "../src/server/app";
 import {sealSession} from "../src/server/auth/session";
 import {createServiceApiStub} from "./lib/serviceapi-fixture";
@@ -378,5 +379,37 @@ describe("saklar mode kandidat tunggal dan suara tersimpan",()=>{
   await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots WHERE is_test=1").first()).toEqual({n:0});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
+ });
+});
+
+// Audit (design.md D7): satu entri berantai per tindakan diterima, tanpa entri
+// untuk percobaan yang ditolak. Rantai hash diperiksa dari baris aslinya.
+describe("audit Kembali ke Draf",()=>{
+ beforeEach(()=>setup());
+ async function rows(){return (await env.DB.prepare("SELECT seq,at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash FROM audit_log ORDER BY seq").all<AuditRow>()).results;}
+ it("mencatat satu entri berantai dengan tahap yang ditinggalkan dan suara yang dipertahankan",async()=>{
+  await lockPreview();
+  await env.DB.prepare("INSERT INTO participation(election_id,member_id,member_name,voted_at,is_test) VALUES(1,'member-1','Member 1','2026-10-21T01:00:00Z',0),(1,'member-2','Member 2','2026-10-21T01:05:00Z',0)").run();
+  await env.DB.prepare("INSERT INTO ballots(id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES('kept-1',1,1,'/u','hash-1',0),('kept-2',1,2,'/u','hash-2',0)").run();
+  const tipBefore=(await rows()).at(-1)!.hash;
+  await returnToDraft(env.DB,OPEN_NOW,PHRASE,ACTOR);
+  const all=await rows();
+  const entries=all.filter(row=>row.action==="Pemilihan dikembalikan ke Draf");
+  expect(entries).toHaveLength(1);
+  const entry=entries[0]!;
+  expect(entry).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"Admin",target:null,komsat_path:null,prev_hash:tipBefore});
+  expect(JSON.parse(entry.detail_json!)).toEqual({stage_before:"open",preview_mode:true,kept_ballots:2,kept_participation:2});
+  expect(all.at(-1)).toEqual(entry);
+  expect(await verifyChain(all)).toBeNull();
+ });
+ it("tidak menambah entri dan tidak menggeser ujung rantai untuk percobaan yang ditolak",async()=>{
+  await lockReal();
+  const before=await rows(),tip=before.at(-1)!.hash;
+  await expect(returnToDraft(env.DB,OPEN_NOW,PHRASE,ACTOR)).rejects.toMatchObject({status:409});
+  await expect(returnToDraft(env.DB,NOW,"salah",ACTOR)).rejects.toMatchObject({status:400});
+  const after=await rows();
+  expect(after).toHaveLength(before.length);
+  expect(after.at(-1)!.hash).toBe(tip);
+  expect(await verifyChain(after)).toBeNull();
  });
 });
