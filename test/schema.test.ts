@@ -132,7 +132,7 @@ describe("migrations/0001_init.sql", () => {
       .rejects.toThrow(/CHECK constraint failed/);
   });
 
-  it("menerima hanya tiga pilihan dan NULL pada ballots.choice", async () => {
+  it("menerima hanya setuju/tidak_setuju dan NULL pada ballots.choice", async () => {
     await insertElection(1);
     await insertCandidate(1, "m-c-1");
     const insertBallot = (id: string, choice: string | null) =>
@@ -141,13 +141,15 @@ describe("migrations/0001_init.sql", () => {
       )
         .bind(id, 1, 1, "PPIJ/PPI Okayama", `hash-${id}`, 0, choice)
         .run();
-    // NULL = surat suara multi-kandidat biasa; tiga pilihan hanya dipakai di mode kandidat tunggal.
+    // NULL = surat suara multi-kandidat biasa; dua jawaban hanya dipakai di mode kandidat tunggal.
     await insertBallot("b-null", null);
-    for (const choice of ["setuju", "tidak_setuju", "abstain"]) await insertBallot(`b-${choice}`, choice);
-    await expect(insertBallot("b-bad", "setuju-banget")).rejects.toThrow(/CHECK constraint failed/);
-    await expect(insertBallot("b-empty", "")).rejects.toThrow(/CHECK constraint failed/);
+    for (const choice of ["setuju", "tidak_setuju"]) await insertBallot(`b-${choice}`, choice);
+    // Tanpa Abstain (W7 Q37): nilai lama itu ditolak begitu juga nilai lain.
+    for (const choice of ["abstain", "setuju-banget", ""]) {
+      await expect(insertBallot(`b-bad-${choice}`, choice)).rejects.toThrow(/CHECK constraint failed/);
+    }
     const { results } = await env.DB.prepare("SELECT choice FROM ballots ORDER BY id").all<{ choice: string | null }>();
-    expect(results.map((row) => row.choice)).toEqual(["abstain", null, "setuju", "tidak_setuju"]);
+    expect(results.map((row) => row.choice)).toEqual([null, "setuju", "tidak_setuju"]);
   });
 
   it("menolak receipt_hash yang sama", async () => {

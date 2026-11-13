@@ -14,7 +14,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       choice TEXT CHECK (choice IN ('setuju','tidak_setuju'))` with a comment explaining
       NULL = normal multi-candidate ballots and that the column carries no member link
       (secrecy).
-- [ ] 1.4 Revisi W7 Q37: edit `0012_ballot_choice.sql` in place to the two-value CHECK
+- [x] 1.4 Revisi W7 Q37: edit `0012_ballot_choice.sql` in place to the two-value CHECK
       (no environment has applied it yet) and update `test/schema.test.ts`: 'abstain' is
       now rejected, only setuju/tidak_setuju and NULL pass.
 - [x] 1.3 Extend `test/schema.test.ts`: both migrations apply to a fresh D1, the elections

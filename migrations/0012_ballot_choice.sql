@@ -1,10 +1,14 @@
--- Jawaban surat suara untuk mode kandidat tunggal: setuju / tidak_setuju /
--- abstain. NULL untuk surat suara multi-kandidat biasa (perilaku lama tidak
--- berubah, tidak ada baris lama yang perlu diisi ulang).
+-- Jawaban surat suara untuk mode kandidat tunggal: setuju / tidak_setuju.
+-- NULL untuk surat suara multi-kandidat biasa (perilaku lama tidak berubah, tidak
+-- ada baris lama yang perlu diisi ulang).
+--
+-- Tidak ada Abstain (keputusan owner 2026-11-13, W7 Q37). Anggota yang tidak
+-- memilih dihitung sebagai Tidak Setuju saat penutupan, dan angka itu dihitung
+-- dari total Hak pilih beku dikurangi partisipasi, bukan per orang.
 --
 -- Kerahasiaan surat suara tetap utuh: kolom ini adalah isi surat suara, bukan
 -- identitas pemilih. Tidak ada rujukan anggota, tidak ada kolom waktu, urutan
 -- acak, dan ballots tetap WITHOUT ROWID serta ditulis dalam satu batch bersama
 -- baris participation tanpa penghubung. Nilai choice hanya dibaca sebagai
 -- agregat (GROUP BY choice), tidak pernah per surat suara.
-ALTER TABLE ballots ADD COLUMN choice TEXT CHECK (choice IN ('setuju', 'tidak_setuju', 'abstain'));
+ALTER TABLE ballots ADD COLUMN choice TEXT CHECK (choice IN ('setuju', 'tidak_setuju'));
