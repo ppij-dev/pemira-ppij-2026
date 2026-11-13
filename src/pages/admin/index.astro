@@ -67,6 +67,68 @@ const invitationState = (inv: any) =>
     </div>
   </div>
   <script is:inline>
-const msg=document.querySelector('#message');document.querySelector('#invite').addEventListener('submit',async e=>{e.preventDefault();msg.textContent='Memproses...';const r=await fetch('/api/admin/invitations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({member_id:new FormData(e.currentTarget).get('member_id')})});const d=await r.json();msg.textContent=d.invitation_url?'Undangan dibuat: '+d.invitation_url:(d.error||'Undangan belum dibuat. Coba kembali.');if(d.invitation_url){const b=document.createElement('button');b.textContent='Salin tautan';b.className='ml-2 min-h-11 font-semibold text-primary underline underline-offset-2';b.onclick=()=>navigator.clipboard.writeText(d.invitation_url);msg.append(b)}});document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus Admin Voting ini?')){const r=await fetch('/api/admin/'+encodeURIComponent(b.dataset.remove),{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Admin Voting belum terhapus. Coba kembali.'}});document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{if(confirm('Batalkan undangan ini?')){const r=await fetch('/api/admin/invitations/'+encodeURIComponent(b.dataset.cancel),{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Undangan belum dibatalkan. Coba kembali.'}});
+(function () {
+  // Tombol aksi Panitia: setiap pendengar dipasang dengan penjaga null supaya
+  // satu elemen yang hilang tidak mematikan seluruh skrip dan membuat semua
+  // tombol diam tanpa pesan. Tombol kirim dinonaktifkan selama permintaan
+  // berjalan agar ketukan ganda di ponsel tidak membuat undangan ganda.
+  const msg = document.querySelector('#message');
+  const say = (text) => { if (msg) msg.textContent = text; };
+  const removeCopyButton = () => { const old = msg && msg.querySelector('button[data-copy]'); if (old) old.remove(); };
+  const form = document.querySelector('#invite');
+  if (form) form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    removeCopyButton();
+    say('Memproses...');
+    try {
+      const response = await fetch('/api/admin/invitations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ member_id: new FormData(form).get('member_id') }) });
+      const body = await response.json().catch(() => ({}));
+      if (body.invitation_url) {
+        say('Undangan dibuat: ' + body.invitation_url);
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.dataset.copy = 'true';
+        copy.textContent = 'Salin tautan';
+        copy.className = 'ml-2 min-h-11 font-semibold text-primary underline underline-offset-2';
+        copy.addEventListener('click', () => navigator.clipboard.writeText(body.invitation_url));
+        if (msg) msg.append(copy);
+      } else {
+        say(body.error || 'Undangan belum dibuat. Coba kembali.');
+      }
+    } catch {
+      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+  document.querySelectorAll('[data-remove]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Hapus Admin Voting ini?')) return;
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/admin/' + encodeURIComponent(button.dataset.remove), { method: 'DELETE' });
+      if (response.ok) { location.reload(); return; }
+      say((await response.json().catch(() => ({}))).error || 'Admin Voting belum terhapus. Coba kembali.');
+    } catch {
+      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
+    } finally {
+      button.disabled = false;
+    }
+  }));
+  document.querySelectorAll('[data-cancel]').forEach((button) => button.addEventListener('click', async () => {
+    if (!confirm('Batalkan undangan ini?')) return;
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/admin/invitations/' + encodeURIComponent(button.dataset.cancel), { method: 'DELETE' });
+      if (response.ok) { location.reload(); return; }
+      say((await response.json().catch(() => ({}))).error || 'Undangan belum dibatalkan. Coba kembali.');
+    } catch {
+      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
+    } finally {
+      button.disabled = false;
+    }
+  }));
+})();
 </script>
 </AdminLayout>

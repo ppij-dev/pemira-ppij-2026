@@ -61,7 +61,7 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
       </FormField>
       <div class="col-span-full flex flex-wrap items-center gap-2 border-t border-brand-border pt-4">
         <Button type="submit" variant="primary" size="sm">Simpan Kandidat</Button>
-        <Button type="button" id="reset" variant="secondary" size="sm">Kosongkan</Button>
+        <Button type="button" id="candidate-reset" variant="secondary" size="sm">Kosongkan</Button>
       </div>
     </form>
     <p id="message" role="status" aria-live="polite" class="mt-3 mb-0 text-[13px] font-semibold text-destructive"></p>
@@ -98,11 +98,18 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
       : <Empty icon={IconPlus} title="Belum ada kandidat" description="Tambahkan anggota aktif menggunakan formulir di atas." />}
   </section>
   <script is:inline>
+(function () {
+// `form` memakai id="candidate" supaya cocok dengan markah di atas. Tombol
+// Kosongkan tidak boleh memakai id "reset": kolom bernama/id "reset" menutupi
+// HTMLFormElement.prototype.reset, sehingga form.reset() melempar TypeError dan
+// tombolnya diam saja. Pemanggilan eksplisit di bawah menjaga itu tetap aman.
 const form=document.querySelector('#candidate'),msg=document.querySelector('#message');
+if(!form||!msg)return;
 const intro=form.elements.short_intro,count=document.querySelector('#short-intro-count');
-const updateCount=()=>{count.textContent=`${intro.value.length}/100`};
+const updateCount=()=>{if(count)count.textContent=`${intro.value.length}/100`};
 intro.addEventListener('input',updateCount);
-document.querySelector('#reset').onclick=()=>{form.reset();delete form.dataset.id;msg.textContent='';updateCount()};
+const resetButton=document.querySelector('#candidate-reset');
+if(resetButton)resetButton.addEventListener('click',()=>{HTMLFormElement.prototype.reset.call(form);delete form.dataset.id;msg.textContent='';updateCount()});
 form.onsubmit=async e=>{
   e.preventDefault();
   const fields=Object.fromEntries(new FormData(form)),number=Number(fields.number);
@@ -123,5 +130,6 @@ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
   intro.value=b.dataset.shortIntro||'';updateCount();msg.textContent='';
 });
 document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus kandidat ini?')){const r=await fetch('/api/election/candidates/'+b.dataset.delete,{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Gagal menghapus'}});
+})();
 </script>
 </AdminLayout>
