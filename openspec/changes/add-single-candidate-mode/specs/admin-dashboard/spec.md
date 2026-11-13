@@ -6,16 +6,11 @@ While single candidate mode is on, Dasbor presents Setuju / Tidak Setuju / Absta
 and percentages overall and per korda plus one outcome line, with the existing refresh,
 suppression and audit rules unchanged.
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Overall tally for Admin Voting
+### Requirement: Single candidate tally on Dasbor
 
-Dasbor SHALL show to Admin Voting in every stage the current tally: in normal mode candidate number, nickname, color and overall vote count; in single candidate mode the Setuju, Tidak Setuju and Abstain counts with their percentage of votes cast and the outcome line, presented without a nomor urut. Each tally load SHALL be audit-logged.
-
-#### Scenario: Multi-candidate tally unchanged
-
-- **WHEN** an Admin Voting refreshes Dasbor during a multi-candidate election
-- **THEN** candidate counts appear exactly as today and no outcome line is shown
+While single candidate mode is on, Dasbor SHALL show to Admin Voting in every stage the Setuju, Tidak Setuju and Abstain counts with their percentage of votes cast — each answer's share of the Setuju, Tidak Setuju and Abstain ballots in scope — plus the outcome line, presented without a nomor urut. Each tally load SHALL be audit-logged.
 
 #### Scenario: Single candidate tally during voting
 
@@ -27,25 +22,28 @@ Dasbor SHALL show to Admin Voting in every stage the current tally: in normal mo
 - **WHEN** an Admin Voting views the tally in single candidate mode
 - **THEN** the counts and outcome line appear with the candidate's nickname and color but no nomor urut
 
-### Requirement: Korda-level regional results
+#### Scenario: Multi-candidate tally unchanged
 
-Dasbor SHALL show a table aggregated by korda, not a komsat map. A korda with fewer than 10 ballots SHALL show turnout and "Data terlalu sedikit" instead of counts. In normal mode the row shows per-candidate counts; in single candidate mode it shows the Setuju, Tidak Setuju and Abstain counts with percentages for that korda. The same suppression SHALL apply to public results after publication.
+- **WHEN** an Admin Voting refreshes Dasbor during a multi-candidate election
+- **THEN** candidate counts with numbers appear exactly as today and no outcome line is shown
 
-#### Scenario: Small korda
+### Requirement: Per-korda single-candidate results
 
-- **WHEN** a korda has four ballots
-- **THEN** its row shows turnout and "Data terlalu sedikit", with no count breakdown
+While single candidate mode is on, each korda row above the suppression threshold SHALL show the Setuju, Tidak Setuju and Abstain counts with their shares of that korda's votes cast; a korda with fewer than 10 ballots SHALL show turnout and "Data terlalu sedikit" with no count breakdown. The same suppression SHALL apply to public results after publication.
 
 #### Scenario: Larger korda in single candidate mode
 
 - **WHEN** a korda has 12 ballots in single candidate mode
 - **THEN** its row shows the three counts with percentages for that korda
 
-## ADDED Requirements
+#### Scenario: Small korda suppressed
+
+- **WHEN** a korda has four ballots in single candidate mode
+- **THEN** its row shows turnout and "Data terlalu sedikit" with no count breakdown
 
 ### Requirement: Outcome line
 
-While single candidate mode is on, Dasbor SHALL show exactly one outcome line computed from votes cast: "Terpilih" when Setuju > Tidak Setuju, "Tidak terpilih" when Tidak Setuju > Setuju, and "Seri, keputusan diserahkan kepada panitia" when equal. Abstain SHALL be counted and shown on its own but SHALL NOT enter the comparison, and the system SHALL record no decision for a tie.
+While single candidate mode is on, Dasbor SHALL show exactly one outcome line computed from votes cast: "Terpilih" when Setuju > Tidak Setuju, "Tidak terpilih" when Tidak Setuju > Setuju, "Belum ada suara" when no ballots were cast, and "Seri, keputusan diserahkan kepada panitia" when the counts are equal with at least one ballot cast. Abstain SHALL be counted and shown on its own but SHALL NOT enter the comparison, and the system SHALL record no decision for a tie.
 
 #### Scenario: Tidak Setuju wins
 
@@ -61,3 +59,8 @@ While single candidate mode is on, Dasbor SHALL show exactly one outcome line co
 
 - **WHEN** 5 Setuju, 4 Tidak Setuju and 20 Abstain ballots are cast
 - **THEN** Abstain is the largest single count, yet the outcome line reads "Terpilih" because only Setuju and Tidak Setuju are compared
+
+#### Scenario: No ballots cast
+
+- **WHEN** voting has closed in single candidate mode and no ballots were cast
+- **THEN** the outcome line reads "Belum ada suara" instead of the Seri line and no decision is recorded

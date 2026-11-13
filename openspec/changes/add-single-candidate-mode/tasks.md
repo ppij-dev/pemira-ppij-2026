@@ -79,9 +79,10 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 ## 6. Server: results and outcome (results)
 
 - [ ] 6.1 Failing tests first in `test/results-api.test.ts`: in single candidate mode the
-      payload carries the three counts with percentages of votes cast, the outcome
-      (`terpilih` / `tidak_terpilih` / `seri`) for Setuju ahead, Tidak Setuju ahead, tie
-      and zero-ballot cases; per-korda rows carry the three counts above 10 ballots and
+      payload carries the three counts with their shares of votes cast (Setuju + Tidak
+      Setuju + Abstain in scope), the outcome (`terpilih` / `tidak_terpilih` / `seri` /
+      `belum_ada_suara`) for Setuju ahead, Tidak Setuju ahead, tie with at least one
+      ballot cast, and the "Belum ada suara" zero-ballot case; per-korda rows carry the three counts above 10 ballots and
       stay suppressed below; test rows in Draf behave as today; with the mode off the
       payload equals today's shape.
 - [ ] 6.2 Implement the aggregation and outcome computation in

@@ -70,13 +70,17 @@ The outcome is a pure function of the real (non-test) ballots:
 - `setuju_count > tidak_setuju_count` → outcome "Terpilih" (the single candidate is
   elected).
 - `tidak_setuju_count > setuju_count` → outcome "Tidak terpilih".
-- equal (including zero ballots cast, where both are 0) → outcome "Seri, keputusan
-  diserahkan kepada panitia".
+- zero ballots cast (both 0) → outcome "Belum ada suara" (owner decision 2026-11-13).
+- equal with at least one ballot cast → outcome "Seri, keputusan diserahkan kepada
+  panitia".
 
 `abstain_count` is displayed and counts toward votes cast (percentages), but never enters
 the comparison. "The system records no decision" for a tie means: no outcome column or
 flag is stored, no audit entry or admin control exists for deciding a tie, and the
 published result simply states the Seri line. Re-election is not modeled anywhere.
+Owner decisions (2026-11-13) on the outcome details: zero ballots cast shows
+"Belum ada suara" instead of the Seri line; Uji Coba may pick any of the three answers;
+percentages are shares of votes cast (Setuju + Tidak Setuju + Abstain) per scope.
 
 ### D4: Vote API shape
 
@@ -91,21 +95,22 @@ untouched: the nickname check runs exactly as today, on top of the choice check.
 ### D5: Results payload
 
 `ResultsPayload`/`DashboardPayload` gain a mode flag plus, when the mode is on,
-`outcome` (`terpilih | tidak_terpilih | seri`) and `setuju_count`, `tidak_setuju_count`,
-`abstain_count` with percentages of votes cast (one decimal, like turnout), overall and
-inside each `korda` row. The `candidates` array is kept (with the single candidate and its
-total) so existing consumers and the count check stay intact. Percentages use the same
-ballot total as the counts themselves, so they always sum to 100 over the three answers.
+`outcome` (`terpilih | tidak_terpilih | seri | belum_ada_suara`) and `setuju_count`,
+`tidak_setuju_count`, `abstain_count` with percentages of votes cast — each answer's
+share of the Setuju + Tidak Setuju + Abstain ballots in scope (one decimal, like
+turnout) — overall and inside each `korda` row. The `candidates` array is kept (with the
+single candidate and its total) so existing consumers and the count check stay intact.
+The percentages use the same ballot total as the counts themselves, so they always sum to
+100 over the three answers.
 The per-korda suppression (`KORDA_MIN_BALLOTS = 10`) applies unchanged: below 10 ballots a
 korda row shows turnout and "Data terlalu sedikit" and no choice breakdown.
 
 ### D6: Uji Coba and preview mode
 
 In Draf, Uji Coba is the committee's rehearsal of the real ballot, so while the mode is on
-the test-vote flow lets the Admin Voting pick one of the three answers and stores it on
-the test ballot (still deleted at Kunci, still marked as test data on Dasbor). Assumption
-flagged for the owner: the brief does not state this; without it the rehearsal cannot
-exercise the single-candidate Dasbor. Preview mode and single candidate mode are
+the test-vote flow lets the Admin Voting pick any of the three answers (owner decision
+2026-11-13) and stores it on the test ballot (still deleted at Kunci, still marked as test
+data on Dasbor). Preview mode and single candidate mode are
 independent switches in Pengaturan: preview still auto-registers voters and skips the
 final sync at Kunci; single candidate mode still demands exactly one candidate at Kunci.
 
@@ -114,7 +119,8 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
 - Switch: "Mode kandidat tunggal" with helper text that it can only be changed while Draf
   and demands exactly one candidate at Kunci & Jadwalkan.
 - Ballot answers: "Setuju", "Tidak Setuju", "Abstain" (the owner's exact words).
-- Outcome lines: "Terpilih", "Tidak terpilih", "Seri, keputusan diserahkan kepada panitia".
+- Outcome lines: "Terpilih", "Tidak terpilih", "Belum ada suara", "Seri, keputusan
+  diserahkan kepada panitia".
 - Refusal to add a second candidate: names the mode, e.g. "Mode kandidat tunggal aktif:
   hanya satu kandidat yang dapat didaftarkan."
 - Toggle audit actions: "Mode kandidat tunggal diaktifkan" / "Mode kandidat tunggal
@@ -150,12 +156,6 @@ terhadap <nickname>"); the Abstain phrasing is flagged as an open question.
 - **Mode mishandled between Draf and Kunci** — mitigated by the mode-aware readiness check
   listing its state on the Persiapan Pemilihan page and by the frozen value in the lock
   audit detail.
-- **Zero ballots cast shows the Seri line** — the owner rule compares counts, so 0 = 0 is
-  a tie. Presented as "Seri, keputusan diserahkan kepada panitia"; flagged as an open
-  question in the proposal handoff.
-- **Numbered profile URLs break in single mode** — closed by resolving
-  `/kandidat/<nickname>` by nickname while the mode is on; no numbered URL is generated,
-  and normal mode keeps today's route shape.
 - **`choice` widens the ballot schema** — closed by the CHECK constraint, NULL-for-normal
   compatibility, and the secrecy argument in D2.
 
@@ -169,13 +169,12 @@ backfill is needed (no election has run in this mode before).
 
 ## Open questions
 
-- Should the Seri line differ when no ballots were cast at all? (Assumed: no — 0 = 0 is a
-  tie under the owner rule.)
-- Should Pengaturan refuse to turn the mode on while two or more candidates already exist?
-  (Assumed: no — the brief only refuses Kunci and the second candidate; the committee
-  reduces the list to one in Draf.)
 - Should the Abstain confirmation sheet use "Pilihan Anda: Abstain terhadap <nickname>"
   (same pattern as Setuju, assumed here) or a different phrasing such as
   "Pilihan Anda: Abstain"?
-- Should Uji Coba in single candidate mode pick a choice as assumed in D6?
+- Should Pengaturan refuse to turn the mode on while two or more candidates already exist?
+  (Assumed: no — the brief only refuses Kunci and the second candidate; the committee
+  reduces the list to one in Draf.)
+
+Both are with the owner; nothing else in this change depends on them.
 

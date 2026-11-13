@@ -38,17 +38,19 @@ decision. Ballot secrecy, receipts, eligibility and participation rules are unch
   this preserves secrecy and backward compatibility.
 - **Winning rule.** Elected when Setuju > Tidak Setuju among votes cast; Abstain is
   counted and shown on its own but excluded from the comparison. Tie (Setuju = Tidak
-  Setuju): the result shows "Seri, keputusan diserahkan kepada panitia" and the system
-  records no decision. Tidak Setuju ahead: "Tidak terpilih". Re-election is out of scope.
+  Setuju with at least one ballot cast): the result shows "Seri, keputusan diserahkan
+  kepada panitia" and the system records no decision. With no ballots cast the outcome
+  line reads "Belum ada suara". Tidak Setuju ahead: "Tidak terpilih". Re-election is out
+  of scope.
 - **No nomor urut in single candidate mode.** The candidate has no displayed nomor urut
   anywhere: ballot, confirmation sheet ("Pilihan Anda: Setuju terhadap <nickname>"),
   candidate card and profile page, results, Dasbor and the Admin Voting candidate form.
   The schema keeps `candidates.number` NOT NULL UNIQUE CHECK > 0; a candidate registered
   while the mode is on is stored with a fixed internal nomor (1) that is never rendered,
   and the profile URL drops the number segment (`/kandidat/<nickname>`).
-- **Results and Dasbor.** Setuju / Tidak Setuju / Abstain counts and percentages (of votes
-  cast) overall and per korda, plus the outcome line; participation statistics unchanged;
-  the under-10-ballots per-korda suppression unchanged. Public results after Diumumkan
+- **Results and Dasbor.** Setuju / Tidak Setuju / Abstain counts and percentages — each
+  answer's share of the Setuju + Tidak Setuju + Abstain ballots in scope — overall and
+  per korda, plus the outcome line; participation statistics unchanged; the under-10-ballots per-korda suppression unchanged. Public results after Diumumkan
   show the same presentation.
 - **Audit.** Mode toggles are recorded as Admin Voting actions and the Kunci entry records
   the frozen mode value; vote audit entries keep recording no choice in either mode.

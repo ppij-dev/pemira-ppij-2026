@@ -4,34 +4,8 @@
 
 Keeps the candidate list compatible with the mode: while it is on, Draf cannot register a
 second candidate, the candidate carries no nomor urut anywhere (number-free form, stored
-internal nomor, nickname-only profile URL), and a list that already holds several
-candidates is reduced by the existing delete path until exactly one remains.
-
-## MODIFIED Requirements
-
-### Requirement: Structured public sample page
-
-Each candidate SHALL have a public page at `/kandidat/<nomor>-<nickname>` showing their number, name, nickname, komsat, escaped plain-text description, assigned color and a bundled local placeholder image. While single candidate mode is on, the single candidate's page SHALL live at `/kandidat/<nickname>` and SHALL show no nomor urut. It SHALL link to Pilih Suara only while voting is Dibuka. The image SHALL not be fetched from placehold.co by a visitor.
-
-#### Scenario: Candidate page during voting
-
-- **WHEN** a visitor opens `/kandidat/01-budi` while voting is open in a multi-candidate election
-- **THEN** the page shows Budi's fields with the number and a "Pilih Sekarang" link
-
-#### Scenario: Description contains markup
-
-- **WHEN** a description contains `<script>alert(1)</script>`
-- **THEN** the page displays it as text and no script executes
-
-#### Scenario: Profile URL without a number
-
-- **WHEN** a visitor opens `/kandidat/<nickname>` while single candidate mode is on
-- **THEN** the profile shows name, nickname, komsat, description, color and placeholder image with no nomor urut
-
-#### Scenario: Numbered URL not generated in single candidate mode
-
-- **WHEN** the site renders a link to the candidate's profile while single candidate mode is on
-- **THEN** the link targets `/kandidat/<nickname>` and no numbered candidate URL is exposed
+internal nomor, nickname-only profile URL and cards), and a list that already holds
+several candidates is reduced by the existing delete path until exactly one remains.
 
 ## ADDED Requirements
 
@@ -72,3 +46,22 @@ While single candidate mode is on, the Admin Voting candidate form SHALL NOT ask
 
 - **WHEN** an Admin Voting opens the candidate form while the mode is off
 - **THEN** the form asks for a unique positive nomor urut as today
+
+### Requirement: Number-free single candidate profile
+
+While single candidate mode is on, the single candidate's profile page SHALL live at `/kandidat/<nickname>` and SHALL show no nomor urut; every link to it SHALL use that number-free form and no numbered candidate URL SHALL be generated. With the mode off, the numbered form `/kandidat/<nomor>-<nickname>` SHALL be used as today.
+
+#### Scenario: Profile URL without a number
+
+- **WHEN** a visitor opens `/kandidat/<nickname>` while single candidate mode is on
+- **THEN** the profile shows name, nickname, komsat, description, color and placeholder image with no nomor urut
+
+#### Scenario: Numbered URL not generated in single candidate mode
+
+- **WHEN** the site renders a link to the candidate's profile while single candidate mode is on
+- **THEN** the link targets `/kandidat/<nickname>` and no numbered candidate URL is exposed
+
+#### Scenario: Multi-candidate profile unchanged
+
+- **WHEN** a visitor opens a candidate page while the mode is off
+- **THEN** the numbered form `/kandidat/<nomor>-<nickname>` resolves as today with the number shown

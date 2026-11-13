@@ -6,21 +6,16 @@ While single candidate mode is on, the ballot asks one question about the single
 with three answers, while every secrecy, receipt, confirmation and eligibility rule of the
 normal ballot stays unchanged.
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: One atomic ballot per member
+### Requirement: Ballot choice storage in single candidate mode
 
-A valid vote SHALL write, in one D1 batch, a participation row (member_id, name, voted_at) unique per member and a ballot row (random ID, candidate, choice, voter's komsat path, receipt hash) with no member reference and no timestamp; ballots SHALL use WITHOUT ROWID. While single candidate mode is on, the ballot SHALL store the single candidate in candidate_id and the chosen choice of setuju, tidak_setuju or abstain; otherwise choice SHALL be NULL.
+While single candidate mode is on, a valid vote SHALL store the single candidate in candidate_id and the chosen choice of setuju, tidak_setuju or abstain on the ballot, written in the same single D1 batch as the participation row, with no member reference and no timestamp; ballots SHALL use WITHOUT ROWID. With the mode off, the choice SHALL be NULL.
 
 #### Scenario: First vote in single candidate mode
 
 - **WHEN** an eligible voter submits a confirmed "Setuju" vote while voting is open and the mode is on
 - **THEN** both rows are written together, the ballot stores the single candidate with choice "setuju", and the voter receives a receipt code
-
-#### Scenario: Second vote or double tap
-
-- **WHEN** the same member submits again, including two requests at the same moment
-- **THEN** the unique constraint rejects the batch, no ballot is added, and the server answers HTTP 409 leading to Bukti Suara
 
 #### Scenario: No link from voter to ballot
 
@@ -31,8 +26,6 @@ A valid vote SHALL write, in one D1 batch, a participation row (member_id, name,
 
 - **WHEN** a vote is cast in a multi-candidate election
 - **THEN** the ballot is written exactly as today and its choice column is NULL
-
-## ADDED Requirements
 
 ### Requirement: Single candidate ballot with three answers
 
