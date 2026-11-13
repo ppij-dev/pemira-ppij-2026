@@ -20,8 +20,8 @@ While single candidate mode is on, candidate management SHALL refuse to add a se
 
 #### Scenario: Reduce an existing list to one
 
-- **WHEN** the mode is turned on while three candidates exist and Admin Voting deletes two of them
-- **THEN** the deletions succeed and the list reaches exactly one candidate
+- **WHEN** three candidates exist with the mode off, Admin Voting deletes two of them, and then switches the mode on
+- **THEN** the deletions succeed and the switch turns on with exactly one candidate
 
 #### Scenario: Mode off behaves as before
 

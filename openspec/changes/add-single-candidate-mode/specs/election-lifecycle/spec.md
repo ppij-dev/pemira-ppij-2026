@@ -10,12 +10,17 @@ recorded by the Kunci & Jadwalkan audit entry.
 
 ### Requirement: Single candidate mode switch in Pengaturan
 
-While Draf, Pengaturan SHALL let Admin Voting turn single candidate mode on or off, and each toggle SHALL be recorded in the audit log. In later stages the switch SHALL be shown read-only and SHALL refuse changes. The mode SHALL be off for a new election.
+While Draf, Pengaturan SHALL let Admin Voting turn single candidate mode on or off, and each toggle SHALL be recorded in the audit log. Turning the mode on SHALL be refused while two or more candidates are registered, with a message naming the candidate count. In later stages the switch SHALL be shown read-only and SHALL refuse changes. The mode SHALL be off for a new election.
 
 #### Scenario: Turn on in Draf
 
-- **WHEN** an Admin Voting switches single candidate mode on in Pengaturan while Draf
+- **WHEN** an Admin Voting switches single candidate mode on in Pengaturan while Draf with 0 or 1 candidate registered
 - **THEN** the value is saved, the switch shows on, and an audit entry records the Admin Voting action
+
+#### Scenario: Switch refused with two candidates
+
+- **WHEN** an Admin Voting tries to switch the mode on while two or more candidates are registered
+- **THEN** the request is refused with a message naming the candidate count and the mode stays off
 
 #### Scenario: Turn off again in Draf
 

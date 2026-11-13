@@ -31,7 +31,10 @@ rule, the tie wording, and Bahasa Indonesia copy with no emoji.
 ### D1: Mode column on `elections`, frozen at Kunci
 
 `elections.single_candidate_mode INTEGER NOT NULL DEFAULT 0 CHECK (single_candidate_mode
-IN (0, 1))` — the same pattern as `preview_mode`. Rationale: one election per site already
+IN (0, 1))` — the same pattern as `preview_mode`. Owner decision (2026-11-13, Q35):
+enabling the switch is refused while two or more candidates are registered, with a
+message naming the candidate count; turning it off stays possible in Draf.
+Rationale: one election per site already
 carries its Draf-only switches there; the lifecycle layer already refuses setting writes
 when `status_lock != 'draft'`, which is exactly the "frozen at Kunci" rule; and the Kunci
 audit detail already records frozen values (`frozen_hak_pilih`, deleted test votes), so
@@ -125,6 +128,9 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
   hanya satu kandidat yang dapat didaftarkan."
 - Toggle audit actions: "Mode kandidat tunggal diaktifkan" / "Mode kandidat tunggal
   dinonaktifkan".
+- Refusal to enable the switch with 2+ candidates (owner decision 2026-11-13, Q35): a
+  clear message naming the count, e.g. "Mode kandidat tunggal tidak dapat diaktifkan:
+  saat ini terdaftar 3 kandidat. Sisakan 0 atau 1 kandidat terlebih dahulu."
 - Wording: "Admin Voting" for committee members everywhere; "Pemilih" for voters.
 
 ### D8: No nomor urut in single candidate mode
@@ -149,7 +155,7 @@ the numbered URL is not generated in single mode.
 **Confirmation sheet copy.** Per the owner's exact wording, the sheet states the chosen
 answer: "Pilihan Anda: Setuju terhadap <nickname>". The same pattern is used for the other
 answers ("Pilihan Anda: Tidak Setuju terhadap <nickname>", "Pilihan Anda: Abstain
-terhadap <nickname>"); the Abstain phrasing is flagged as an open question.
+terhadap <nickname>") — Abstain wording confirmed by the owner (2026-11-13, Q34).
 
 ## Risks / Trade-offs
 
@@ -169,12 +175,6 @@ backfill is needed (no election has run in this mode before).
 
 ## Open questions
 
-- Should the Abstain confirmation sheet use "Pilihan Anda: Abstain terhadap <nickname>"
-  (same pattern as Setuju, assumed here) or a different phrasing such as
-  "Pilihan Anda: Abstain"?
-- Should Pengaturan refuse to turn the mode on while two or more candidates already exist?
-  (Assumed: no — the brief only refuses Kunci and the second candidate; the committee
-  reduces the list to one in Draf.)
-
-Both are with the owner; nothing else in this change depends on them.
+_None._ Both earlier questions are owner decisions now (2026-11-13, Q34: Abstain wording;
+Q35: the switch refuses to turn on with 2+ candidates).
 

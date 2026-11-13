@@ -21,12 +21,16 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 ## 2. Server: Pengaturan switch, readiness and lock (election-lifecycle)
 
 - [ ] 2.1 Failing tests first in `test/election-lifecycle.test.ts`: toggle allowed in Draf
-      (on and off again), refused after Kunci, audit entry per toggle, readiness candidate
-      check mode-aware (exactly one when on; 2–10 when off), lock succeeds with exactly
-      one candidate while on, lock audit detail records `single_candidate_mode`.
+      (on and off again), refused after Kunci, refused with 2+ candidates (message naming
+      the candidate count, mode stays off; owner decision Q35), audit entry per accepted
+      toggle, readiness candidate check mode-aware (exactly one when on; 2–10 when off),
+      lock succeeds with exactly one candidate while on, lock audit detail records
+      `single_candidate_mode`.
 - [ ] 2.2 Implement the toggle in `src/server/election/lifecycle.ts` + admin route:
       Draf-only write of `elections.single_candidate_mode`, refusal message for later
-      stages, audit entries "Mode kandidat tunggal diaktifkan"/"…dinonaktifkan".
+      stages, refusal to enable while two or more candidates are registered (message
+      naming the count, see design D7), audit entries "Mode kandidat tunggal
+      diaktifkan"/"…dinonaktifkan".
 - [ ] 2.3 Make `getReadiness` mode-aware: replace the candidate-count check with exactly
       one candidate while the mode is on (message naming one candidate), keep "Minimal 2
       kandidat"/"Maksimal 10 kandidat" while off.

@@ -24,9 +24,10 @@ decision. Ballot secrecy, receipts, eligibility and participation rules are unch
   when the switch is off (unchanged), exactly one when it is on. The frozen mode value is
   written into the lock audit entry's detail.
 - **Adding a second candidate is refused while the switch is on.** Candidate management
-  refuses a second candidate in Draf with a message that names the mode. Turning the
-  switch on while several candidates already exist stays possible (it is Draf), but Kunci
-  stays blocked until exactly one candidate remains.
+  refuses a second candidate in Draf with a message that names the mode. The switch can
+  only be turned on while 0 or 1 candidate is registered; with 2+ candidates Pengaturan
+  refuses the switch with a clear message naming the candidate count (owner decision
+  2026-11-13, Q35).
 - **Ballot with three answers.** While the mode is on and voting is open, the eligible
   voter sees the single candidate and chooses exactly one of Setuju, Tidak Setuju or
   Abstain before the same confirmation sheet (typing the candidate's nickname) and the
