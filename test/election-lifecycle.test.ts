@@ -281,8 +281,8 @@ describe("kembali ke draf",()=>{
 
 describe("POST /api/election/return-to-draft",()=>{
  beforeEach(()=>setup());
- async function post(memberId:string,body:unknown){
-  const cookie=await sealSession({member_id:memberId,name:memberId,affiliation:"/ppij/test",auth_time:Math.floor(Date.now()/1000)},MASTER_KEY);
+ async function post(memberId:string,body:unknown,sessionName=memberId){
+  const cookie=await sealSession({member_id:memberId,name:sessionName,affiliation:"/ppij/test",auth_time:Math.floor(Date.now()/1000)},MASTER_KEY);
   return app.request("/api/election/return-to-draft",{method:"POST",headers:{cookie:`ppij_session=${cookie}`,"content-type":"application/json"},body:JSON.stringify(body)},BINDINGS);
  }
  async function readyRoute(){
@@ -303,15 +303,29 @@ describe("POST /api/election/return-to-draft",()=>{
   const wrong=await post("member-8",{phrase:"salah"});
   expect(wrong.status).toBe(400);
   expect(await wrong.json()).toEqual({error:"Frasa konfirmasi tidak sesuai."});
-  const ok=await post("member-8",{phrase:PHRASE});
+  // Sesi produksi membawa UUID sebagai klaim nama; audit memakai nama tampilan roll.
+  const memberUuid="8f14e45f-ceea-467a-9f3f-0d1c2b3a4c5d";
+  const ok=await post("member-8",{phrase:PHRASE},memberUuid);
   expect(ok.status).toBe(200);
   // Rute memakai jam sistem; jadwal contoh sudah lewat, jadi tahap yang ditinggalkan Ditutup.
   expect(await ok.json()).toMatchObject({ok:true,kept_ballots:0,kept_participation:0,stage_before:"closed"});
   const entry=await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name,action,target,detail_json FROM audit_log WHERE action='Pemilihan dikembalikan ke Draf'").first<Record<string,unknown>>();
-  expect(entry).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"member-8",action:"Pemilihan dikembalikan ke Draf",target:null});
+  expect(entry).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"Member 8",action:"Pemilihan dikembalikan ke Draf",target:null});
+  expect(JSON.stringify(entry)).not.toContain(memberUuid);
   expect(JSON.parse(String(entry!.detail_json))).toMatchObject({stage_before:"closed",kept_ballots:0,kept_participation:0});
   // Permintaan kedua ditolak sebagai 409 karena pemilihan sudah Draf.
   expect((await post("member-8",{phrase:PHRASE})).status).toBe(409);
+ });
+ it("tidak pernah menulis UUID sebagai nama pelaku saat roll belum punya nama",async()=>{
+  await lockPreview();
+  await readyRoute();
+  // Admin tanpa baris roll dan klaim nama sesi berisi UUID: audit memakai label netral.
+  await env.DB.prepare("DELETE FROM voters WHERE member_id='member-8'").run();
+  const memberUuid="8f14e45f-ceea-467a-9f3f-0d1c2b3a4c5d";
+  expect((await post("member-8",{phrase:PHRASE},memberUuid)).status).toBe(200);
+  const entry=await env.DB.prepare("SELECT actor_member_id,actor_name FROM audit_log WHERE action='Pemilihan dikembalikan ke Draf'").first<{actor_member_id:string;actor_name:string}>();
+  expect(entry).toEqual({actor_member_id:"member-8",actor_name:"Admin Voting"});
+  expect(entry!.actor_name).not.toBe(memberUuid);
  });
 });
 
