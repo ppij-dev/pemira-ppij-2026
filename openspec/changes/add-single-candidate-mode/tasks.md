@@ -11,9 +11,12 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       IN (0, 1))` with an Indonesian comment naming the Draf-only switch and the freeze at
       Kunci & Jadwalkan (mirrors `0006_preview_mode.sql`).
 - [x] 1.2 Write `migrations/0012_ballot_choice.sql`: `ALTER TABLE ballots ADD COLUMN
-      choice TEXT CHECK (choice IN ('setuju','tidak_setuju','abstain'))` with a comment
-      explaining NULL = normal multi-candidate ballots and that the column carries no
-      member link (secrecy).
+      choice TEXT CHECK (choice IN ('setuju','tidak_setuju'))` with a comment explaining
+      NULL = normal multi-candidate ballots and that the column carries no member link
+      (secrecy).
+- [ ] 1.4 Revisi W7 Q37: edit `0012_ballot_choice.sql` in place to the two-value CHECK
+      (no environment has applied it yet) and update `test/schema.test.ts`: 'abstain' is
+      now rejected, only setuju/tidak_setuju and NULL pass.
 - [x] 1.3 Extend `test/schema.test.ts`: both migrations apply to a fresh D1, the elections
       default is off, an insert of a ballot with an out-of-range choice fails the CHECK,
       NULL passes, existing multi-candidate ballot inserts still succeed.
@@ -62,7 +65,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 ## 4. Server: ballot with choice (voting)
 
 - [x] 4.1 Failing tests first in `test/vote-api.test.ts`: in single candidate mode a vote
-      with each of the three choices is accepted and stored (choice + single
+      with each of the two choices is accepted and stored (choice + single
       `candidate_id`); missing/invalid choice → HTTP 400, nothing recorded;
       `candidate_id` of a different candidate → 400; with the mode off a request carrying
       a choice → 400 and a normal vote still stores NULL; participation + ballot still one
@@ -72,26 +75,38 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       `choice` only while the mode is on, enforce `candidate_id` = the single registered
       candidate, write `choice` in the existing single D1 batch, keep the nickname
       confirmation and one-vote-per-member guards identical; run the group's tests green.
+- [ ] 4.3 Revisi W7 Q37: `choice` accepts only `setuju` and `tidak_setuju` in both the
+      Pemilih vote path and `castTestVote` ('abstain' → HTTP 400); update
+      `test/vote-api.test.ts`, `test/election-lifecycle.test.ts` and the single-mode
+      receipt-board test.
 
 ## 5. Server: Uji Coba with a choice
 
 - [x] 5.1 Failing test in `test/election-lifecycle.test.ts`: while the mode is on a Uji
-      Coba vote stores a chosen choice and Dasbor counts it as test data; while off the
-      test vote shape is unchanged.
+      Coba vote stores a chosen choice (setuju or tidak_setuju) and Dasbor counts it as
+      test data; while off the test vote shape is unchanged.
 - [x] 5.2 Extend `castTestVote` accordingly; run the group's tests green.
 
 ## 6. Server: results and outcome (results)
 
 - [x] 6.1 Failing tests first in `test/results-api.test.ts`: in single candidate mode the
-      payload carries the three counts with their shares of votes cast (Setuju + Tidak
-      Setuju + Abstain in scope), the outcome (`terpilih` / `tidak_terpilih` / `seri` /
-      `belum_ada_suara`) for Setuju ahead, Tidak Setuju ahead, tie with at least one
-      ballot cast, and the "Belum ada suara" zero-ballot case; per-korda rows carry the three counts above 10 ballots and
-      stay suppressed below; test rows in Draf behave as today; with the mode off the
-      payload equals today's shape.
+      payload carries Setuju, Tidak Setuju and Tidak memilih with their shares of Hak
+      pilih, the outcome for Setuju above half, Tidak Setuju plus Tidak memilih above
+      Setuju, a tie, and the no-ballots case (all eligible members Tidak memilih →
+      "Tidak terpilih"); per-korda rows carry the three counts above 10 ballots and stay
+      suppressed below; test rows in Draf behave as today; with the mode off the payload
+      equals today's shape.
 - [x] 6.2 Implement the aggregation and outcome computation in
       `src/server/results/queries.ts` (set-based SQL, same suppression constant); run the
       group's tests green.
+- [ ] 6.3 Revisi W7 Q37/Q38: `abstain_count`/`abstain_percentage` are replaced by
+      `tidak_memilih_count`/`tidak_memilih_percentage` (`eligible_count -
+      participation_count`, clamped at zero) and all three percentages become shares of
+      Hak pilih; the outcome becomes `terpilih | tidak_terpilih | seri |
+      menunggu_penutupan` — `menunggu_penutupan` while the stage is before close,
+      `terpilih` only when Setuju > Tidak Setuju + Tidak memilih, `seri` when equal;
+      remove the "Belum ada suara" case. Tests cover all four outcome values and the
+      no-ballots case.
 
 ## 7. UI: Pengaturan switch (admin)
 
@@ -105,28 +120,28 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 ## 8. UI: single-candidate ballot (voter)
 
 - [ ] 8.1 `src/pages/pilih-suara.astro`: while the mode is on show the single candidate
-      with the three answers "Setuju", "Tidak Setuju", "Abstain" (radio-style cards),
+      with the two answers "Setuju" and "Tidak Setuju" (radio-style cards, no Abstain),
       require a selection before the confirmation sheet opens, then the existing sheet
       (type the nickname) and "Kirim Suara"; the ballot and the sheet show no nomor urut
       and the sheet states the chosen answer as "Pilihan Anda: Setuju terhadap <nickname>"
-      (likewise "Tidak Setuju"/"Abstain terhadap"); success screen, one-time code and
-      Bukti Suara link untouched; keep the multi-candidate UI exactly as-is while the
-      mode is off.
-- [ ] 8.2 Focused check: build passes; manual smoke of the three answers against the local
+      (likewise "Tidak Setuju terhadap"); success screen, one-time code and Bukti Suara
+      link untouched; keep the multi-candidate UI exactly as-is while the mode is off.
+- [ ] 8.2 Focused check: build passes; manual smoke of the two answers against the local
       dev server is covered by the group 4 API tests plus this render check.
 
 ## 9. UI: results and outcome (Dasbor, Hasil, landing)
 
 - [ ] 9.1 `src/pages/admin/dasbor.astro`: in single candidate mode render the three counts
-      with percentages, the outcome line ("Terpilih" / "Tidak terpilih" / "Seri,
-      keputusan diserahkan kepada panitia") and the per-korda columns, all without a
-      nomor urut (nickname and color only); normal mode rendering untouched; manual
-      refresh behavior untouched.
+      "Setuju", "Tidak Setuju" and "Tidak memilih (dihitung Tidak Setuju)" with their
+      shares of Hak pilih, the outcome line ("Terpilih" / "Tidak terpilih" / "Seri,
+      keputusan diserahkan kepada panitia" / "Menunggu penutupan pemungutan suara") and
+      the per-korda columns, all without a nomor urut (nickname and color only); normal
+      mode rendering untouched; manual refresh behavior untouched.
 - [ ] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
       presentation once Diumumkan, including the Seri line and the number-free candidate
       card linking to `/kandidat/<nickname>`; nothing before Diumumkan.
 - [ ] 9.3 Focused check: build passes and the outcome line strings match design.md D7
-      exactly.
+      exactly (including "Menunggu penutupan pemungutan suara" before close).
 
 ## 10. Verification
 
@@ -136,3 +151,6 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       tally view recorded, never a choice), manual refresh only, roles wording ("Admin
       Voting"), Bahasa Indonesia copy with no emoji.
 - [x] 10.3 `openspec validate add-single-candidate-mode --strict` passes before handoff.
+- [ ] 10.4 Give the two 601-row tests in `test/audit-api.test.ts` an explicit 20 s timeout
+      (they take ~1.7 s alone and flake against vitest's 5 s default under the full
+      parallel run).

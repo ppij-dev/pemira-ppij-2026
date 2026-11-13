@@ -24,22 +24,22 @@ While single candidate mode is on, the landing page's candidate card SHALL omit 
 
 ### Requirement: Published single-candidate results
 
-Once Diumumkan in single candidate mode, the landing page and Hasil tab SHALL present the Setuju, Tidak Setuju and Abstain counts with their shares of votes cast, the outcome line ("Terpilih", "Tidak terpilih", "Belum ada suara" or "Seri, keputusan diserahkan kepada panitia") and no nomor urut; korda rows SHALL show the same three counts under the existing suppression, and turnout statistics SHALL appear as today. Before Diumumkan, counts SHALL be visible only to Admin Voting.
+Once Diumumkan in single candidate mode, the landing page and Hasil tab SHALL present the Setuju, Tidak Setuju and Tidak memilih counts with their shares of Hak pilih plus one outcome line, and no nomor urut. Non-voters SHALL count as Tidak Setuju, derived from the frozen Hak pilih minus participation. Korda rows SHALL show the same three counts under the existing suppression, and turnout SHALL appear as today.
 
 #### Scenario: Published single-candidate results
 
-- **WHEN** a visitor opens the landing page after publication in single candidate mode with Setuju ahead
-- **THEN** the page shows the three counts with percentages, the outcome line "Terpilih", permitted korda rows and turnout statistics, with no nomor urut
+- **WHEN** a visitor opens the landing page after publication in single candidate mode with Hak pilih 100, 55 Setuju, 30 Tidak Setuju and 15 Tidak memilih
+- **THEN** the page shows the three counts with 55%, 30% and 15% of Hak pilih, the outcome line "Terpilih", permitted korda rows and turnout statistics, with no nomor urut
 
 #### Scenario: Published tie
 
-- **WHEN** results are published with Setuju equal to Tidak Setuju and at least one ballot cast
+- **WHEN** results are published with Setuju equal to Tidak Setuju plus Tidak memilih and Hak pilih above zero
 - **THEN** the public outcome line reads "Seri, keputusan diserahkan kepada panitia" and no winner is named
 
 #### Scenario: Published with no ballots
 
-- **WHEN** results are published in single candidate mode and no ballots were cast
-- **THEN** the public outcome line reads "Belum ada suara" and no winner is named
+- **WHEN** results are published in single candidate mode and no ballots were cast at all
+- **THEN** every eligible member counts as Tidak memilih and the public outcome line reads "Tidak terpilih"
 
 #### Scenario: Closed but not published
 

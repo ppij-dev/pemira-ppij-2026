@@ -13,9 +13,11 @@ a per-korda suppression under 10 ballots. The vote API takes `candidate_id` plus
 `confirmation_text` (nickname, case/space-insensitive).
 
 Owner decisions (2026-11-13) are fixed: the switch, its Draf-only editability, the Kunci
-refusal unless exactly one candidate, the second-candidate refusal, the three ballot
-answers, keeping `candidate_id` plus a `choice` column, the Setuju > Tidak Setuju winning
-rule, the tie wording, and Bahasa Indonesia copy with no emoji.
+refusal unless exactly one candidate, the second-candidate refusal, the two ballot answers
+(Setuju / Tidak Setuju, no Abstain — W7 Q37), keeping `candidate_id` plus a `choice`
+column, the winning rule of Setuju against Tidak Setuju plus non-voters (W7 Q38), the
+outcome existing only after close, the tie wording, and Bahasa Indonesia copy with no
+emoji.
 
 ## Goals / Non-goals
 
@@ -44,15 +46,17 @@ recording the mode there needs no new mechanism.
 
 While the mode is on, the ballot stores the single candidate in `candidate_id` (as today)
 and the answer in a new column: `ballots.choice TEXT CHECK (choice IN
-('setuju','tidak_setuju','abstain'))`, NULL for normal multi-candidate ballots. Both
-columns are added by new migrations; no table is rebuilt, `WITHOUT ROWID` is untouched.
+('setuju','tidak_setuju'))`, NULL for normal multi-candidate ballots. Both columns are
+added by new migrations; no table is rebuilt, `WITHOUT ROWID` is untouched.
 
 **Why this keeps ballot secrecy.** `choice` is ballot content, not voter content: it adds
 no member reference, no timestamp and no ordering hint. Ballots keep their random id, no
 time column and `WITHOUT ROWID`, and continue to be written in the same single D1 batch as
 the participation row with nothing linking them, so "no column, ordering or timestamp
-connects a ballot to a member" still holds. An abstain is indistinguishable from any other
-ballot at the storage layer — the choice is only ever read as an aggregate count.
+connects a ballot to a member" still holds. A Tidak Setuju ballot is indistinguishable
+from any other ballot at the storage layer — the choice is only ever read as an aggregate
+count. Non-voters are never read per person: "tidak memilih" is the frozen Hak pilih total
+minus the participation total.
 
 **Why this is backward compatible.** Existing ballots all read NULL in `choice`; every
 existing query (tally by candidate, per-korda buckets, count check) keeps working
@@ -63,33 +67,44 @@ the constraint, which is exactly the multi-candidate case.
 
 **Alternatives rejected.** A separate referendum/answer table would fork the receipt,
 board, count-check and results code paths and duplicate the secrecy invariants; encoding
-the three answers as pseudo-candidates would corrupt candidate semantics (numbers,
+the two answers as pseudo-candidates would corrupt candidate semantics (numbers,
 nicknames, colors, the 2–10 rule) and the audit trail.
 
 ### D3: Winning rule and the outcome line
 
-The outcome is a pure function of the real (non-test) ballots:
+At close every member of the frozen Hak pilih who did not vote counts as Tidak Setuju
+(owner decision 2026-11-13, W7 Q38). The comparison is therefore against
+`tidak_setuju_count + tidak_memilih_count`, and `tidak_memilih_count` is
+`eligible_count - participation_count` (never below zero), with no per-person lookup:
 
-- `setuju_count > tidak_setuju_count` → outcome "Terpilih" (the single candidate is
-  elected).
-- `tidak_setuju_count > setuju_count` → outcome "Tidak terpilih".
-- zero ballots cast (both 0) → outcome "Belum ada suara" (owner decision 2026-11-13).
-- equal with at least one ballot cast → outcome "Seri, keputusan diserahkan kepada
-  panitia".
+- `setuju_count > tidak_setuju_count + tidak_memilih_count` → outcome "Terpilih": the
+  candidate has more than half of Hak pilih.
+- `setuju_count === tidak_setuju_count + tidak_memilih_count` → outcome "Seri, keputusan
+  diserahkan kepada panitia".
+- otherwise → outcome "Tidak terpilih".
 
-`abstain_count` is displayed and counts toward votes cast (percentages), but never enters
-the comparison. "The system records no decision" for a tie means: no outcome column or
-flag is stored, no audit entry or admin control exists for deciding a tie, and the
-published result simply states the Seri line. Re-election is not modeled anywhere.
-Owner decisions (2026-11-13) on the outcome details: zero ballots cast shows
-"Belum ada suara" instead of the Seri line; Uji Coba may pick any of the three answers;
-percentages are shares of votes cast (Setuju + Tidak Setuju + Abstain) per scope.
+The counts come from real (non-test) ballots and the frozen Hak pilih. With no ballots
+cast every eligible member is Tidak memilih, so the outcome is "Tidak terpilih"; the
+earlier "Belum ada suara" case is removed by W7 Q37/Q38. If Hak pilih is zero (no eligible
+member at all) the comparison is equal and the outcome is Seri.
+
+**The outcome exists only after voting closes.** While Draf, terjadwal or Dibuka the
+results payload carries `outcome: "menunggu_penutupan"` (UI: "Menunggu penutupan
+pemungutan suara") together with the running counts; only in Tutup or Diumumkan is the
+outcome one of `terpilih | tidak_terpilih | seri`.
+
+"The system records no decision" for a tie means: no outcome column or flag is stored, no
+audit entry or admin control exists for deciding a tie, and the published result simply
+states the Seri line. Re-election is not modeled anywhere.
+
+Owner decisions (2026-11-13) on the outcome details: Uji Coba may pick either answer;
+percentages are shares of Hak pilih per scope (overall and per korda).
 
 ### D4: Vote API shape
 
 While the mode is on, the vote request still carries `candidate_id` (it MUST equal the one
 registered candidate — kept so the storage contract does not fork) and additionally the
-answer as `choice` ∈ `setuju | tidak_setuju | abstain`. A request without a valid choice
+answer as `choice` ∈ `setuju | tidak_setuju`. A request without a valid choice
 is refused with HTTP 400 and records nothing, mirroring the existing confirmation-text
 refusal. While the mode is off, a request that carries a non-null `choice` is refused the
 same way, so multi-candidate behavior stays unchanged. The confirmation sheet is
@@ -98,22 +113,23 @@ untouched: the nickname check runs exactly as today, on top of the choice check.
 ### D5: Results payload
 
 `ResultsPayload`/`DashboardPayload` gain a mode flag plus, when the mode is on,
-`outcome` (`terpilih | tidak_terpilih | seri | belum_ada_suara`) and `setuju_count`,
-`tidak_setuju_count`, `abstain_count` with percentages of votes cast — each answer's
-share of the Setuju + Tidak Setuju + Abstain ballots in scope (one decimal, like
-turnout) — overall and inside each `korda` row. The `candidates` array is kept (with the
-single candidate and its total) so existing consumers and the count check stay intact.
-The percentages use the same ballot total as the counts themselves, so they always sum to
-100 over the three answers.
+`outcome` (`terpilih | tidak_terpilih | seri | menunggu_penutupan`) and `setuju_count`,
+`tidak_setuju_count`, `tidak_memilih_count` with percentages of Hak pilih — each count's
+share of the eligible members in scope (one decimal, like turnout) — overall and inside
+each `korda` row. `tidak_memilih_count` is `eligible_count - participation_count` clamped
+at zero, so the three counts always add up to Hak pilih and the three percentages always
+sum to 100 when Hak pilih is above zero. The `candidates` array is kept (with the single
+candidate and its total) so existing consumers and the count check stay intact.
 The per-korda suppression (`KORDA_MIN_BALLOTS = 10`) applies unchanged: below 10 ballots a
-korda row shows turnout and "Data terlalu sedikit" and no choice breakdown.
+korda row shows turnout and "Data terlalu sedikit" and no choice breakdown (the three
+counts are null there).
 
 ### D6: Uji Coba and preview mode
 
 In Draf, Uji Coba is the committee's rehearsal of the real ballot, so while the mode is on
-the test-vote flow lets the Admin Voting pick any of the three answers (owner decision
-2026-11-13) and stores it on the test ballot (still deleted at Kunci, still marked as test
-data on Dasbor). Preview mode and single candidate mode are
+the test-vote flow lets the Admin Voting pick either answer, Setuju or Tidak Setuju (owner
+decision 2026-11-13, W7 Q37) and stores it on the test ballot (still deleted at Kunci,
+still marked as test data on Dasbor). Preview mode and single candidate mode are
 independent switches in Pengaturan: preview still auto-registers voters and skips the
 final sync at Kunci; single candidate mode still demands exactly one candidate at Kunci.
 
@@ -121,9 +137,11 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
 
 - Switch: "Mode kandidat tunggal" with helper text that it can only be changed while Draf
   and demands exactly one candidate at Kunci & Jadwalkan.
-- Ballot answers: "Setuju", "Tidak Setuju", "Abstain" (the owner's exact words).
-- Outcome lines: "Terpilih", "Tidak terpilih", "Belum ada suara", "Seri, keputusan
-  diserahkan kepada panitia".
+- Ballot answers: "Setuju" and "Tidak Setuju" (the owner's exact words); there is no
+  Abstain.
+- Outcome lines: "Terpilih", "Tidak terpilih", "Seri, keputusan diserahkan kepada
+  panitia", and "Menunggu penutupan pemungutan suara" before voting closes.
+- Result labels: "Setuju", "Tidak Setuju", "Tidak memilih (dihitung Tidak Setuju)".
 - Refusal to add a second candidate: names the mode, e.g. "Mode kandidat tunggal aktif:
   hanya satu kandidat yang dapat didaftarkan."
 - Toggle audit actions: "Mode kandidat tunggal diaktifkan" / "Mode kandidat tunggal
@@ -153,9 +171,8 @@ and every link to the profile — cards, landing page, ballot — uses that numb
 the numbered URL is not generated in single mode.
 
 **Confirmation sheet copy.** Per the owner's exact wording, the sheet states the chosen
-answer: "Pilihan Anda: Setuju terhadap <nickname>". The same pattern is used for the other
-answers ("Pilihan Anda: Tidak Setuju terhadap <nickname>", "Pilihan Anda: Abstain
-terhadap <nickname>") — Abstain wording confirmed by the owner (2026-11-13, Q34).
+answer: "Pilihan Anda: Setuju terhadap <nickname>" or "Pilihan Anda: Tidak Setuju terhadap
+<nickname>". The Abstain wording of the earlier revision is withdrawn (W7 Q37).
 
 ## Risks / Trade-offs
 
@@ -164,17 +181,23 @@ terhadap <nickname>") — Abstain wording confirmed by the owner (2026-11-13, Q3
   audit detail.
 - **`choice` widens the ballot schema** — closed by the CHECK constraint, NULL-for-normal
   compatibility, and the secrecy argument in D2.
+- **Counting non-voters as Tidak Setuju could look like per-person data** — it is only
+  `eligible_count - participation_count` on frozen totals, never a join between
+  participation and ballots, so the secrecy invariants of D2 still hold.
 
 ## Migration plan
 
 1. `0011_single_candidate_mode.sql` — add the elections column (default off).
-2. `0012_ballot_choice.sql` — add `ballots.choice` (NULL for existing ballots).
+2. `0012_ballot_choice.sql` — add `ballots.choice` with the two allowed answers (NULL for
+   existing ballots). No environment has applied this migration yet, so it is edited in
+   place to the two-value CHECK (W7 Q37).
 
 Both are repeat-safe D1 migrations applied by the documented operator flow; no data
 backfill is needed (no election has run in this mode before).
 
 ## Open questions
 
-_None._ Both earlier questions are owner decisions now (2026-11-13, Q34: Abstain wording;
-Q35: the switch refuses to turn on with 2+ candidates).
+_None._ The earlier questions are owner decisions: Q35 (the switch refuses to turn on with
+2+ candidates), W7 Q37 (no Abstain — only Setuju / Tidak Setuju) and W7 Q38 (non-voters
+count as Tidak Setuju, outcome only after close).
 
