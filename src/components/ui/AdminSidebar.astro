@@ -7,6 +7,7 @@
  */
 import type { Component } from "astro";
 import { IconChevronLeft, IconLogout, IconLayoutSidebar } from "@tabler/icons-astro";
+import { NEUTRAL_ADMIN_NAME } from "../../server/lib/displayName";
 
 interface NavItem {
   href: string;
@@ -80,7 +81,7 @@ const { items, current, identity, brand, voterHref } = Astro.props;
   <div class="mt-auto grid gap-2 border-t border-[#e8eaec] px-[9px] pt-[17px] pb-0.5 group-data-[collapsed=true]/shell:justify-items-center group-data-[collapsed=true]/shell:px-0 group-data-[collapsed=true]/shell:pt-3.5">
     <p class="flex items-center gap-2.5 text-xs text-brand-muted group-data-[collapsed=true]/shell:justify-center">
       <span aria-hidden="true" class="grid size-8 shrink-0 place-items-center rounded-full bg-brand-red/8 text-xs font-extrabold text-brand-red">{identity.initials}</span>
-      <span class="min-w-0 group-data-[collapsed=true]/shell:hidden"><span class="block truncate font-bold text-brand-ink">{identity.name}</span><span class="block text-xs">Admin Voting</span></span>
+      <span class="min-w-0 group-data-[collapsed=true]/shell:hidden"><span class="block truncate font-bold text-brand-ink">{identity.name}</span>{identity.name !== NEUTRAL_ADMIN_NAME && <span class="block text-xs">Admin Voting</span>}</span>
     </p>
     <a href={voterHref} class="flex min-h-11 items-center gap-2 rounded-lg text-[13px] font-bold text-[#5c646d] no-underline hover:text-brand-ink focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none group-data-[collapsed=true]/shell:justify-center">
       <IconLogout size={17} stroke={1.8} aria-hidden="true" />

@@ -568,9 +568,10 @@ describe("Results API - Audit Trail and Privacy", () => {
     await seedElection({ status: "locked", frozen: 10 });
     await seedCandidates();
 
-    const first = await requestDashboard("admin-1", "Rina Admin");
+    // Klaim nama sesi berisi UUID anggota; nama roll portal yang dipakai.
+    const first = await requestDashboard("admin-1", "2b6b8200-6b6b-4e04-960d-1023682c5d56");
     expect(first.status).toBe(200);
-    const second = await requestDashboard("admin-1", "Rina Admin");
+    const second = await requestDashboard("admin-1", "2b6b8200-6b6b-4e04-960d-1023682c5d56");
     expect(second.status).toBe(200);
 
     const rows = (
@@ -580,7 +581,7 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(rows.every((r) => r.action === "admin_tally_viewed")).toBe(true);
     expect(rows[0]!.actor_type).toBe("admin");
     expect(rows[0]!.actor_member_id).toBe("admin-1");
-    expect(rows[0]!.actor_name).toBe("Rina Admin");
+    expect(rows[0]!.actor_name).toBe("Admin 1");
     // Verify no ballot IDs, candidate choices or member IDs leaked into detail_json.
     expect(rows[0]!.detail_json).toBe(JSON.stringify({ stage: "open" }));
     // SHA-256 chain is valid.
