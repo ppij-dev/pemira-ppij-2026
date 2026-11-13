@@ -95,7 +95,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 7. UI: Pengaturan switch (admin)
 
-- [ ] 7.1 `src/pages/admin/pemilihan.astro`: add the "Mode kandidat tunggal" switch to the
+- [x] 7.1 `src/pages/admin/pemilihan.astro`: add the "Mode kandidat tunggal" switch to the
       schedule/settings panel, editable only in Draf (read-only with explanatory text
       afterwards), helper text naming the exactly-one-candidate rule, posting to the
       toggle route with refresh-by-navigation only (no polling), no emoji.

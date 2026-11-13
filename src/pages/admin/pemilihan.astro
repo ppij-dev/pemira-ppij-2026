@@ -5,13 +5,17 @@ import AdminLayout from "../../layouts/AdminLayout.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import PanelCard from "../../components/ui/PanelCard.astro";
 import Callout from "../../components/ui/Callout.astro";
+import Badge from "../../components/ui/Badge.astro";
 import Button from "../../components/ui/Button.astro";
 import FormField from "../../components/ui/FormField.astro";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
 const db = authorized ? bindings.DB : undefined;
-const e = await db?.prepare('SELECT title,description,opens_at,closes_at,preview_mode FROM elections ORDER BY id LIMIT 1').first<any>();
+const e = await db?.prepare('SELECT title,description,opens_at,closes_at,preview_mode,status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1').first<any>();
+// Mode kandidat tunggal hanya dapat diubah saat Draf; setelah Kunci tampil baca-saja.
+const singleCandidateMode = e?.single_candidate_mode === 1;
+const singleCandidateEditable = e?.status_lock === 'draft';
 const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
 ---
 <AdminLayout title="Pemilihan">
@@ -44,6 +48,24 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
           <Button type="submit" variant="primary" size="sm">Simpan Jadwal</Button>
         </div>
       </form>
+      <div class="mt-5 border-t border-brand-border pt-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Mode kandidat tunggal</h3>
+              <Badge tone={singleCandidateMode ? 'brand' : 'neutral'} size="sm">{singleCandidateMode ? 'Aktif' : 'Tidak aktif'}</Badge>
+            </div>
+            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, Kunci &amp; Jadwalkan menuntut tepat satu kandidat dan surat suara menanyakan Setuju, Tidak Setuju, atau Abstain untuk kandidat itu.</p>
+          </div>
+          <label for="single-candidate-mode" class="mt-1 inline-flex shrink-0 cursor-pointer items-center">
+            <input id="single-candidate-mode" type="checkbox" role="switch" aria-label="Mode kandidat tunggal" class="peer sr-only" checked={singleCandidateMode} disabled={!singleCandidateEditable} data-editable={singleCandidateEditable ? '1' : '0'} />
+            <span aria-hidden="true" class="relative h-6 w-11 shrink-0 rounded-full bg-brand-border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary peer-checked:after:translate-x-5 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></span>
+          </label>
+        </div>
+        {!singleCandidateEditable && <p class="mt-2 text-xs leading-5 text-brand-muted">Nilai ini dibekukan setelah Kunci &amp; Jadwalkan.</p>}
+        <Callout id="single-candidate-error" tone="danger" class="mt-3" hidden></Callout>
+        <p id="single-candidate-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
+      </div>
     </PanelCard>
 
     <PanelCard title="Kesiapan" description="Selesaikan semua pemeriksaan sebelum mengunci pemilihan." icon={IconChecklist}>
@@ -102,6 +124,11 @@ async function readiness(){const r=await fetch('/api/election/readiness'),d=awai
 function values(form){const v=Object.fromEntries(new FormData(form));for(const k of ['opens_at','closes_at'])if(v[k]&&/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(v[k]))v[k]+=':00+09:00';return v}
 async function action(path,body={},confirmText){if(confirmText&&!confirm(confirmText))return;say('Memproses...');const r=await fetch('/api/election/'+path,{method:path==='schedule'?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),d=await r.json().catch(()=>({}));say(r.ok?'Perubahan berhasil disimpan.':(d.error||'Tindakan gagal')+(d.checks?' — '+d.checks.filter(c=>!c.ok).map(c=>c.message).join('; '):''));await readiness()}
 on('#refresh','click',readiness);
+// Saklar mode kandidat tunggal: kirim seluruh nilai (bukan selisih), tampilkan
+// teks galat server apa adanya, dan kembalikan saklar bila ditolak.
+const scToggle=document.querySelector('#single-candidate-mode'),scError=document.querySelector('#single-candidate-error'),scStatus=document.querySelector('#single-candidate-status');
+const scClear=()=>{if(scError){scError.textContent='';scError.setAttribute('hidden','')}};
+if(scToggle)scToggle.addEventListener('change',async()=>{const enabled=scToggle.checked;scClear();if(scStatus)scStatus.textContent='Menyimpan...';scToggle.disabled=true;try{const r=await fetch('/api/election/single-candidate-mode',{method:'PUT',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})}),d=await r.json().catch(()=>({}));if(!r.ok){scToggle.checked=!enabled;if(scError){scError.textContent=d.error||'Mode kandidat tunggal gagal disimpan.';scError.removeAttribute('hidden')}if(scStatus)scStatus.textContent='';return}if(scStatus)scStatus.textContent=enabled?'Mode kandidat tunggal diaktifkan.':'Mode kandidat tunggal dinonaktifkan.';await readiness()}catch{scToggle.checked=!enabled;if(scError){scError.textContent='Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.';scError.removeAttribute('hidden')}}finally{scToggle.disabled=scToggle.dataset.editable!=='1'}});
 on('#schedule','submit',e=>{e.preventDefault();const form=e.currentTarget;const v=values(form);v.preview_mode=document.querySelector('#preview-mode').checked;action('schedule',v)});
 on('#lock','click',()=>action('lock',{},'Kunci pemilihan dan jadwalkan sekarang?'));
 on('#extend','submit',e=>{e.preventDefault();action('extend',values(e.currentTarget))});
