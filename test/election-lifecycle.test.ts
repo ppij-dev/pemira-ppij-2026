@@ -96,6 +96,26 @@ describe("mode kandidat tunggal",()=>{
   const lockAudit=await env.DB.prepare("SELECT detail_json FROM audit_log WHERE action='Pemilihan dikunci'").first<{detail_json:string}>();
   expect(JSON.parse(lockAudit!.detail_json)).toMatchObject({single_candidate_mode:false});
  });
+ it("menyimpan pilihan pada suara Uji Coba saat mode hidup dan menolak pilihan saat mode mati",async()=>{
+  await readySingle();
+  // Rehearsal surat suara tunggal: panitia memilih salah satu jawaban.
+  const test=await castTestVote(env.DB,NOW,1,"member-8","abstain");
+  expect(test.receipt_hash).toMatch(/^[0-9a-f]{64}$/);
+  const testBallot=await env.DB.prepare("SELECT candidate_id,choice,is_test FROM ballots").first();
+  expect(testBallot).toEqual({candidate_id:1,choice:"abstain",is_test:1});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM participation WHERE is_test=1").first()).toEqual({n:1});
+  // Suara uji tanpa pilihan sah ditolak dan tidak menulis apa pun.
+  await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
+  await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
+  await expect(castTestVote(env.DB,NOW,1,"member-8")).rejects.toMatchObject({status:400});
+  await expect(castTestVote(env.DB,NOW,1,"member-8","setuju-banget")).rejects.toMatchObject({status:400});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
+  // Mode mati: bentuk suara uji tidak berubah (choice NULL) dan pilihan ditolak.
+  await env.DB.prepare("UPDATE elections SET single_candidate_mode=0").run();
+  await expect(castTestVote(env.DB,NOW,1,"member-8","setuju")).rejects.toMatchObject({status:400});
+  await castTestVote(env.DB,NOW,1,"member-8");
+  expect(await env.DB.prepare("SELECT choice FROM ballots").first()).toEqual({choice:null});
+ });
 });
 
 describe("election lifecycle",()=>{

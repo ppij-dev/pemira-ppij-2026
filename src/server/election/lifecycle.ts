@@ -4,6 +4,7 @@ import { stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
+import { isVoteChoice, type VoteChoice } from "../voting/choice";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:null,actor_name:"",action,target,komsat_path:null,detail_json:detail}); }
 export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessCheck[]> {
@@ -110,11 +111,17 @@ export async function closeEarly(db:D1Database,now:Date,reason:string) {
  if(!results[0]?.meta?.changes) throw new ElectionError("Pemilihan sudah ditutup");
 }
 export async function publishResults(db:D1Database,now:Date) { await requireStage(db,now,"closed"); const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked'"),await audit(db,now,"Hasil pemilihan diumumkan",null)]); if(!result[0]?.meta.changes) throw new ElectionError("Hasil telah diumumkan"); }
-export async function castTestVote(db:D1Database,now:Date,candidateId:number,adminMemberId:string) {
- const row=await db.prepare("SELECT id,status_lock FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Uji coba hanya diizinkan saat Draf");
+export async function castTestVote(db:D1Database,now:Date,candidateId:number,adminMemberId:string,choiceInput?:unknown) {
+ const row=await db.prepare("SELECT id,status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;single_candidate_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Uji coba hanya diizinkan saat Draf");
+ // Rehearsal surat suara mode kandidat tunggal: panitia memilih salah satu dari
+ // tiga jawaban. Di luar mode itu bentuk suara uji tetap seperti sebelumnya.
+ const requestedChoice:unknown=choiceInput??null;
+ let choice:VoteChoice|null=null;
+ if(row.single_candidate_mode===1){ if(!isVoteChoice(requestedChoice)) throw new ElectionError("Pilihan suara tidak valid",400); choice=requestedChoice; }
+ else if(requestedChoice!==null) throw new ElectionError("Pilihan suara hanya berlaku pada mode kandidat tunggal",400);
  const voter=await db.prepare("SELECT name,komsat_path FROM voters WHERE member_id=?").bind(adminMemberId).first<{name:string;komsat_path:string}>(); if(!voter||!await db.prepare("SELECT 1 FROM admin_voting WHERE member_id=?").bind(adminMemberId).first()) throw new ElectionError("Admin Voting tidak aktif",403);
  if(!await db.prepare("SELECT 1 FROM candidates WHERE id=?").bind(candidateId).first()) throw new ElectionError("Kandidat tidak ditemukan",404);
  const receipt=crypto.randomUUID()+crypto.randomUUID(); const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(receipt)))).map(b=>b.toString(16).padStart(2,"0")).join("");
- try { await db.batch([db.prepare("INSERT INTO participation (election_id,member_id,member_name,voted_at,is_test) VALUES (?,?,?,?,1)").bind(row.id,adminMemberId,voter.name,now.toISOString()),db.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES (?,?,?,?,?,1)").bind(crypto.randomUUID(),row.id,candidateId,voter.komsat_path,hash),await audit(db,now,"Uji coba",String(candidateId))]); } catch(e) { if(String(e).includes("UNIQUE")||String(e).includes("constraint")) throw new ElectionError("Admin telah melakukan uji coba"); throw e; }
+ try { await db.batch([db.prepare("INSERT INTO participation (election_id,member_id,member_name,voted_at,is_test) VALUES (?,?,?,?,1)").bind(row.id,adminMemberId,voter.name,now.toISOString()),db.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES (?,?,?,?,?,1,?)").bind(crypto.randomUUID(),row.id,candidateId,voter.komsat_path,hash,choice),await audit(db,now,"Uji coba",String(candidateId))]); } catch(e) { if(String(e).includes("UNIQUE")||String(e).includes("constraint")) throw new ElectionError("Admin telah melakukan uji coba"); throw e; }
  return {receipt_hash:hash};
 }

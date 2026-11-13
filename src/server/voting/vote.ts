@@ -10,6 +10,10 @@ import { affiliationInScope } from "../admin/routes";
 import { AUDIT_GENESIS_HASH, canonicalRow, type AuditEntry } from "../lib/audit";
 import { REGULAR_MEMBER_CATEGORY } from "../../lib/memberCategory";
 import { generateReceipt } from "./receipt";
+import { isVoteChoice, type VoteChoice } from "./choice";
+
+export { VOTE_CHOICES, isVoteChoice } from "./choice";
+export type { VoteChoice } from "./choice";
 
 async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -62,14 +66,6 @@ export interface VoterRow {
 
 const ELECTION_SQL =
   "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode,single_candidate_mode FROM elections ORDER BY id LIMIT 1";
-
-/** Tiga jawaban surat suara mode kandidat tunggal. */
-export const VOTE_CHOICES = ["setuju", "tidak_setuju", "abstain"] as const;
-export type VoteChoice = (typeof VOTE_CHOICES)[number];
-
-export function isVoteChoice(value: unknown): value is VoteChoice {
-  return typeof value === "string" && (VOTE_CHOICES as readonly string[]).includes(value);
-}
 
 /** Usia auth_time dalam detik; negatif berarti dari masa depan. */
 function sessionAgeSec(session: VoteSession): number {

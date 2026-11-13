@@ -75,10 +75,10 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 5. Server: Uji Coba with a choice
 
-- [ ] 5.1 Failing test in `test/election-lifecycle.test.ts`: while the mode is on a Uji
+- [x] 5.1 Failing test in `test/election-lifecycle.test.ts`: while the mode is on a Uji
       Coba vote stores a chosen choice and Dasbor counts it as test data; while off the
       test vote shape is unchanged.
-- [ ] 5.2 Extend `castTestVote` accordingly; run the group's tests green.
+- [x] 5.2 Extend `castTestVote` accordingly; run the group's tests green.
 
 ## 6. Server: results and outcome (results)
 
