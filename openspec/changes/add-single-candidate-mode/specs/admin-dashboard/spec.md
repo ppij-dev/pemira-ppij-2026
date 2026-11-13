@@ -10,7 +10,7 @@ suppression and audit rules unchanged.
 
 ### Requirement: Overall tally for Admin Voting
 
-Dasbor SHALL show to Admin Voting in every stage the current tally: in normal mode candidate number, nickname, color and overall vote count; in single candidate mode the Setuju, Tidak Setuju and Abstain counts with their percentage of votes cast and the outcome line. Each tally load SHALL be audit-logged.
+Dasbor SHALL show to Admin Voting in every stage the current tally: in normal mode candidate number, nickname, color and overall vote count; in single candidate mode the Setuju, Tidak Setuju and Abstain counts with their percentage of votes cast and the outcome line, presented without a nomor urut. Each tally load SHALL be audit-logged.
 
 #### Scenario: Multi-candidate tally unchanged
 
@@ -21,6 +21,11 @@ Dasbor SHALL show to Admin Voting in every stage the current tally: in normal mo
 
 - **WHEN** an Admin Voting refreshes Dasbor in single candidate mode with 25 Setuju, 15 Tidak Setuju and 10 Abstain ballots
 - **THEN** the three counts with 50%, 30% and 20% of the 50 votes cast appear and the outcome line reads "Terpilih"
+
+#### Scenario: Dasbor without nomor urut
+
+- **WHEN** an Admin Voting views the tally in single candidate mode
+- **THEN** the counts and outcome line appear with the candidate's nickname and color but no nomor urut
 
 ### Requirement: Korda-level regional results
 

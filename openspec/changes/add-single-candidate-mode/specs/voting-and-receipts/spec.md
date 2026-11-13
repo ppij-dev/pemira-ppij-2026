@@ -58,6 +58,20 @@ While single candidate mode is on and voting is open, Pilih Suara SHALL show the
 - **WHEN** a vote request in single candidate mode carries no choice or a value outside the three answers
 - **THEN** the server answers HTTP 400 and records nothing
 
+### Requirement: Single candidate ballot without nomor urut
+
+While single candidate mode is on, the ballot SHALL present the single candidate without a nomor urut, and the confirmation sheet SHALL state the chosen answer as "Pilihan Anda: Setuju terhadap <nickname>", "Pilihan Anda: Tidak Setuju terhadap <nickname>" or "Pilihan Anda: Abstain terhadap <nickname>", also without a nomor urut. The nickname still SHALL be typed to enable "Kirim Suara".
+
+#### Scenario: Confirmation phrase
+
+- **WHEN** a voter picks "Setuju" for the candidate nicknamed Budi
+- **THEN** the confirmation sheet reads "Pilihan Anda: Setuju terhadap Budi" with no nomor urut and still requires typing "Budi"
+
+#### Scenario: Ballot card without nomor urut
+
+- **WHEN** the ballot opens in single candidate mode
+- **THEN** the candidate card shows name, nickname, komsat, color and placeholder image with no nomor urut anywhere
+
 ### Requirement: Receipts and board unchanged in single candidate mode
 
 In single candidate mode the receipt code, its one-time display, the browser-side hashing, the receipt board of hashes and verification SHALL behave exactly as in normal mode. No mode-specific receipt path SHALL exist.

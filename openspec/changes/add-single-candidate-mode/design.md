@@ -121,6 +121,30 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
   dinonaktifkan".
 - Wording: "Admin Voting" for committee members everywhere; "Pemilih" for voters.
 
+### D8: No nomor urut in single candidate mode
+
+Owner decision (2026-11-13): the single candidate has no displayed nomor urut anywhere —
+ballot, confirmation sheet, candidate card, profile page, results, Dasbor and the Admin
+Voting candidate form.
+
+**Storage.** The schema stays untouched: `candidates.number` keeps `NOT NULL UNIQUE CHECK
+(number > 0)`. While the mode is on, a candidate registered through the form is stored
+with the fixed internal nomor `1` — the mode guarantees at most one candidate, so the
+UNIQUE constraint never conflicts. Candidates already registered keep their stored nomor;
+nothing is rewritten on toggle or at Kunci. The nomor becomes display data that
+single-mode rendering never reads.
+
+**Profile URL.** The numbered route shape `/kandidat/<nomor>-<nickname>` stays for normal
+mode. While the mode is on, the single candidate's profile lives at `/kandidat/<nickname>`
+(the nickname as the slug segment, resolved by nickname instead of number-plus-nickname),
+and every link to the profile — cards, landing page, ballot — uses that number-free form;
+the numbered URL is not generated in single mode.
+
+**Confirmation sheet copy.** Per the owner's exact wording, the sheet states the chosen
+answer: "Pilihan Anda: Setuju terhadap <nickname>". The same pattern is used for the other
+answers ("Pilihan Anda: Tidak Setuju terhadap <nickname>", "Pilihan Anda: Abstain
+terhadap <nickname>"); the Abstain phrasing is flagged as an open question.
+
 ## Risks / Trade-offs
 
 - **Mode mishandled between Draf and Kunci** — mitigated by the mode-aware readiness check
@@ -129,6 +153,9 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
 - **Zero ballots cast shows the Seri line** — the owner rule compares counts, so 0 = 0 is
   a tie. Presented as "Seri, keputusan diserahkan kepada panitia"; flagged as an open
   question in the proposal handoff.
+- **Numbered profile URLs break in single mode** — closed by resolving
+  `/kandidat/<nickname>` by nickname while the mode is on; no numbered URL is generated,
+  and normal mode keeps today's route shape.
 - **`choice` widens the ballot schema** — closed by the CHECK constraint, NULL-for-normal
   compatibility, and the secrecy argument in D2.
 
@@ -147,5 +174,8 @@ backfill is needed (no election has run in this mode before).
 - Should Pengaturan refuse to turn the mode on while two or more candidates already exist?
   (Assumed: no — the brief only refuses Kunci and the second candidate; the committee
   reduces the list to one in Draf.)
+- Should the Abstain confirmation sheet use "Pilihan Anda: Abstain terhadap <nickname>"
+  (same pattern as Setuju, assumed here) or a different phrasing such as
+  "Pilihan Anda: Abstain"?
 - Should Uji Coba in single candidate mode pick a choice as assumed in D6?
 

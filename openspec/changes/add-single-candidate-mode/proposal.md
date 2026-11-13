@@ -40,6 +40,12 @@ decision. Ballot secrecy, receipts, eligibility and participation rules are unch
   counted and shown on its own but excluded from the comparison. Tie (Setuju = Tidak
   Setuju): the result shows "Seri, keputusan diserahkan kepada panitia" and the system
   records no decision. Tidak Setuju ahead: "Tidak terpilih". Re-election is out of scope.
+- **No nomor urut in single candidate mode.** The candidate has no displayed nomor urut
+  anywhere: ballot, confirmation sheet ("Pilihan Anda: Setuju terhadap <nickname>"),
+  candidate card and profile page, results, Dasbor and the Admin Voting candidate form.
+  The schema keeps `candidates.number` NOT NULL UNIQUE CHECK > 0; a candidate registered
+  while the mode is on is stored with a fixed internal nomor (1) that is never rendered,
+  and the profile URL drops the number segment (`/kandidat/<nickname>`).
 - **Results and Dasbor.** Setuju / Tidak Setuju / Abstain counts and percentages (of votes
   cast) overall and per korda, plus the outcome line; participation statistics unchanged;
   the under-10-ballots per-korda suppression unchanged. Public results after Diumumkan
@@ -60,7 +66,8 @@ _None — the mode lives inside existing capabilities._
   choice.
 - `election-lifecycle`: the Draf-only switch in Pengaturan, the mode-aware readiness check,
   and the frozen mode value at Kunci & Jadwalkan.
-- `candidate-management`: refusing a second candidate while the mode is on.
+- `candidate-management`: refusing a second candidate while the mode is on; the number-free
+  candidate form with the stored internal nomor; the nickname-only profile URL.
 - `admin-dashboard`: Dasbor choice tallies with percentages, the outcome line, and the
   per-korda breakdown in single candidate mode.
 - `public-site`: published results show the same tallies and outcome line.
@@ -75,8 +82,11 @@ _None — the mode lives inside existing capabilities._
   validation and storage), `voting/routes.ts`, `results/queries.ts` (choice tallies and
   outcome), admin routes for the toggle.
 - **UI:** `admin/pemilihan.astro` (switch in Pengaturan), `pilih-suara.astro` (three
-  answers before the confirmation sheet), `admin/dasbor.astro` and `hasil.astro` and
-  `index.astro` (counts, percentages, outcome line).
+  answers before the confirmation sheet, no nomor urut), `admin/dasbor.astro` and
+  `hasil.astro` and `index.astro` (counts, percentages, outcome line, no nomor urut),
+  `admin/kandidat.astro` (form without nomor urut while the mode is on),
+  `kandidat/[slug].astro` and `kandidat/index.astro` and `components/CandidateCard.astro`
+  (nickname-only profile URL `/kandidat/<nickname>` and number-free cards).
 - **Tests:** `test/schema.test.ts` (migrations), `test/election-lifecycle.test.ts`
   (switch, readiness, lock freeze), `test/candidates.test.ts` (second-candidate refusal),
   `test/vote-api.test.ts` (three answers, secrecy, refusal when mode off),

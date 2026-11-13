@@ -42,6 +42,18 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [ ] 3.2 Implement the guard in `src/server/election/candidates.ts` (Draf add path),
       refusal message "Mode kandidat tunggal aktif: hanya satu kandidat yang dapat
       didaftarkan."; run the group's tests green.
+- [ ] 3.3 Number-free form and stored nomor: failing tests first in
+      `test/candidates.test.ts` (while the mode is on the form contract carries no nomor
+      urut and the server stores the candidate with the fixed internal nomor 1 satisfying
+      `NOT NULL UNIQUE CHECK > 0`; candidates already registered keep their stored nomor;
+      with the mode off the form and numbering rules are unchanged), then implement in
+      `src/server/election/candidates.ts` and `src/pages/admin/kandidat.astro` (form
+      renders no nomor urut field while the mode is on); run the group's tests green.
+- [ ] 3.4 Nickname-only profile URL: while the mode is on resolve `/kandidat/<nickname>`
+      by nickname (existing numbered route shape stays for normal mode) and generate all
+      profile links in the number-free form; focused render check of the profile page
+      showing name, nickname, komsat, description, color and placeholder image with no
+      nomor urut.
 
 ## 4. Server: ballot with choice (voting)
 
@@ -90,8 +102,11 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [ ] 8.1 `src/pages/pilih-suara.astro`: while the mode is on show the single candidate
       with the three answers "Setuju", "Tidak Setuju", "Abstain" (radio-style cards),
       require a selection before the confirmation sheet opens, then the existing sheet
-      (type the nickname) and "Kirim Suara"; success screen, one-time code and Bukti Suara
-      link untouched; keep the multi-candidate UI exactly as-is while the mode is off.
+      (type the nickname) and "Kirim Suara"; the ballot and the sheet show no nomor urut
+      and the sheet states the chosen answer as "Pilihan Anda: Setuju terhadap <nickname>"
+      (likewise "Tidak Setuju"/"Abstain terhadap"); success screen, one-time code and
+      Bukti Suara link untouched; keep the multi-candidate UI exactly as-is while the
+      mode is off.
 - [ ] 8.2 Focused check: build passes; manual smoke of the three answers against the local
       dev server is covered by the group 4 API tests plus this render check.
 
@@ -99,10 +114,12 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 - [ ] 9.1 `src/pages/admin/dasbor.astro`: in single candidate mode render the three counts
       with percentages, the outcome line ("Terpilih" / "Tidak terpilih" / "Seri,
-      keputusan diserahkan kepada panitia") and the per-korda columns; normal mode
-      rendering untouched; manual refresh behavior untouched.
+      keputusan diserahkan kepada panitia") and the per-korda columns, all without a
+      nomor urut (nickname and color only); normal mode rendering untouched; manual
+      refresh behavior untouched.
 - [ ] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
-      presentation once Diumumkan, including the Seri line; nothing before Diumumkan.
+      presentation once Diumumkan, including the Seri line and the number-free candidate
+      card linking to `/kandidat/<nickname>`; nothing before Diumumkan.
 - [ ] 9.3 Focused check: build passes and the outcome line strings match design.md D7
       exactly.
 
