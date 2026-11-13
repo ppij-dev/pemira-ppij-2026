@@ -39,21 +39,21 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 3. Server: candidate refusal (candidates)
 
-- [ ] 3.1 Failing tests first in `test/candidates.test.ts`: adding a second candidate
+- [x] 3.1 Failing tests first in `test/candidates.test.ts`: adding a second candidate
       while the mode is on is refused with the message naming the mode; adding the first
       candidate while on succeeds; deleting down to one candidate succeeds; with the mode
       off nothing changes.
-- [ ] 3.2 Implement the guard in `src/server/election/candidates.ts` (Draf add path),
+- [x] 3.2 Implement the guard in `src/server/election/candidates.ts` (Draf add path),
       refusal message "Mode kandidat tunggal aktif: hanya satu kandidat yang dapat
       didaftarkan."; run the group's tests green.
-- [ ] 3.3 Number-free form and stored nomor: failing tests first in
+- [x] 3.3 Number-free form and stored nomor: failing tests first in
       `test/candidates.test.ts` (while the mode is on the form contract carries no nomor
       urut and the server stores the candidate with the fixed internal nomor 1 satisfying
       `NOT NULL UNIQUE CHECK > 0`; candidates already registered keep their stored nomor;
       with the mode off the form and numbering rules are unchanged), then implement in
       `src/server/election/candidates.ts` and `src/pages/admin/kandidat.astro` (form
       renders no nomor urut field while the mode is on); run the group's tests green.
-- [ ] 3.4 Nickname-only profile URL: while the mode is on resolve `/kandidat/<nickname>`
+- [x] 3.4 Nickname-only profile URL: while the mode is on resolve `/kandidat/<nickname>`
       by nickname (existing numbered route shape stays for normal mode) and generate all
       profile links in the number-free form; focused render check of the profile page
       showing name, nickname, komsat, description, color and placeholder image with no

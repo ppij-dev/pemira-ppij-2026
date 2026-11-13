@@ -16,6 +16,9 @@ const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)
 const db = authorized ? bindings.DB : undefined;
 const candidates = await db?.prepare('SELECT c.id,c.member_id,c.number,c.name,c.nickname,c.komsat_path,c.description,c.short_intro,c.color,v.member_number,v.member_id AS roll_member_id FROM candidates c LEFT JOIN voters v ON v.member_id=c.member_id ORDER BY c.number').all() ?? { results: [] };
 const previewMode = ((await db?.prepare('SELECT preview_mode FROM elections ORDER BY id LIMIT 1').first<{ preview_mode: number }>())?.preview_mode) === 1;
+// Mode kandidat tunggal: form dan daftar tidak menampilkan nomor urut sama sekali;
+// server menyimpan nomor internal 1 supaya skema tetap utuh.
+const singleCandidateMode = ((await db?.prepare('SELECT single_candidate_mode FROM elections ORDER BY id LIMIT 1').first<{ single_candidate_mode: number }>())?.single_candidate_mode) === 1;
 // Kandidat dipilih lewat nomor kartu portal. Di Mode Pratinjau saja, baris
 // roll tanpa nomor kartu boleh dipilih lewat ID anggota (klaim sesi belum
 // tersinkron dengan portal).
@@ -31,7 +34,7 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
 ---
 <AdminLayout title="Kandidat">
   <PageHeader title="Kandidat" eyebrow="Admin Voting" description="Kelola kandidat dari anggota aktif sebelum pemilihan dikunci." />
-  <PanelCard title="Tambah / Ubah Kandidat" description="Nomor urut dan nama panggilan setiap kandidat harus berbeda." icon={IconId} class="mt-5">
+  <PanelCard title="Tambah / Ubah Kandidat" description={singleCandidateMode ? "Mode kandidat tunggal aktif: hanya satu kandidat, tanpa nomor urut." : "Nomor urut dan nama panggilan setiap kandidat harus berbeda."} icon={IconId} class="mt-5">
     {missingNumbers > 0 && (previewMode
       ? <Callout tone="warning" icon={IconAlertTriangle} title="Mode Pratinjau" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal. Pilih anggotanya lewat ID anggota di daftar.</Callout>
       : <Callout tone="warning" icon={IconAlertTriangle} title="Nomor kartu belum lengkap" class="mb-4">{missingNumbers} anggota aktif belum punya nomor kartu dari portal sehingga belum bisa dipilih di sini. Tekan "Perbarui Nama &amp; Kategori dari Portal" di halaman Pemilih.</Callout>)}
@@ -40,16 +43,16 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
         <input id="candidate-member" name="member_id" list="members" required placeholder="Pilih anggota aktif" class={control} />
         <datalist id="members">{voters.results.map((v: any) => <option value={v.member_number ?? v.member_id}>{v.name}{v.member_number ? ` · ${v.member_number}` : " · ID anggota (Mode Pratinjau)"}</option>)}</datalist>
       </FormField>
-      <FormField label="Nomor urut" for="candidate-number">
+      {!singleCandidateMode && <FormField label="Nomor urut" for="candidate-number">
         <input id="candidate-number" name="number" type="number" min="1" required placeholder="Nomor urut kandidat" class={control} />
-      </FormField>
+      </FormField>}
       <FormField label="Nama" for="candidate-name">
         <input id="candidate-name" name="name" required placeholder="Nama lengkap" maxlength="60" class={control} />
       </FormField>
       <FormField label="Nama panggilan" for="candidate-nickname" hint="Tampil di surat suara dan saat konfirmasi pilihan.">
         <input id="candidate-nickname" name="nickname" required placeholder="Nama panggilan" maxlength="24" class={control} />
       </FormField>
-      <FormField label="Warna kandidat" for="candidate-color" hint="Warna dipakai pada nomor urut kandidat.">
+      <FormField label="Warna kandidat" for="candidate-color" hint={singleCandidateMode ? "Warna dipakai pada kartu dan profil kandidat." : "Warna dipakai pada nomor urut kandidat."}>
         <input id="candidate-color" name="color" type="color" class="h-11 w-24 rounded-md border border-input bg-card p-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:h-8" />
       </FormField>
       <FormField label="Intro singkat" for="candidate-short-intro" wide>
@@ -71,7 +74,7 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
     <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h2 id="candidate-list-title" class="text-lg leading-snug font-bold tracking-tight text-brand-ink">Kandidat terdaftar</h2>
-        <p class="mt-1 text-[13px] text-brand-muted">Nomor urut, nama panggilan, dan warna tampil di surat suara.</p>
+        <p class="mt-1 text-[13px] text-brand-muted">{singleCandidateMode ? "Nama panggilan dan warna tampil di surat suara." : "Nomor urut, nama panggilan, dan warna tampil di surat suara."}</p>
       </div>
       <Badge tone="outline" size="sm">{candidates.results.length} kandidat</Badge>
     </div>
@@ -80,7 +83,7 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
           {candidateRows.map((c: any) => (
             <article class="min-w-0 rounded-xl border border-brand-border bg-card p-[22px] text-brand-ink max-[700px]:p-[17px]">
               <div class="flex items-start gap-3">
-                <span aria-hidden="true" class="grid size-11 shrink-0 place-items-center rounded-lg text-base font-extrabold text-white" style={`background-color:${c.color || '#c8102e'}`}>{c.number}</span>
+                {!singleCandidateMode && <span aria-hidden="true" class="grid size-11 shrink-0 place-items-center rounded-lg text-base font-extrabold text-white" style={`background-color:${c.color || '#c8102e'}`}>{c.number}</span>}
                 <div class="min-w-0">
                   <h3 class="text-base leading-snug font-bold break-words text-brand-ink">{c.nickname}</h3>
                   <p class="mt-0.5 text-[13px] break-words text-brand-muted">{c.name} · {c.member_number ?? "Tanpa nomor kartu"}</p>
@@ -112,13 +115,15 @@ const resetButton=document.querySelector('#candidate-reset');
 if(resetButton)resetButton.addEventListener('click',()=>{HTMLFormElement.prototype.reset.call(form);delete form.dataset.id;msg.textContent='';updateCount()});
 form.onsubmit=async e=>{
   e.preventDefault();
-  const fields=Object.fromEntries(new FormData(form)),number=Number(fields.number);
-  if(!Number.isInteger(number)||number<=0){msg.textContent='Nomor kandidat harus berupa bilangan bulat lebih besar dari 0.';form.elements.number.focus();return}
+  const fields=Object.fromEntries(new FormData(form)),numberField=form.elements.namedItem('number'),number=Number(fields.number);
+  if(numberField&&(!Number.isInteger(number)||number<=0)){msg.textContent='Nomor kandidat harus berupa bilangan bulat lebih besar dari 0.';numberField.focus();return}
   const button=form.querySelector('button[type="submit"]');
   button.disabled=true;button.textContent='Menyimpan...';msg.textContent='';
   try{
     const id=form.dataset.id;
-    const r=await fetch('/api/election/candidates'+(id?'/'+id:''),{method:id?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...fields,number})});
+    // Mode kandidat tunggal tidak mengirim nomor urut (server menyimpan nomor internal 1).
+    const payload=numberField?{...fields,number}:fields;
+    const r=await fetch('/api/election/candidates'+(id?'/'+id:''),{method:id?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
     const d=await r.json();
     if(r.ok)location.reload();else msg.textContent=d.error||'Kandidat belum tersimpan. Coba kembali.';
   }catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu simpan kembali.'}
@@ -126,7 +131,7 @@ form.onsubmit=async e=>{
 };
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
   form.dataset.id=b.dataset.edit;
-  for(const k of ['member','number','name','nickname','color','description'])form.elements[k==='member'?'member_id':k].value=b.dataset[k]||'';
+  for(const k of ['member','number','name','nickname','color','description']){const field=form.elements[k==='member'?'member_id':k];if(field)field.value=b.dataset[k]||''}
   intro.value=b.dataset.shortIntro||'';updateCount();msg.textContent='';
 });
 document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus kandidat ini?')){const r=await fetch('/api/election/candidates/'+b.dataset.delete,{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Gagal menghapus'}});

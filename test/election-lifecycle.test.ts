@@ -66,7 +66,8 @@ describe("mode kandidat tunggal",()=>{
   await createCandidate(env.DB,NOW,{member_id:"KARTU-001",number:1,name:"Member 1",nickname:"M1",description:""});
   expect(await check()).toMatchObject({ok:true});
   await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number) VALUES('member-2','Member 2','/u','ACTIVE','now','KARTU-002')").run();
-  await createCandidate(env.DB,NOW,{member_id:"KARTU-002",number:2,name:"Member 2",nickname:"M2",description:""});
+  // Kandidat kedua ditulis langsung: lewat form, mode hidup memang menolaknya.
+  await env.DB.prepare("INSERT INTO candidates(id,member_id,number,name,nickname,komsat_path) VALUES(2,'member-2',2,'Member 2','M2','/u')").run();
   expect(await check()).toMatchObject({ok:false});
   await setSingleCandidateMode(env.DB,NOW,false);
   expect(await check()).toMatchObject({ok:true});
