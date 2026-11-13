@@ -61,14 +61,14 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 4. Server: ballot with choice (voting)
 
-- [ ] 4.1 Failing tests first in `test/vote-api.test.ts`: in single candidate mode a vote
+- [x] 4.1 Failing tests first in `test/vote-api.test.ts`: in single candidate mode a vote
       with each of the three choices is accepted and stored (choice + single
       `candidate_id`); missing/invalid choice → HTTP 400, nothing recorded;
       `candidate_id` of a different candidate → 400; with the mode off a request carrying
       a choice → 400 and a normal vote still stores NULL; participation + ballot still one
       batch; ballot rows gain no member/time data; receipt code and board flow unchanged
       (cover the single-mode code in `test/receipt-board.test.ts`).
-- [ ] 4.2 Implement in `src/server/voting/vote.ts` (+ `routes.ts`): accept and validate
+- [x] 4.2 Implement in `src/server/voting/vote.ts` (+ `routes.ts`): accept and validate
       `choice` only while the mode is on, enforce `candidate_id` = the single registered
       candidate, write `choice` in the existing single D1 batch, keep the nickname
       confirmation and one-vote-per-member guards identical; run the group's tests green.

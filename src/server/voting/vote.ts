@@ -46,6 +46,7 @@ export interface ElectionRow {
   frozen_at: string | null;
   allow_admin_voting: number;
   preview_mode: number;
+  single_candidate_mode: number;
 }
 
 export interface VoterRow {
@@ -60,7 +61,15 @@ export interface VoterRow {
 }
 
 const ELECTION_SQL =
-  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode FROM elections ORDER BY id LIMIT 1";
+  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode,single_candidate_mode FROM elections ORDER BY id LIMIT 1";
+
+/** Tiga jawaban surat suara mode kandidat tunggal. */
+export const VOTE_CHOICES = ["setuju", "tidak_setuju", "abstain"] as const;
+export type VoteChoice = (typeof VOTE_CHOICES)[number];
+
+export function isVoteChoice(value: unknown): value is VoteChoice {
+  return typeof value === "string" && (VOTE_CHOICES as readonly string[]).includes(value);
+}
 
 /** Usia auth_time dalam detik; negatif berarti dari masa depan. */
 function sessionAgeSec(session: VoteSession): number {
@@ -182,6 +191,8 @@ export async function authorizeVoter(
 export interface VoteRequest {
   candidate_id: number;
   confirmation_text: string;
+  /** Jawaban Setuju/Tidak Setuju/Abstain; hanya mode kandidat tunggal. */
+  choice?: string | null;
 }
 
 export interface VoteResult {
@@ -211,6 +222,21 @@ export async function castVote(
     throw new VoteError("candidate_id tidak valid.", 400, "invalid_body");
   }
   if (typeof req.confirmation_text !== "string") throw new VoteError("confirmation_text tidak valid.", 400, "invalid_body");
+
+  // Mode kandidat tunggal: surat suara menyimpan kandidat tunggal plus jawaban
+  // setuju/tidak_setuju/abstain. Di luar mode itu pilihan harus kosong, supaya
+  // perilaku pemilihan multi-kandidat tidak berubah.
+  const requestedChoice: unknown = req.choice ?? null;
+  const single = (await db.prepare(ELECTION_SQL).first<ElectionRow>())?.single_candidate_mode === 1;
+  let choice: VoteChoice | null = null;
+  if (single) {
+    if (!isVoteChoice(requestedChoice)) throw new VoteError("Pilihan suara tidak valid.", 400, "invalid_choice");
+    const only = await db.prepare("SELECT id FROM candidates ORDER BY number LIMIT 1").first<{ id: number }>();
+    if (!only || only.id !== req.candidate_id) throw new VoteError("Kandidat bukan kandidat tunggal pemilihan ini.", 400, "candidate_mismatch");
+    choice = requestedChoice;
+  } else if (requestedChoice !== null) {
+    throw new VoteError("Pilihan suara hanya berlaku pada mode kandidat tunggal.", 400, "invalid_choice");
+  }
 
   // Kandidat harus ada dan konfirmasi cocok (trim + case-insensitive)
   const candidate = await db
@@ -260,10 +286,10 @@ export async function castVote(
            SELECT ?, ?, ?, ?, 0 FROM elections WHERE id = ? AND ${openGuard} AND ${tipGuard}`,
         ).bind(current.election.id, session.member_id, current.voter.name, votedAt, current.election.id, previousHash, previousHash),
         db.prepare(
-          `INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test)
-           SELECT ?, ?, ?, ?, ?, 0 FROM participation
+          `INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test, choice)
+           SELECT ?, ?, ?, ?, ?, 0, ? FROM participation
            WHERE election_id = ? AND member_id = ? AND changes() = 1`,
-        ).bind(ballotId, current.election.id, req.candidate_id, current.voter.komsat_path, receipt.hash, current.election.id, session.member_id),
+        ).bind(ballotId, current.election.id, req.candidate_id, current.voter.komsat_path, receipt.hash, choice, current.election.id, session.member_id),
         db.prepare(
           `INSERT INTO audit_log
              (at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash)

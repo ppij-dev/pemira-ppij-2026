@@ -13,6 +13,8 @@ import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import previewSql from "../migrations/0006_preview_mode.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
+import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
+import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -86,7 +88,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -104,7 +106,8 @@ describe("POST /api/votes", () => {
     expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
     // Ballot: tidak ada kolom identitas pemilih atau waktu
     const ballot = await env.DB.prepare("SELECT * FROM ballots").first<Record<string, unknown>>();
-    expect(Object.keys(ballot!).sort()).toEqual(["candidate_id", "election_id", "id", "is_test", "komsat_path", "receipt_hash"]);
+    expect(Object.keys(ballot!).sort()).toEqual(["candidate_id", "choice", "election_id", "id", "is_test", "komsat_path", "receipt_hash"]);
+    expect(ballot!.choice).toBeNull();
     expect(ballot!.komsat_path).toBe(`${SCOPE}/komsat-1`);
     // Hash yang disimpan cocok dengan hash kode ternormalisasi (round trip)
     expect(ballot!.receipt_hash).toBe(await hashReceipt(normalizeReceiptCode(body.receipt_code)));
@@ -353,6 +356,77 @@ describe("POST /api/votes", () => {
     const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi" }, "https://evil.example");
     expect(res.status).toBe(403);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+});
+
+describe("POST /api/votes mode kandidat tunggal", () => {
+  async function enableSingleMode() {
+    await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1").run();
+    // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
+    await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
+  }
+  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
+
+  it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
+    await enableSingleMode();
+    const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice });
+    expect(res.status).toBe(201);
+    const body = await res.json() as { receipt_code: string };
+    expect(body.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    const ballot = await env.DB.prepare("SELECT * FROM ballots").first<Record<string, unknown>>();
+    // Tanpa rujukan anggota dan tanpa waktu: pilihan hanya isi surat suara.
+    expect(Object.keys(ballot!).sort()).toEqual(["candidate_id", "choice", "election_id", "id", "is_test", "komsat_path", "receipt_hash"]);
+    expect(ballot).toMatchObject({ candidate_id: 1, choice, is_test: 0 });
+    // Audit suara tetap tanpa pilihan dan tanpa kode bukti.
+    const audit = await env.DB.prepare("SELECT action,target,detail_json FROM audit_log").first<Record<string, unknown>>();
+    expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
+  });
+
+  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
+    await enableSingleMode();
+    const cookie = await sessionCookie("voter-1");
+    // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
+    for (const choice of [undefined, null, "setuju-banget", "SETUJU", ""]) {
+      const res = await voteRequest(cookie, choice === undefined ? { candidate_id: 1, confirmation_text: "Budi" } : { candidate_id: 1, confirmation_text: "Budi", choice });
+      expect(res.status).toBe(400);
+      expect((await res.json() as { error: string }).error).toBe("invalid_choice");
+    }
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak candidate_id yang bukan kandidat tunggal dengan 400", async () => {
+    await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1").run();
+    // Dua baris kandidat tetap ada (mis. sisa daftar lama): hanya nomor 1 yang sah.
+    const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 2, confirmation_text: "Sari", choice: "setuju" });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toBe("candidate_mismatch");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+    // Konfirmasi nama panggilan tetap berlaku di atas pemeriksaan pilihan.
+    const wrongName = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Sari", choice: "setuju" });
+    expect(wrongName.status).toBe(400);
+    expect((await wrongName.json() as { error: string }).error).toBe("confirmation_mismatch");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak pilihan saat mode mati dan menyimpan NULL untuk suara biasa", async () => {
+    const withChoice = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "setuju" });
+    expect(withChoice.status).toBe(400);
+    expect((await withChoice.json() as { error: string }).error).toBe("invalid_choice");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+    const normal = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(normal.status).toBe(201);
+    expect(await env.DB.prepare("SELECT choice FROM ballots").first()).toEqual({ choice: null });
+  });
+
+  it("menulis partisipasi dan surat suara dalam satu batch tanpa data waktu di surat suara", async () => {
+    await enableSingleMode();
+    expect((await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" })).status).toBe(201);
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    const columns = (await env.DB.prepare("PRAGMA table_info(ballots)").all<{ name: string }>()).results.map((row) => row.name);
+    expect(columns).toEqual(["id", "election_id", "candidate_id", "komsat_path", "receipt_hash", "is_test", "choice"]);
+    expect(columns).not.toContain("voted_at");
+    expect(columns).not.toContain("member_id");
   });
 });
 
