@@ -313,3 +313,34 @@ describe("POST /api/election/return-to-draft",()=>{
   expect((await post("member-8",{phrase:PHRASE})).status).toBe(409);
  });
 });
+
+describe("suara yang dipertahankan melewati Kunci berikutnya",()=>{
+ beforeEach(()=>setup());
+ it("membekukan Hak pilih baru, menyisakan suara lama, dan hanya menghapus data Uji Coba",async()=>{
+  await ready();
+  await env.DB.prepare("UPDATE voters SET can_vote=1").run();
+  await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:OPEN_AT,closes_at:CLOSE_AT,preview_mode:true});
+  expect((await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl)).frozen_hak_pilih).toBe(8);
+  // Suara nyata pembukaan sebelumnya: partisipasi dan surat suara tanpa penghubung.
+  await env.DB.prepare("INSERT INTO participation(election_id,member_id,member_name,voted_at,is_test) VALUES(1,'member-1','Member 1','2026-10-21T01:00:00Z',0),(1,'member-2','Member 2','2026-10-21T01:05:00Z',0)").run();
+  await env.DB.prepare("INSERT INTO ballots(id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES('kept-1',1,1,'/u','hash-1',0),('kept-2',1,2,'/u','hash-2',0)").run();
+  const keptBallots=(await env.DB.prepare("SELECT * FROM ballots ORDER BY id").all()).results;
+  const keptParticipation=(await env.DB.prepare("SELECT * FROM participation ORDER BY member_id").all()).results;
+  expect(await returnToDraft(env.DB,OPEN_NOW,PHRASE,ACTOR)).toMatchObject({kept_ballots:2,kept_participation:2,stage_before:"open"});
+  // Uji Coba setelah kembali adalah data uji, bukan suara nyata.
+  await castTestVote(env.DB,NOW,1,"member-8");
+  // Roll berubah sebelum Kunci berikutnya: satu pemilih yang sudah memilih hilang, satu anggota baru masuk.
+  await env.DB.prepare("DELETE FROM voters WHERE member_id='member-2'").run();
+  await env.DB.prepare("INSERT INTO voters(member_id,name,nickname,komsat_path,status,synced_at,member_number,can_vote) VALUES('member-9','Member 9','M9','/u','ACTIVE','now','KARTU-009',1)").run();
+  const second=await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+  // Hak pilih dibekukan ulang dari roll baru; hanya baris uji yang dibuang.
+  expect(second).toEqual({frozen_hak_pilih:8,deleted_test_votes:1});
+  expect(await env.DB.prepare("SELECT status_lock,frozen_hak_pilih,frozen_at FROM elections").first()).toEqual({status_lock:"locked",frozen_hak_pilih:8,frozen_at:NOW.toISOString()});
+  expect((await env.DB.prepare("SELECT * FROM ballots ORDER BY id").all()).results).toEqual(keptBallots);
+  expect((await env.DB.prepare("SELECT * FROM participation ORDER BY member_id").all()).results).toEqual(keptParticipation);
+  const lockAudit=await env.DB.prepare("SELECT detail_json FROM audit_log WHERE action='Pemilihan dikunci' ORDER BY seq DESC LIMIT 1").first<{detail_json:string}>();
+  expect(JSON.parse(lockAudit!.detail_json)).toMatchObject({frozen_hak_pilih:8,deleted_test_votes:1});
+  // Anggota yang hilang dari roll baru tetap punya partisipasi tersimpan.
+  expect((await env.DB.prepare("SELECT member_id FROM participation ORDER BY member_id").all<{member_id:string}>()).results).toEqual([{member_id:"member-1"},{member_id:"member-2"}]);
+ });
+});

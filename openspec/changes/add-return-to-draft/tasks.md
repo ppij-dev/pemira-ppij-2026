@@ -31,16 +31,16 @@ needed; no task touches the schema.
 
 ## 2. Backend: kept votes across the next Kunci (election-lifecycle, voting)
 
-- [ ] 2.1 Failing tests first in `test/election-lifecycle.test.ts`: after preview Dibuka
+- [x] 2.1 Failing tests first in `test/election-lifecycle.test.ts`: after preview Dibuka
       → Draf with kept (is_test=0) votes, the next Kunci purges only new Uji Coba rows,
       freezes Hak pilih anew from the fresh roll, keeps the earlier participation rows
       and ballots, and the lock audit detail records the new frozen count.
-- [ ] 2.2 Failing tests in `test/vote-api.test.ts`: a member who voted in the earlier
+- [x] 2.2 Failing tests in `test/vote-api.test.ts`: a member who voted in the earlier
       open cannot vote again after the return and re-Kunci (one-vote refusal, HTTP 409,
       nothing recorded); a member absent from the fresh roll keeps their ballot counted
       in the tally; a kept receipt hash still verifies through the board flow after the
       next close; nothing links kept ballots to members (schema-level check unchanged).
-- [ ] 2.3 Fix whatever the tests expose in the kept-vote paths (expected: none —
+- [x] 2.3 Fix whatever the tests expose in the kept-vote paths (expected: none —
       `lockElection` already purges only `is_test=1` and results never join ballots to
       `voters`; if a join or purge turns up, remove it); run the group's tests green.
 
