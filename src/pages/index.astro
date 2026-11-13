@@ -53,7 +53,7 @@ const notVotingCount = Math.max(0, eligibleCount - (publicResults?.participation
 const singleResultFacts = publicResults ? [
   { label: "Setuju", value: `${publicResults.setuju_count ?? 0} suara · ${shareText(publicResults.setuju_count ?? 0)}` },
   { label: "Tidak Setuju", value: `${publicResults.tidak_setuju_count ?? 0} suara · ${shareText(publicResults.tidak_setuju_count ?? 0)}` },
-  { label: "Tidak memilih", value: `${notVotingCount} suara · ${shareText(notVotingCount)}` },
+  { label: "Tidak memilih (dihitung Tidak Setuju)", value: `${notVotingCount} suara · ${shareText(notVotingCount)}` },
 ] : [];
 const boardReady = currentStage === "closed" || currentStage === "published";
 let voted = false;

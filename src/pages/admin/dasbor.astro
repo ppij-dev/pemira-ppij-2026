@@ -31,7 +31,7 @@ import { IconAlertCircle, IconAlertTriangle, IconRefresh } from "@tabler/icons-a
     // dihitung dari total Hak pilih beku dikurangi partisipasi, tidak pernah per orang.
     const outcomeLabel={terpilih:'Terpilih',tidak_terpilih:'Tidak terpilih',seri:'Seri, keputusan diserahkan kepada panitia',menunggu_penutupan:'Menunggu penutupan pemungutan suara'};
     const shareText=(count,eligible)=>{if(!eligible||count===null)return '—';return percent(Math.round((count/eligible)*1000)/10)};
-    const choiceRows=(row)=>[{label:'Setuju',count:row.setuju_count},{label:'Tidak Setuju',count:row.tidak_setuju_count},{label:'Tidak memilih',count:row.tidak_memilih_count??Math.max(0,(row.eligible_count??0)-(row.participation_count??row.used_count??0))}];
+    const choiceRows=(row)=>[{label:'Setuju',count:row.setuju_count},{label:'Tidak Setuju',count:row.tidak_setuju_count},{label:'Tidak memilih (dihitung Tidak Setuju)',count:row.tidak_memilih_count??Math.max(0,(row.eligible_count??0)-(row.participation_count??row.used_count??0))}];
     const choiceList=(row)=>'<dl class="mt-4 mb-0 grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-4 gap-y-3">'+choiceRows(row).map(c=>'<dt class="min-w-0 text-[13px] text-brand-ink">'+esc(c.label)+'</dt><dd class="m-0 text-right text-[13px] font-bold text-brand-ink tabular-nums">'+num(c.count??0)+' suara</dd><dd class="m-0 w-14 text-right text-[13px] text-brand-muted tabular-nums">'+shareText(c.count,row.eligible_count)+'</dd>').join('')+'</dl>';
     const panel='min-w-0 rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]';
     const panelTitle='text-lg leading-snug font-bold tracking-tight text-brand-ink';

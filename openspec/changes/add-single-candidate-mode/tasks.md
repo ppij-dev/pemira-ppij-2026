@@ -114,7 +114,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       schedule/settings panel, editable only in Draf (read-only with explanatory text
       afterwards), helper text naming the exactly-one-candidate rule, posting to the
       toggle route with refresh-by-navigation only (no polling), no emoji.
-- [ ] 7.2 Focused check: build passes and the page renders the switch state from the
+- [x] 7.2 Focused check: build passes and the page renders the switch state from the
       elections row in Draf and after Kunci.
 
 ## 8. UI: single-candidate ballot (voter)
@@ -126,7 +126,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       and the sheet states the chosen answer as "Pilihan Anda: Setuju terhadap <nickname>"
       (likewise "Tidak Setuju terhadap"); success screen, one-time code and Bukti Suara
       link untouched; keep the multi-candidate UI exactly as-is while the mode is off.
-- [ ] 8.2 Focused check: build passes; manual smoke of the two answers against the local
+- [x] 8.2 Focused check: build passes; manual smoke of the two answers against the local
       dev server is covered by the group 4 API tests plus this render check.
 
 ## 9. UI: results and outcome (Dasbor, Hasil, landing)
@@ -140,7 +140,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
       presentation once Diumumkan, including the Seri line and the number-free candidate
       card linking to `/kandidat/<nickname>`; nothing before Diumumkan.
-- [ ] 9.3 Focused check: build passes and the outcome line strings match design.md D7
+- [x] 9.3 Focused check: build passes and the outcome line strings match design.md D7
       exactly (including "Menunggu penutupan pemungutan suara" before close).
 
 ## 10. Verification
