@@ -130,9 +130,9 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 10. Verification
 
-- [ ] 10.1 Worker tier: build + the focused tests of every group above green.
-- [ ] 10.2 Re-read AGENTS.md hard rules against the diff: ballot secrecy (no link, no
+- [x] 10.1 Worker tier: build + the focused tests of every group above green.
+- [x] 10.2 Re-read AGENTS.md hard rules against the diff: ballot secrecy (no link, no
       timestamp), receipts (hash-only storage, browser hashing), audit (every toggle and
       tally view recorded, never a choice), manual refresh only, roles wording ("Admin
       Voting"), Bahasa Indonesia copy with no emoji.
-- [ ] 10.3 `openspec validate add-single-candidate-mode --strict` passes before handoff.
+- [x] 10.3 `openspec validate add-single-candidate-mode --strict` passes before handoff.
