@@ -12,6 +12,8 @@ import snapshot from "../migrations/0005_closing_snapshot.sql?raw";
 import preview from "../migrations/0006_preview_mode.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
+import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
+import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import { authorizeVoter } from "../src/server/voting/vote";
 import { lockElection, setSchedule } from "../src/server/election/lifecycle";
 import type { ServiceApiConfig } from "../src/server/serviceapi/client";
@@ -28,7 +30,7 @@ const mustNotFetch = async () => { throw new Error("Mode pratinjau tidak boleh m
 
 async function setup() {
   await reset();
-  await env.DB.batch([base, units, lock, snapshot, preview, categorySql, canVoteSql].flatMap((sql) => sql.split(";").map((s) => s.trim()).filter(Boolean).map((s) => env.DB.prepare(s))));
+  await env.DB.batch([base, units, lock, snapshot, preview, categorySql, canVoteSql, singleModeSql, ballotChoiceSql].flatMap((sql) => sql.split(";").map((s) => s.trim()).filter(Boolean).map((s) => env.DB.prepare(s))));
   await env.DB.prepare("INSERT INTO elections(id, preview_mode) VALUES(1, 1)").run();
   await env.DB.prepare("INSERT INTO system_config(key, value) VALUES('site_scope', '/ppij')").run();
   for (let i = 1; i <= 2; i++) {

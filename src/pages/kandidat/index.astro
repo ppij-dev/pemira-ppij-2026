@@ -7,16 +7,20 @@ import Empty from "../../components/ui/Empty.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import { unitPathLabel } from "../../lib/formatKomsat";
 import { loadUnitNames } from "../../server/lib/units";
+import { isSingleCandidateMode } from "../../server/election/mode";
 const db=(env as unknown as {DB?:D1Database}).DB;
-let candidates:Array<{number:number;nickname:string;name:string;komsat_path:string;short_intro:string|null;color:string|null;photo_key:string|null}>=[];
+let candidates:Array<{number:number;nickname:string;name:string;komsat_path:string;short_intro:string|null;color:string|null;photo_key:string|null}>=[],singleCandidateMode=false;
 let unitNames:Record<string,string>={};
 try { candidates=(await db?.prepare("SELECT number,nickname,name,komsat_path,short_intro,color,photo_key FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results??[]; } catch { candidates=[]; }
+try { singleCandidateMode=db?await isSingleCandidateMode(db):false; } catch { singleCandidateMode=false; }
 try { unitNames=db?await loadUnitNames(db):{}; } catch { unitNames={}; }
 const heading = candidates.length === 1 ? "1 kandidat" : `${candidates.length} kandidat`;
+const intro = singleCandidateMode ? `${heading} pada pemilihan ini. Kenali nama, unit asal, dan perkenalan singkat sebelum memberikan suara.` : `${heading} pada pemilihan ini. Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara.`;
+const emptyIntro = singleCandidateMode ? "Kenali kandidat sebelum memberikan suara." : "Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara.";
 ---
 <Base title="Kandidat · PPIJ Pemilu">
-  <PageHeader eyebrow="Pemilihan" title="Kandidat" description={candidates.length ? `${heading} pada pemilihan ini. Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara.` : "Kenali nomor urut, nama, dan perkenalan singkat sebelum memberikan suara."} />
+  <PageHeader eyebrow="Pemilihan" title="Kandidat" description={candidates.length ? intro : emptyIntro} />
   {candidates.length
-    ? <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} />)}</div>
+    ? <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, unitNames)} headingLevel={2} singleCandidateMode={singleCandidateMode} />)}</div>
     : <div class="mt-6"><Empty title="Belum ada kandidat" description="Informasi kandidat akan tampil di sini setelah panitia menambahkannya." icon={IconUsers} /></div>}
 </Base>

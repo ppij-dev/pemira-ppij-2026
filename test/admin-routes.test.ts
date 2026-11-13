@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
 import memberNumberSql from "../migrations/0008_member_number.sql?raw";
+import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import { recoveryInvitationSql } from "../scripts/recovery-invite.mjs";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
@@ -170,6 +171,46 @@ describe("Admin Voting invitation routes", () => {
     expect((await accept(token, "member-recovery")).status).toBe(200);
     expect(await env.DB.prepare("SELECT member_id FROM admin_voting WHERE member_id='member-recovery'").first()).toEqual({ member_id: "member-recovery" });
     expect(await auditActions()).toEqual(["admin_invitation_recovery", "admin_invitation_accepted"]);
+  });
+});
+
+describe("Single candidate mode switch route", () => {
+  async function seedDraftElection(candidates: number) {
+    await env.DB.batch(singleModeSql.split(";").map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement)));
+    await env.DB.prepare("INSERT INTO elections (id, title) VALUES (1, 'Pemilihan')").run();
+    for (let number = 1; number <= candidates; number++) {
+      await env.DB.prepare("INSERT INTO candidates (id, member_id, number, name, nickname, komsat_path) VALUES (?,?,?,?,?,?)")
+        .bind(number, `cand-${number}`, number, `Kandidat ${number}`, `Kandidat${number}`, SCOPE).run();
+    }
+  }
+  const toggle = (enabled: unknown, memberId = "admin-1") => request("/api/election/single-candidate-mode", memberId, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+
+  it("reads and toggles the switch in Draf with an audit entry each time", async () => {
+    await seedDraftElection(0);
+    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: false, editable: true });
+    const on = await toggle(true);
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ enabled: true });
+    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: true, editable: true });
+    expect((await toggle(false)).status).toBe(200);
+    expect(await auditActions()).toEqual(["Mode kandidat tunggal diaktifkan", "Mode kandidat tunggal dinonaktifkan"]);
+    // Pelaku tercatat dari sesi Admin Voting.
+    expect(await env.DB.prepare("SELECT actor_type,actor_member_id FROM audit_log ORDER BY seq LIMIT 1").first()).toEqual({ actor_type: "admin", actor_member_id: "admin-1" });
+  });
+
+  it("refuses the switch with two candidates, a non-boolean value and a non-admin session", async () => {
+    await seedDraftElection(2);
+    const refused = await toggle(true);
+    expect(refused.status).toBe(409);
+    expect((await refused.json() as { error: string }).error).toContain("saat ini terdaftar 2 kandidat");
+    expect((await toggle("true")).status).toBe(400);
+    expect((await request("/api/election/single-candidate-mode", "member-2")).status).toBe(403);
+    expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({ single_candidate_mode: 0 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({ n: 0 });
   });
 });
 
