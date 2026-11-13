@@ -8,7 +8,7 @@ import { requireAdmin } from "../admin/routes";
 import { buildAuditInsert } from "../lib/audit";
 import { getDashboard, getPublicResults, ResultsError } from "./queries";
 
-type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number } } } };
+type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 
 function fail(c: Context<Env>, error: unknown) {
   if (error instanceof ResultsError) return c.json({ error: error.message }, error.status);
@@ -28,7 +28,7 @@ resultsRoutes.get("/dashboard", requireAdmin, async (c) => {
       at: now.toISOString(),
       actor_type: "admin",
       actor_member_id: actor.session.member_id,
-      actor_name: actor.session.name,
+      actor_name: actor.displayName,
       action: "admin_tally_viewed",
       target: null,
       komsat_path: null,

@@ -15,6 +15,7 @@ import { stage as getStage, type Stage } from "../server/lib/stage";
 import { unitPathLabel, type UnitNames } from "../lib/formatKomsat";
 import { memberCategoryLabel } from "../lib/memberCategory";
 import { loadUnitNames } from "../server/lib/units";
+import { usableName } from "../server/lib/displayName";
 import type { Bindings } from "../server/app";
 
 const bindings = env as unknown as Bindings;
@@ -60,8 +61,7 @@ if (session) {
 
 // Nama tampilan: utamakan nama resmi dari daftar pemilih (hasil sinkronisasi
 // Service API); klaim nama One Login yang belum terisi berupa ID anggota.
-const claimsLookLikeId = session ? session.name.trim() === session.member_id : false;
-const displayName = rollName && rollName.trim() && rollName !== session?.member_id ? rollName : claimsLookLikeId ? null : session?.name ?? null;
+const displayName = session ? usableName(rollName, session.member_id) ?? usableName(session.name, session.member_id) : null;
 const affiliationPath = Array.isArray(session?.affiliation) ? session!.affiliation[0] : session?.affiliation ?? null;
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", dateStyle: "long", timeStyle: "short" }).format(new Date(value)) + " JST";
 const stageLabel = currentStage ? ({ draft: "Draf", scheduled: "Terjadwal", open: "Dibuka", closed: "Ditutup", published: "Diumumkan" } as const)[currentStage] : null;

@@ -9,6 +9,7 @@ import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { affiliationInScope } from "../admin/routes";
 import { AUDIT_GENESIS_HASH, canonicalRow, type AuditEntry } from "../lib/audit";
 import { REGULAR_MEMBER_CATEGORY } from "../../lib/memberCategory";
+import { usableName } from "../lib/displayName";
 import { generateReceipt } from "./receipt";
 
 async function sha256Hex(input: string): Promise<string> {
@@ -99,6 +100,10 @@ export function previewKomsatPath(affiliation: string | string[] | null, scope: 
  * Mode Pratinjau tidak punya Service API yang bisa menyegarkan roll.
  */
 async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, scope: string): Promise<VoterRow> {
+  // Klaim nama One Login bisa kosong sehingga berisi UUID anggota; Mode Pratinjau
+  // tidak punya roll portal, jadi yang tidak layak disimpan sebagai nama kosong
+  // (sama seperti sinkronisasi), bukan UUID.
+  const resolvedName = usableName(session.name, session.member_id) ?? "";
   await db
     .prepare(
       `INSERT INTO voters (member_id, name, nickname, komsat_path, status, synced_at, category, can_vote)
@@ -106,7 +111,7 @@ async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, sc
        ON CONFLICT(member_id) DO UPDATE SET category = COALESCE(voters.category, ?), can_vote = 1
          WHERE voters.can_vote IS NULL`,
     )
-    .bind(session.member_id, session.name, session.name, previewKomsatPath(session.affiliation, scope), new Date().toISOString(), REGULAR_MEMBER_CATEGORY, REGULAR_MEMBER_CATEGORY)
+    .bind(session.member_id, resolvedName, "", previewKomsatPath(session.affiliation, scope), new Date().toISOString(), REGULAR_MEMBER_CATEGORY, REGULAR_MEMBER_CATEGORY)
     .run();
   const voter = await db
     .prepare("SELECT member_id,name,komsat_path,status,category,can_vote FROM voters WHERE member_id = ?")

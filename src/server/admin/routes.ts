@@ -4,8 +4,9 @@ import { getCookie } from "hono/cookie";
 import type { Bindings } from "../app";
 import { SESSION_COOKIE, openSession, type SessionData } from "../auth/session";
 import { buildAuditInsert } from "../lib/audit";
+import { NEUTRAL_ADMIN_NAME, resolveDisplayName } from "../lib/displayName";
 
-type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number } } } };
+type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 type AffiliationClaim = string | string[] | null;
 
 export function affiliationInScope(claim: AffiliationClaim, scope: string): boolean {
@@ -32,7 +33,9 @@ const authenticate = async (c: Context<Env>) => {
   if (!admin) return null;
   const config = await c.env.DB.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{value:string}>();
   if (!config || !affiliationInScope(session.affiliation, config.value)) return null;
-  return { session, admin };
+  // Nama panitia untuk audit: nama roll portal, bukan UUID dari klaim sesi.
+  const displayName = await resolveDisplayName(c.env.DB, session.member_id, session.name, NEUTRAL_ADMIN_NAME);
+  return { session, admin, displayName };
 };
 /** Dipakai juga oleh parent untuk memasang rute election/sync di bawah guard yang sama. */
 export const requireAdmin = async (c: Context<Env>, next: () => Promise<void>) => {
@@ -90,7 +93,7 @@ export function createAdminRoutes() {
     const now = new Date(); const expires = new Date(now.getTime() + 72 * 60 * 60 * 1000);
     await c.env.DB.batch([
       c.env.DB.prepare("INSERT INTO invitations (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(hash, resolvedId, now.toISOString(), expires.toISOString()),
-      await buildAuditInsert(c.env.DB, { at: now.toISOString(), actor_type:"admin", actor_member_id:actor.session.member_id, actor_name:actor.session.name, action:"admin_invitation_created", target:resolvedId, komsat_path:null, detail_json:null }),
+      await buildAuditInsert(c.env.DB, { at: now.toISOString(), actor_type:"admin", actor_member_id:actor.session.member_id, actor_name:actor.displayName, action:"admin_invitation_created", target:resolvedId, komsat_path:null, detail_json:null }),
     ]);
     const base = await c.env.DB.prepare("SELECT value FROM system_config WHERE key='site_base_url'").first<{value:string}>();
     return c.json({ invitation_url: `${base?.value ?? ""}/api/admin/invitations/${encodeURIComponent(token)}/accept`, expires_at: expires.toISOString() }, 201);
@@ -117,10 +120,12 @@ export function createAdminRoutes() {
     if (!row || Date.parse(row.expires_at) <= Date.now()) return jsonError(c, "undangan_tidak_valid_atau_kedaluwarsa", 409);
     if (session.member_id !== row.member_id) return jsonError(c, "undangan_untuk_anggota_lain", 403);
     const now = new Date().toISOString();
+    // Nama dari roll portal; UUID dari klaim sesi tidak pernah disimpan sebagai nama.
+    const memberName = await resolveDisplayName(c.env.DB, row.member_id, session.name, "");
     const update = await c.env.DB.prepare("UPDATE invitations SET accepted_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL AND expires_at > ?").bind(now,await digest(token),now).run();
     if (!update.meta.changes) return jsonError(c, "undangan_sudah_digunakan", 409);
-    const prepared = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:session.member_id,actor_name:session.name,action:"admin_invitation_accepted",target:row.member_id,komsat_path:null,detail_json:null});
-    await c.env.DB.batch([c.env.DB.prepare("INSERT INTO admin_voting (member_id,name,is_technical,created_at) VALUES (?,?,0,?) ON CONFLICT(member_id) DO NOTHING").bind(row.member_id, session.name, now), prepared]);
+    const prepared = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:session.member_id,actor_name:memberName || NEUTRAL_ADMIN_NAME,action:"admin_invitation_accepted",target:row.member_id,komsat_path:null,detail_json:null});
+    await c.env.DB.batch([c.env.DB.prepare("INSERT INTO admin_voting (member_id,name,is_technical,created_at) VALUES (?,?,0,?) ON CONFLICT(member_id) DO NOTHING").bind(row.member_id, memberName, now), prepared]);
     return c.json({ok:true});
   });
   routes.delete("/admin/:memberId", async (c) => {
@@ -132,7 +137,7 @@ export function createAdminRoutes() {
     const now = new Date().toISOString();
     await c.env.DB.batch([
       c.env.DB.prepare("DELETE FROM admin_voting WHERE member_id=?").bind(memberId),
-      await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_voting_removed",target:memberId,komsat_path:null,detail_json:null}),
+      await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.displayName,action:"admin_voting_removed",target:memberId,komsat_path:null,detail_json:null}),
     ]);
     return c.json({ok:true});
   });
@@ -144,7 +149,7 @@ export function createAdminRoutes() {
     if (!invitation) return jsonError(c, "undangan_tidak_ditemukan", 404);
     const result = await c.env.DB.prepare("UPDATE invitations SET cancelled_at=? WHERE token_hash=? AND accepted_at IS NULL AND cancelled_at IS NULL").bind(now, id).run();
     if (!result.meta.changes) return jsonError(c, "undangan_tidak_ditemukan", 404);
-    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.session.name,action:"admin_invitation_cancelled",target:invitation.member_id,komsat_path:null,detail_json:null});
+    const audit = await buildAuditInsert(c.env.DB,{at:now,actor_type:"admin",actor_member_id:actor.session.member_id,actor_name:actor.displayName,action:"admin_invitation_cancelled",target:invitation.member_id,komsat_path:null,detail_json:null});
     await c.env.DB.batch([audit]);
     return c.json({ok:true});
   });
