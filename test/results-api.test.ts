@@ -372,13 +372,33 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
     await env.DB.prepare("INSERT INTO candidates (id, member_id, number, name, nickname, komsat_path, color) VALUES (1, 'cand-1', 1, 'Kandidat Satu', 'Satu', ?, '#ff0000')").bind(SCOPE).run();
   }
 
-  /** Satu surat suara nyata dan satu baris partisipasi (tidak memilih = Hak pilih - partisipasi). */
-  async function castChoice(choice: SingleChoice, path: string, opts: { isTest?: number } = {}) {
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      "INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test, choice) VALUES (?, 1, 1, ?, ?, ?, ?)",
-    ).bind(id, path, `hash-${id}`, opts.isTest ?? 0, choice).run();
-    if (!opts.isTest) await recordParticipation(`voter-${id}`, path);
+  /**
+   * `count` surat suara nyata plus baris partisipasinya, ditulis satu batch supaya
+   * tes tetap jauh di bawah batas waktu saat suite berjalan paralel.
+   * tidak memilih = Hak pilih - partisipasi, jadi tiap surat suara butuh satu baris.
+   */
+  async function castChoice(choice: SingleChoice, path: string, count = 1, opts: { isTest?: number } = {}) {
+    const isTest = opts.isTest ?? 0;
+    const statements: D1PreparedStatement[] = [];
+    for (let i = 0; i < count; i++) {
+      const id = crypto.randomUUID();
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test, choice) VALUES (?, 1, 1, ?, ?, ?, ?)",
+        ).bind(id, path, `hash-${id}`, isTest, choice),
+      );
+      if (!isTest) {
+        statements.push(
+          env.DB.prepare(
+            "INSERT OR IGNORE INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, 1)",
+          ).bind(`voter-${id}`, `voter-${id}`, path, new Date().toISOString()),
+          env.DB.prepare(
+            "INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, ?, ?, ?, 0)",
+          ).bind(`voter-${id}`, `voter-${id}`, new Date().toISOString()),
+        );
+      }
+    }
+    await env.DB.batch(statements);
   }
 
   /** Anggota berhak yang tidak memilih; hanya menambah Hak pilih per korda. */
@@ -397,8 +417,8 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
   it("shows Setuju, Tidak Setuju and Tidak memilih with their shares of Hak pilih and the Terpilih outcome", async () => {
     // Hak pilih 100, 55 Setuju, 30 Tidak Setuju, 15 tidak memilih → 55 > 45.
     await seedSingleElection({ closed: true });
-    for (let i = 0; i < 55; i++) await castChoice("setuju", `${SCOPE}/komsat-a`);
-    for (let i = 0; i < 30; i++) await castChoice("tidak_setuju", `${SCOPE}/komsat-a`);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 55);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
     const data = await dashboardData();
     expect(data).toMatchObject({
       stage: "closed",
@@ -424,8 +444,8 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
   it("reports Tidak terpilih when Tidak Setuju plus non-voters beat Setuju", async () => {
     // Hak pilih 100, 40 Setuju, 35 Tidak Setuju, 25 tidak memilih → 40 < 60.
     await seedSingleElection({ closed: true });
-    for (let i = 0; i < 40; i++) await castChoice("setuju", `${SCOPE}/komsat-a`);
-    for (let i = 0; i < 35; i++) await castChoice("tidak_setuju", `${SCOPE}/komsat-a`);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 40);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 35);
     const data = await dashboardData();
     expect(data).toMatchObject({
       outcome: "tidak_terpilih",
@@ -441,8 +461,8 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
   it("reports Seri when Setuju equals Tidak Setuju plus non-voters", async () => {
     // Hak pilih 100, 50 Setuju, 20 Tidak Setuju, 30 tidak memilih → 50 = 50.
     await seedSingleElection({ closed: true });
-    for (let i = 0; i < 50; i++) await castChoice("setuju", `${SCOPE}/komsat-a`);
-    for (let i = 0; i < 20; i++) await castChoice("tidak_setuju", `${SCOPE}/komsat-a`);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 20);
     const data = await dashboardData();
     expect(data.outcome).toBe("seri");
     expect(data.tidak_memilih_count).toBe(30);
@@ -452,7 +472,7 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
 
   it("keeps menunggu_penutupan before voting closes and while Draf", async () => {
     await seedSingleElection();
-    for (let i = 0; i < 5; i++) await castChoice("setuju", `${SCOPE}/komsat-a`);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 5);
     const open = await dashboardData();
     expect(open).toMatchObject({ stage: "open", outcome: "menunggu_penutupan", setuju_count: 5, tidak_memilih_count: 95 });
     await env.DB.prepare("UPDATE elections SET status_lock = 'draft', frozen_hak_pilih = NULL, frozen_at = NULL").run();
@@ -482,10 +502,10 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
     // memilih = 20 Hak pilih, dengan 10 surat suara (6 Setuju, 4 Tidak Setuju).
     await seedSingleElection({ frozen: 24 });
     for (let i = 0; i < 9; i++) await seedEligible(`ok-extra-${i}`, `${SCOPE}/komsat-z`);
-    for (let i = 0; i < 6; i++) await castChoice("setuju", `${SCOPE}/komsat-a`);
-    for (let i = 0; i < 4; i++) await castChoice("tidak_setuju", `${SCOPE}/komsat-a`);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 6);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 4);
     // Korda Tokyo: 4 surat suara, di bawah ambang penyembunyian.
-    for (let i = 0; i < 4; i++) await castChoice("setuju", "/ppij/tokyo/komsat-a");
+    await castChoice("setuju", "/ppij/tokyo/komsat-a", 4);
     const data = await dashboardData();
     const okayama = data.korda.find((row) => row.key === SCOPE);
     expect(okayama).toMatchObject({
@@ -509,8 +529,8 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
 
   it("counts Draf test ballots in the tally and still shows menunggu_penutupan", async () => {
     await seedSingleElection({ status: "draft" });
-    await castChoice("setuju", `${SCOPE}/komsat-a`, { isTest: 1 });
-    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, { isTest: 1 });
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 1, { isTest: 1 });
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 1, { isTest: 1 });
     const data = await dashboardData();
     expect(data).toMatchObject({
       setuju_count: 1,
