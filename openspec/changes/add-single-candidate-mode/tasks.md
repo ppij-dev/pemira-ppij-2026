@@ -6,35 +6,35 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 1. Migrations
 
-- [ ] 1.1 Write `migrations/0011_single_candidate_mode.sql`: `ALTER TABLE elections ADD
+- [x] 1.1 Write `migrations/0011_single_candidate_mode.sql`: `ALTER TABLE elections ADD
       COLUMN single_candidate_mode INTEGER NOT NULL DEFAULT 0 CHECK (single_candidate_mode
       IN (0, 1))` with an Indonesian comment naming the Draf-only switch and the freeze at
       Kunci & Jadwalkan (mirrors `0006_preview_mode.sql`).
-- [ ] 1.2 Write `migrations/0012_ballot_choice.sql`: `ALTER TABLE ballots ADD COLUMN
+- [x] 1.2 Write `migrations/0012_ballot_choice.sql`: `ALTER TABLE ballots ADD COLUMN
       choice TEXT CHECK (choice IN ('setuju','tidak_setuju','abstain'))` with a comment
       explaining NULL = normal multi-candidate ballots and that the column carries no
       member link (secrecy).
-- [ ] 1.3 Extend `test/schema.test.ts`: both migrations apply to a fresh D1, the elections
+- [x] 1.3 Extend `test/schema.test.ts`: both migrations apply to a fresh D1, the elections
       default is off, an insert of a ballot with an out-of-range choice fails the CHECK,
       NULL passes, existing multi-candidate ballot inserts still succeed.
 
 ## 2. Server: Pengaturan switch, readiness and lock (election-lifecycle)
 
-- [ ] 2.1 Failing tests first in `test/election-lifecycle.test.ts`: toggle allowed in Draf
+- [x] 2.1 Failing tests first in `test/election-lifecycle.test.ts`: toggle allowed in Draf
       (on and off again), refused after Kunci, refused with 2+ candidates (message naming
       the candidate count, mode stays off; owner decision Q35), audit entry per accepted
       toggle, readiness candidate check mode-aware (exactly one when on; 2–10 when off),
       lock succeeds with exactly one candidate while on, lock audit detail records
       `single_candidate_mode`.
-- [ ] 2.2 Implement the toggle in `src/server/election/lifecycle.ts` + admin route:
+- [x] 2.2 Implement the toggle in `src/server/election/lifecycle.ts` + admin route:
       Draf-only write of `elections.single_candidate_mode`, refusal message for later
       stages, refusal to enable while two or more candidates are registered (message
       naming the count, see design D7), audit entries "Mode kandidat tunggal
       diaktifkan"/"…dinonaktifkan".
-- [ ] 2.3 Make `getReadiness` mode-aware: replace the candidate-count check with exactly
+- [x] 2.3 Make `getReadiness` mode-aware: replace the candidate-count check with exactly
       one candidate while the mode is on (message naming one candidate), keep "Minimal 2
       kandidat"/"Maksimal 10 kandidat" while off.
-- [ ] 2.4 Add `single_candidate_mode` to the Kunci lock audit detail JSON; run the group's
+- [x] 2.4 Add `single_candidate_mode` to the Kunci lock audit detail JSON; run the group's
       tests green.
 
 ## 3. Server: candidate refusal (candidates)

@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { createCandidate, deleteCandidate, ElectionError, listCandidates, updateCandidate } from "./candidates";
-import { castTestVote, clearSchedule, closeEarly, extendClosing, getReadiness, lockElection, publishResults, setSchedule } from "./lifecycle";
+import { castTestVote, clearSchedule, closeEarly, extendClosing, getReadiness, getSingleCandidateMode, lockElection, publishResults, setSchedule, setSingleCandidateMode } from "./lifecycle";
 import type { ServiceApiConfig } from "../serviceapi/client";
 
 type Env={Bindings:Bindings & { ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string };Variables:{adminAuth?:{admin:{member_id:string}}}};
@@ -15,6 +15,8 @@ electionRoutes.post("/election/candidates",async c=>{try{return c.json(await cre
 electionRoutes.put("/election/candidates/:id",async c=>{try{return c.json(await updateCandidate(c.env.DB,now(),Number(c.req.param("id")),await c.req.json()));}catch(e){return fail(c,e);}});
 electionRoutes.delete("/election/candidates/:id",async c=>{try{await deleteCandidate(c.env.DB,now(c),Number(c.req.param("id")));return c.body(null,204);}catch(e){return fail(c,e);}});
 electionRoutes.get("/election/readiness",async c=>c.json({checks:await getReadiness(c.env.DB,now(c))}));
+electionRoutes.get("/election/single-candidate-mode",async c=>c.json(await getSingleCandidateMode(c.env.DB)));
+electionRoutes.put("/election/single-candidate-mode",async c=>{try{const body=await c.req.json();return c.json(await setSingleCandidateMode(c.env.DB,now(c),body?.enabled));}catch(e){return fail(c,e);}});
 electionRoutes.put("/election/schedule",async c=>{try{await setSchedule(c.env.DB,now(c),await c.req.json());return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.delete("/election/schedule",async c=>{try{await clearSchedule(c.env.DB,now(c));return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/lock",async c=>{try{return c.json(await lockElection(c.env.DB,serviceConfig(c.env),now(c)));}catch(e){return fail(c,e);}});

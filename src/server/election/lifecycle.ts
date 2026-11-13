@@ -7,21 +7,52 @@ import { ElectionError, type ReadinessCheck } from "./candidates";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:null,actor_name:"",action,target,komsat_path:null,detail_json:detail}); }
 export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessCheck[]> {
- const e=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{opens_at:string|null;closes_at:string|null;preview_mode:number}>();
+ const e=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{opens_at:string|null;closes_at:string|null;preview_mode:number;single_candidate_mode:number}>();
  const candidates=await db.prepare("SELECT COUNT(*) AS n FROM candidates").first<{n:number}>();
  const duplicate=await db.prepare("SELECT nickname FROM candidates GROUP BY nickname COLLATE NOCASE HAVING COUNT(*)>1 LIMIT 1").first();
  const sync=await db.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first(); const voters=await db.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>();
  const adminCandidate=await db.prepare("SELECT 1 FROM candidates c JOIN admin_voting a ON a.member_id=c.member_id LIMIT 1").first();
  const time= e?.opens_at ? Date.parse(e.opens_at) : NaN;
  const preview= e?.preview_mode===1;
+ // Mode kandidat tunggal mengganti aturan jumlah kandidat: tepat satu, bukan 2-10.
+ const single= e?.single_candidate_mode===1;
+ const candidateTotal= candidates?.n??0;
  return [
   {key:"schedule",ok:!!e?.opens_at&&!!e.closes_at&&Date.parse(e.closes_at)>time,message:"Jadwal harus diatur dengan waktu yang valid"},
   {key:"opens_future",ok:Number.isFinite(time)&&(preview?true:time>now.getTime()),message:preview?"Mode pratinjau: pemilihan dapat dibuka sekarang":"Waktu mulai harus di masa depan"},
-  {key:"candidate_count",ok:(candidates?.n??0)>=2&&(candidates?.n??0)<=10,message:(candidates?.n??0)<2?"Minimal 2 kandidat":"Maksimal 10 kandidat"},
+  {key:"candidate_count",ok:single?candidateTotal===1:candidateTotal>=2&&candidateTotal<=10,message:single?"Mode kandidat tunggal: harus tepat 1 kandidat":(candidateTotal<2?"Minimal 2 kandidat":"Maksimal 10 kandidat")},
   {key:"nicknames",ok:!duplicate,message:"Nickname kandidat harus unik"},
   {key:"roll_synced",ok:preview|| (!!sync&&(voters?.n??0)>0),message:preview?"Mode pratinjau: pemilih terdaftar otomatis saat masuk":"Daftar Pemilih belum disinkronkan"},
   {key:"admin_candidate",ok:!adminCandidate,message:"Admin Voting tidak dapat menjadi kandidat"},
  ];
+}
+/**
+ * Saklar mode kandidat tunggal untuk halaman Pengaturan: nilainya hanya dapat
+ * diubah saat Draf, setelah Kunci & Jadwalkan saklar tampil baca-saja.
+ */
+export async function getSingleCandidateMode(db:D1Database):Promise<{enabled:boolean;editable:boolean}> {
+ const row=await db.prepare("SELECT status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1").first<{status_lock:string;single_candidate_mode:number}>();
+ return {enabled:row?.single_candidate_mode===1,editable:row?.status_lock==="draft"};
+}
+/**
+ * Ubah mode kandidat tunggal (Draf saja). Mengaktifkan ditolak selama dua
+ * kandidat atau lebih terdaftar, karena Kunci & Jadwalkan menuntut tepat satu.
+ * Setiap perubahan diterima dicatat di audit (tanpa rujukan anggota/surat suara).
+ */
+export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:boolean) {
+ if(typeof enabled!=="boolean") throw new ElectionError("Nilai mode kandidat tunggal tidak valid",400);
+ const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
+ if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
+ if(row.status_lock!=="draft") throw new ElectionError("Mode kandidat tunggal hanya dapat diubah saat Draf",409);
+ if(enabled) {
+  const total=(await db.prepare("SELECT COUNT(*) AS n FROM candidates").first<{n:number}>())?.n??0;
+  if(total>=2) throw new ElectionError(`Mode kandidat tunggal tidak dapat diaktifkan: saat ini terdaftar ${total} kandidat. Sisakan 0 atau 1 kandidat terlebih dahulu.`,409);
+ }
+ await db.batch([
+  db.prepare("UPDATE elections SET single_candidate_mode=? WHERE status_lock='draft'").bind(enabled?1:0),
+  await audit(db,now,enabled?"Mode kandidat tunggal diaktifkan":"Mode kandidat tunggal dinonaktifkan",null,JSON.stringify({single_candidate_mode:enabled})),
+ ]);
+ return {enabled};
 }
 export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string;preview_mode?:boolean}) {
  const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf");
@@ -39,7 +70,7 @@ export async function lockElection(db:D1Database,cfg:ServiceApiConfig,now:Date,f
  try { return await lockElectionInternal(db,cfg,now,fetchImpl); } finally { activeLocks.delete(db); }
 }
 async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,fetchImpl:typeof fetch) {
- const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
+ const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number;single_candidate_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
  const checks=await getReadiness(db,now); if(checks.some(c=>!c.ok)) throw new ElectionError("Kesiapan pemilihan belum terpenuhi",409,checks);
  let finalSync: { excluded: number } | null = null;
  if(!row.preview_mode) { try { finalSync=await syncPemilih(db,cfg,now,fetchImpl,{full:true}); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
@@ -53,7 +84,7 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
  for(let i=colors.length-1;i>0;i--){const j=crypto.getRandomValues(new Uint32Array(1))[0]!%(i+1); [colors[i],colors[j]]=[colors[j]!,colors[i]!];}
  const deletions=await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=1").bind(row.id).first<{n:number}>();
  const votes=deletions?.n??0;
- const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
+ const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,single_candidate_mode:row.single_candidate_mode===1,...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
  const statements=[db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
  let result;
  try { result=await db.batch(statements); } catch(error) { const current=await db.prepare("SELECT status_lock FROM elections WHERE id=?").bind(row.id).first<{status_lock:string}>(); if(current?.status_lock!=="draft") throw new ElectionError("Pemilihan telah dikunci oleh permintaan lain"); throw error; }
