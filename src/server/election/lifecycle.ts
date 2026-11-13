@@ -84,6 +84,14 @@ function returnRefusal(row:{status_lock:string;preview_mode:number;opens_at:stri
  return Number.isFinite(opensAt)&&now.getTime()<opensAt?null:"Kembali ke Draf hanya tersedia sebelum pemungutan suara dibuka.";
 }
 /**
+ * Matriks tampil-tombol Pengaturan (design.md D2): tindakan hanya ditawarkan saat
+ * pemilihan terkunci, dan pada pemilihan riil hanya sebelum pemungutan suara dibuka.
+ * Server tetap memeriksa ulang lewat returnToDraft; ini hanya untuk tampilan.
+ */
+export function canReturnToDraft(row:{status_lock:string;preview_mode:number;opens_at:string|null},now:Date):boolean {
+ return row.status_lock==="locked"&&returnRefusal(row,now)===null;
+}
+/**
  * Kembalikan pemilihan terkunci ke Draf (design.md D1–D3, D7). Suara yang sudah
  * masuk (is_test=0) tetap tersimpan apa adanya; satu-satunya data yang dibuang
  * adalah data tahap yang dibatalkan, supaya Kunci berikutnya membuka pemilihan

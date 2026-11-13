@@ -3,7 +3,7 @@ import {env,reset} from "cloudflare:test";
 import base from "../migrations/0001_init.sql?raw";import units from "../migrations/0002_units.sql?raw";import lock from "../migrations/0003_election_lock.sql?raw";import snapshot from "../migrations/0005_closing_snapshot.sql?raw";import preview from "../migrations/0006_preview_mode.sql?raw";import memberNumber from "../migrations/0008_member_number.sql?raw";import categorySql from "../migrations/0009_voter_category.sql?raw";import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import {createCandidate} from "../src/server/election/candidates";
 import intro from "../migrations/0007_candidate_short_intro.sql?raw";import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
-import {castTestVote,closeEarly,extendClosing,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
+import {canReturnToDraft,castTestVote,closeEarly,extendClosing,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
 import {stage} from "../src/server/lib/stage";
 import {verifyChain,type AuditRow} from "../src/server/lib/audit";
 import {app} from "../src/server/app";
@@ -411,5 +411,23 @@ describe("audit Kembali ke Draf",()=>{
   expect(after).toHaveLength(before.length);
   expect(after.at(-1)!.hash).toBe(tip);
   expect(await verifyChain(after)).toBeNull();
+ });
+});
+
+// Matriks desain D2 dipakai Pengaturan untuk menampilkan tombol; server tetap
+// memeriksa ulang, jadi keduanya harus menjawab sama.
+describe("matriks tampil tombol Kembali ke Draf",()=>{
+ it("menawarkan tindakan hanya saat terkunci, dan pada pemilihan riil hanya sebelum dibuka",()=>{
+  const opens="2026-10-21T00:00:00Z";
+  const cases:[string,number,"scheduled"|"open"|"closed"|"published",boolean][]=[
+   ["draft",0,"scheduled",false],["draft",1,"scheduled",false],
+   ["locked",0,"scheduled",true],["locked",0,"open",false],["locked",0,"closed",false],
+   ["locked",1,"scheduled",true],["locked",1,"open",true],["locked",1,"closed",true],
+   ["published",0,"closed",false],["published",1,"closed",false],
+  ];
+  const when:{[stage:string]:Date}={scheduled:NOW,open:OPEN_NOW,closed:CLOSED_NOW};
+  for(const [status_lock,preview_mode,left,expected] of cases){
+   expect(canReturnToDraft({status_lock,preview_mode,opens_at:opens},when[left]!)).toBe(expected);
+  }
  });
 });
