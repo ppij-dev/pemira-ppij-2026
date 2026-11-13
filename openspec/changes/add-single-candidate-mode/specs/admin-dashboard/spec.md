@@ -15,7 +15,7 @@ While single candidate mode is on, Dasbor SHALL show to Admin Voting in every st
 
 #### Scenario: Single candidate tally during voting
 
-- **WHEN** an Admin Voting refreshes Dasbor in single candidate mode with Hak pilih 100, 55 Setuju, 30 Tidak Setuju and 15 Tidak memilih ballots
+- **WHEN** an Admin Voting refreshes Dasbor in single candidate mode with Hak pilih 100, 55 Setuju ballots, 30 Tidak Setuju ballots and 15 eligible members who did not vote
 - **THEN** the three counts with 55%, 30% and 15% of Hak pilih appear and the outcome line reads "Menunggu penutupan pemungutan suara"
 
 #### Scenario: Dasbor without nomor urut
