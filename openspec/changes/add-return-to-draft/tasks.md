@@ -7,24 +7,24 @@ needed; no task touches the schema.
 
 ## 1. Backend: return-to-draft action, stage matrix, phrase, reset (election-lifecycle)
 
-- [ ] 1.1 Failing tests first in `test/election-lifecycle.test.ts`: preview Terjadwal →
+- [x] 1.1 Failing tests first in `test/election-lifecycle.test.ts`: preview Terjadwal →
       Draf succeeds; preview Dibuka → Draf succeeds; preview Ditutup (clock-closed and
       Tutup Sekarang) → Draf succeeds; real election Terjadwal (now < opens_at) → Draf
       succeeds; real election after opens_at refused; real Ditutup refused; Diumumkan
       refused in both modes; Draf refused; non-Admin session refused with nothing
       recorded.
-- [ ] 1.2 Failing tests for the phrase and the reset: wrong/empty phrase → HTTP 400 and
+- [x] 1.2 Failing tests for the phrase and the reset: wrong/empty phrase → HTTP 400 and
       the election row unchanged; case/whitespace variants accepted; on success
       `status_lock='draft'`, `frozen_hak_pilih`/`frozen_at` NULL, `closed_early_at`/
       `closing_snapshot_hash`/`closing_snapshot_at` NULL, schedule/`preview_mode`/
       `allow_admin_voting`/`single_candidate_mode`/`voters`/`pemilih_last_sync` kept;
       readiness recomputed for Draf (a re-Kunci succeeds again and the re-locked election
       reopens instead of sitting in Ditutup).
-- [ ] 1.3 Implement `returnToDraft` in `src/server/election/lifecycle.ts`: stage guard
+- [x] 1.3 Implement `returnToDraft` in `src/server/election/lifecycle.ts`: stage guard
       `status_lock='locked' AND (preview_mode=1 OR now < opens_at)`, server-side phrase
       re-check (case-insensitive, whitespace-collapsed), single D1 batch with the status
       guard, kept counts read for the audit detail; run the group's tests green.
-- [ ] 1.4 Add `POST /api/election/return-to-draft` in `src/server/election/routes.ts`
+- [x] 1.4 Add `POST /api/election/return-to-draft` in `src/server/election/routes.ts`
       behind the existing Admin Voting session guard, wiring the actor
       (member_id + name); focused test that the route passes the actor through and maps
       `ElectionError` to its HTTP status.

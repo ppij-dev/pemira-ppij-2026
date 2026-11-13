@@ -1,6 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { AUDIT_GENESIS_HASH, buildAuditInsert, canonicalRow, sha256Hex } from "../lib/audit";
-import { stage } from "../lib/stage";
+import { AUDIT_GENESIS_HASH, buildAuditInsert, buildGuardedAuditInsert, canonicalRow, sha256Hex } from "../lib/audit";
+import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
@@ -56,6 +56,53 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
   await audit(db,now,enabled?"Mode kandidat tunggal diaktifkan":"Mode kandidat tunggal dinonaktifkan",null,JSON.stringify({single_candidate_mode:enabled}),actor),
  ]);
  return {enabled};
+}
+/** Frasa konfirmasi "Kembali ke Draf"; dibandingkan seperti konfirmasi nickname. */
+export const RETURN_TO_DRAFT_PHRASE="KEMBALI KE DRAF";
+/** Tahap terkunci yang boleh ditinggalkan; Draf dan Diumumkan tidak pernah masuk sini. */
+type LockedStage=Extract<Stage,"scheduled"|"open"|"closed">;
+export interface ReturnToDraftResult { kept_ballots:number; kept_participation:number; stage_before:LockedStage }
+/** Alasan penolakan untuk baris pemilihan saat ini, atau null bila tindakannya boleh. */
+function returnRefusal(row:{status_lock:string;preview_mode:number;opens_at:string|null},now:Date):string|null {
+ // Diumumkan adalah catatan publik final; Draf tidak punya apa pun untuk dikembalikan.
+ if(row.status_lock==="published") return "Hasil sudah diumumkan; pemilihan tidak dapat kembali ke Draf.";
+ if(row.status_lock==="draft") return "Pemilihan sudah berada di Draf.";
+ // Mode Pratinjau boleh di setiap tahap terkunci; pemilihan riil hanya sebelum dibuka,
+ // sehingga suara yang tersimpan tidak pernah dicabut pada pemilihan sungguhan.
+ if(row.preview_mode===1) return null;
+ const opensAt=row.opens_at?Date.parse(row.opens_at):NaN;
+ return Number.isFinite(opensAt)&&now.getTime()<opensAt?null:"Kembali ke Draf hanya tersedia sebelum pemungutan suara dibuka.";
+}
+/**
+ * Kembalikan pemilihan terkunci ke Draf (design.md D1–D3, D7). Suara yang sudah
+ * masuk (is_test=0) tetap tersimpan apa adanya; satu-satunya data yang dibuang
+ * adalah data tahap yang dibatalkan, supaya Kunci berikutnya membuka pemilihan
+ * menurut jam alih-alih tertinggal di Ditutup. Satu D1 batch: UPDATE bergerbang
+ * status_lock, lalu entri audit yang hanya ditulis bila UPDATE itu berhasil.
+ */
+export async function returnToDraft(db:D1Database,now:Date,phrase:unknown,actor?:AdminActor):Promise<ReturnToDraftResult> {
+ const normalized=typeof phrase==="string"?phrase.trim().replace(/\s+/g," ").toUpperCase():"";
+ if(normalized!==RETURN_TO_DRAFT_PHRASE) throw new ElectionError("Frasa konfirmasi tidak sesuai.",400);
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,preview_mode FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;preview_mode:number}>();
+ if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
+ const refusal=returnRefusal(row,now); if(refusal) throw new ElectionError(refusal,409);
+ // Pemilihan terkunci selalu punya jadwal (syarat Kunci); baris rusak ditolak, bukan 500.
+ if(!row.opens_at||!row.closes_at) throw new ElectionError("Jadwal pemilihan belum lengkap",409);
+ const stageBefore=stage({status_lock:row.status_lock,opens_at:row.opens_at,closes_at:row.closes_at,closed_early_at:row.closed_early_at},now.toISOString()) as LockedStage;
+ // Hitungan suara yang dipertahankan dibaca di jendela batch ini dan ikut ke audit.
+ const kept=await db.prepare("SELECT (SELECT COUNT(*) FROM ballots WHERE election_id=? AND is_test=0) AS ballots,(SELECT COUNT(*) FROM participation WHERE election_id=? AND is_test=0) AS participation").bind(row.id,row.id).first<{ballots:number;participation:number}>();
+ const keptBallots=kept?.ballots??0,keptParticipation=kept?.participation??0;
+ const detail=JSON.stringify({stage_before:stageBefore,preview_mode:row.preview_mode===1,kept_ballots:keptBallots,kept_participation:keptParticipation});
+ const auditEntry=await buildGuardedAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Pemilihan dikembalikan ke Draf",target:null,komsat_path:null,detail_json:detail});
+ const results=await db.batch([
+  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
+  auditEntry,
+ ]);
+ if(!results[0]?.meta.changes) {
+  const current=await db.prepare("SELECT status_lock,preview_mode,opens_at FROM elections WHERE id=?").bind(row.id).first<{status_lock:string;preview_mode:number;opens_at:string|null}>();
+  throw new ElectionError((current&&returnRefusal(current,now))??"Pemilihan tidak dapat dikembalikan ke Draf");
+ }
+ return {kept_ballots:keptBallots,kept_participation:keptParticipation,stage_before:stageBefore};
 }
 export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string;preview_mode?:boolean}) {
  const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf");
