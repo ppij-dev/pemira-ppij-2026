@@ -46,13 +46,13 @@ needed; no task touches the schema.
 
 ## 3. Backend: candidate protection while ballots reference them (candidate-management)
 
-- [ ] 3.1 Failing tests first in `test/candidates.test.ts`: deleting a candidate with
+- [x] 3.1 Failing tests first in `test/candidates.test.ts`: deleting a candidate with
       kept ballots → 409 with the message naming the ballots; replacing the candidate's
       member (new member reference in update) → 409 with its message; renaming,
       re-nicknaming, editing description/intro and nomor urut under the existing mode
       rules still succeed; deleting a candidate without ballots still succeeds; with zero
       kept ballots nothing changes.
-- [ ] 3.2 Implement the guards in `src/server/election/candidates.ts` (`deleteCandidate`
+- [x] 3.2 Implement the guards in `src/server/election/candidates.ts` (`deleteCandidate`
       and the member-replacement path of `updateCandidate`, reading kept `is_test=0`
       ballots per candidate); run the group's tests green.
 
