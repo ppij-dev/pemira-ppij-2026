@@ -99,7 +99,7 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 6.2 Implement the aggregation and outcome computation in
       `src/server/results/queries.ts` (set-based SQL, same suppression constant); run the
       group's tests green.
-- [ ] 6.3 Revisi W7 Q37/Q38: `abstain_count`/`abstain_percentage` are replaced by
+- [x] 6.3 Revisi W7 Q37/Q38: `abstain_count`/`abstain_percentage` are replaced by
       `tidak_memilih_count`/`tidak_memilih_percentage` (`eligible_count -
       participation_count`, clamped at zero) and all three percentages become shares of
       Hak pilih; the outcome becomes `terpilih | tidak_terpilih | seri |

@@ -19,15 +19,14 @@ function percentage(count: number, total: number): number {
 }
 
 /**
- * Keputusan mode kandidat tunggal: murni fungsi dari surat suara nyata.
- * Abstain dihitung dan ditampilkan tetapi tidak pernah masuk perbandingan.
- * Nol Setuju dan nol Tidak Setuju = belum ada suara, walaupun ada abstain.
+ * Keputusan mode kandidat tunggal: Setuju melawan Tidak Setuju ditambah anggota
+ * yang tidak memilih (yang dihitung sebagai Tidak Setuju). Terpilih hanya bila
+ * Setuju lebih dari separuh Hak pilih; sama kuat = Seri tanpa keputusan.
  */
-export function singleCandidateOutcome(setuju: number, tidakSetuju: number): SingleCandidateOutcome {
-  if (setuju === 0 && tidakSetuju === 0) return "belum_ada_suara";
-  if (setuju > tidakSetuju) return "terpilih";
-  if (tidakSetuju > setuju) return "tidak_terpilih";
-  return "seri";
+export function singleCandidateOutcome(setuju: number, penentang: number): SingleCandidateOutcome {
+  if (setuju > penentang) return "terpilih";
+  if (setuju === penentang) return "seri";
+  return "tidak_terpilih";
 }
 
 export interface CandidateTally {
@@ -38,8 +37,11 @@ export interface CandidateTally {
   votes: number;
 }
 
-/** Keputusan mode kandidat tunggal; hanya presentasi, tidak pernah disimpan. */
-export type SingleCandidateOutcome = "terpilih" | "tidak_terpilih" | "seri" | "belum_ada_suara";
+/**
+ * Keputusan mode kandidat tunggal; hanya presentasi, tidak pernah disimpan.
+ * `menunggu_penutupan` dipakai selama pemungutan suara belum ditutup.
+ */
+export type SingleCandidateOutcome = "terpilih" | "tidak_terpilih" | "seri" | "menunggu_penutupan";
 
 export interface KordaResult {
   /** Canonical region prefix "/ppij/<korda>" derived from frozen ballot/voter paths. */
@@ -57,10 +59,11 @@ export interface KordaResult {
   /** Mode kandidat tunggal; null saat mode mati atau baris disembunyikan. */
   setuju_count: number | null;
   tidak_setuju_count: number | null;
-  abstain_count: number | null;
+  /** Hak pilih korda minus partisipasi korda, dihitung sebagai Tidak Setuju. */
+  tidak_memilih_count: number | null;
   setuju_percentage: number | null;
   tidak_setuju_percentage: number | null;
-  abstain_percentage: number | null;
+  tidak_memilih_percentage: number | null;
 }
 
 export interface ResultsPayload {
@@ -79,15 +82,19 @@ export interface ResultsPayload {
   korda: KordaResult[];
   /** True saat pemilihan memakai mode kandidat tunggal (dibekukan di Kunci). */
   single_candidate_mode: boolean;
-  /** Baris keputusan saat mode hidup; null saat mode mati. */
+  /**
+   * Baris keputusan saat mode hidup; null saat mode mati. Sebelum penutupan
+   * nilainya `menunggu_penutupan`.
+   */
   outcome: SingleCandidateOutcome | null;
-  /** Jawaban Setuju/Tidak Setuju/Abstain; null saat mode mati. */
+  /** Jawaban Setuju/Tidak Setuju dan anggota yang tidak memilih. */
   setuju_count: number | null;
   tidak_setuju_count: number | null;
-  abstain_count: number | null;
+  /** Hak pilih dikurangi partisipasi (minimal 0); dihitung sebagai Tidak Setuju. */
+  tidak_memilih_count: number | null;
   setuju_percentage: number | null;
   tidak_setuju_percentage: number | null;
-  abstain_percentage: number | null;
+  tidak_memilih_percentage: number | null;
 }
 
 export interface DashboardPayload extends ResultsPayload {
@@ -183,14 +190,10 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
         .bind(election.id),
       db.prepare(`SELECT choice, komsat_path AS path, COUNT(*) AS n FROM ballots WHERE election_id = ? ${testOn("ballots")} AND choice IS NOT NULL GROUP BY choice, komsat_path`)
         .bind(election.id),
-      db.prepare(
-        `SELECT (SELECT COUNT(*) FROM ballots WHERE election_id = ? AND is_test = 0 AND choice = 'setuju') AS setuju,
-                (SELECT COUNT(*) FROM ballots WHERE election_id = ? AND is_test = 0 AND choice = 'tidak_setuju') AS tidak`,
-      ).bind(election.id, election.id),
     );
   }
   const batchResults = await db.batch(statements);
-  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult, choiceTotalResult, choiceByRegionResult, outcomeResult] = batchResults;
+  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult, choiceTotalResult, choiceByRegionResult] = batchResults;
   const candidates = candidatesResult as { results: CandidateTally[] };
   const votesByRegion = votesByRegionResult as { results: { candidate_id: number; path: string; n: number }[] };
   const participationByPath = participationByPathResult as { results: { path: string; n: number }[] };
@@ -204,7 +207,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const eligibleFallback = eligibleFallbackResult as { results: { n: number }[] };
   const choiceTotal = choiceTotalResult as { results: { choice: string; n: number }[] } | undefined;
   const choiceByRegion = choiceByRegionResult as { results: { choice: string; path: string; n: number }[] } | undefined;
-  const outcomeRow = (outcomeResult as { results: { setuju: number | null; tidak: number | null }[] } | undefined)?.results[0];
+
 
   const candidateRows = candidates.results;
   const votesByRegionRows = votesByRegion.results;
@@ -237,8 +240,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   for (const row of choiceTotal?.results ?? []) choiceTotals.set(row.choice, row.n);
   const setuju = choiceTotals.get("setuju") ?? 0;
   const tidakSetuju = choiceTotals.get("tidak_setuju") ?? 0;
-  const abstain = choiceTotals.get("abstain") ?? 0;
-  const votesCast = setuju + tidakSetuju + abstain;
   const choiceByRegionRows = new Map<string, Map<string, number>>();
   for (const row of choiceByRegion?.results ?? []) {
     const key = regionKey(row.path);
@@ -246,7 +247,16 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     perChoice.set(row.choice, (perChoice.get(row.choice) ?? 0) + row.n);
     choiceByRegionRows.set(key, perChoice);
   }
-  const outcome = single ? singleCandidateOutcome(outcomeRow?.setuju ?? 0, outcomeRow?.tidak ?? 0) : null;
+  // Tidak memilih = Hak pilih beku dikurangi partisipasi, tidak pernah per orang,
+  // dan dihitung sebagai Tidak Setuju saat penutupan (W7 Q38).
+  const tidakMemilih = Math.max(0, eligibleCount - participationCount);
+  const penentang = tidakSetuju + tidakMemilih;
+  // Keputusan hanya ada setelah pemungutan suara ditutup.
+  const outcome = !single
+    ? null
+    : currentStage === "closed" || currentStage === "published"
+      ? singleCandidateOutcome(setuju, penentang)
+      : "menunggu_penutupan";
   const votesByRegionCandidate = new Map<string, Map<number, number>>();
   for (const row of votesByRegionRows) {
     const key = regionKey(row.path);
@@ -265,8 +275,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     // Rincian pilihan mengikuti aturan penyembunyian korda yang sama.
     const kordaSetuju = single && !suppressed ? perChoice?.get("setuju") ?? 0 : null;
     const kordaTidak = single && !suppressed ? perChoice?.get("tidak_setuju") ?? 0 : null;
-    const kordaAbstain = single && !suppressed ? perChoice?.get("abstain") ?? 0 : null;
-    const kordaCast = (kordaSetuju ?? 0) + (kordaTidak ?? 0) + (kordaAbstain ?? 0);
+    const kordaTidakMemilih = single && !suppressed ? Math.max(0, eligible - used) : null;
     return {
       key,
       name: names.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : formatUnitPath(key)),
@@ -280,10 +289,11 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
         : candidateRows.map((candidate) => ({ ...candidate, votes: perCandidate?.get(candidate.id) ?? 0 })),
       setuju_count: kordaSetuju,
       tidak_setuju_count: kordaTidak,
-      abstain_count: kordaAbstain,
-      setuju_percentage: kordaSetuju === null ? null : percentage(kordaSetuju, kordaCast),
-      tidak_setuju_percentage: kordaTidak === null ? null : percentage(kordaTidak, kordaCast),
-      abstain_percentage: kordaAbstain === null ? null : percentage(kordaAbstain, kordaCast),
+      tidak_memilih_count: kordaTidakMemilih,
+      // Bagian dari Hak pilih korda, sama seperti angka yang ditampilkan.
+      setuju_percentage: kordaSetuju === null ? null : percentage(kordaSetuju, eligible),
+      tidak_setuju_percentage: kordaTidak === null ? null : percentage(kordaTidak, eligible),
+      tidak_memilih_percentage: kordaTidakMemilih === null ? null : percentage(kordaTidakMemilih, eligible),
     };
   });
 
@@ -305,10 +315,11 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     outcome,
     setuju_count: single ? setuju : null,
     tidak_setuju_count: single ? tidakSetuju : null,
-    abstain_count: single ? abstain : null,
-    setuju_percentage: single ? percentage(setuju, votesCast) : null,
-    tidak_setuju_percentage: single ? percentage(tidakSetuju, votesCast) : null,
-    abstain_percentage: single ? percentage(abstain, votesCast) : null,
+    tidak_memilih_count: single ? tidakMemilih : null,
+    // Semua bagian dihitung dari Hak pilih yang sama, jadi jumlahnya 100.
+    setuju_percentage: single ? percentage(setuju, eligibleCount) : null,
+    tidak_setuju_percentage: single ? percentage(tidakSetuju, eligibleCount) : null,
+    tidak_memilih_percentage: single ? percentage(tidakMemilih, eligibleCount) : null,
   };
   return {
     base,
