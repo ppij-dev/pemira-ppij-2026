@@ -26,10 +26,10 @@ async function actions(){return (await env.DB.prepare("SELECT action FROM audit_
 describe("mode kandidat tunggal",()=>{
  beforeEach(()=>setup());
  it("mengaktifkan dan menonaktifkan lewat Pengaturan saat Draf dengan satu entri audit per permintaan",async()=>{
-  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:false,editable:true});
+  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:false,editable:true,kept_ballots:0,reason:null});
   await setSingleCandidateMode(env.DB,NOW,true,{member_id:"member-8",name:"Admin"});
   expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:1});
-  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:true});
+  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:true,kept_ballots:0,reason:null});
   expect(await actions()).toEqual(["Mode kandidat tunggal diaktifkan"]);
   await setSingleCandidateMode(env.DB,NOW,false);
   expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:0});
@@ -44,7 +44,7 @@ describe("mode kandidat tunggal",()=>{
   expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:1});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({n:0});
   // Halaman menampilkan saklar sebagai baca-saja setelah Draf.
-  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:false});
+  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:false,kept_ballots:0,reason:"Nilai ini dibekukan setelah Kunci & Jadwalkan."});
  });
  it("menolak mengaktifkan mode saat 2 kandidat atau lebih sambil menyebut jumlahnya",async()=>{
   await candidates();
@@ -342,5 +342,41 @@ describe("suara yang dipertahankan melewati Kunci berikutnya",()=>{
   expect(JSON.parse(lockAudit!.detail_json)).toMatchObject({frozen_hak_pilih:8,deleted_test_votes:1});
   // Anggota yang hilang dari roll baru tetap punya partisipasi tersimpan.
   expect((await env.DB.prepare("SELECT member_id FROM participation ORDER BY member_id").all<{member_id:string}>()).results).toEqual([{member_id:"member-1"},{member_id:"member-2"}]);
+ });
+});
+
+// Mode kandidat tunggal beku selama ada suara tersimpan: makna surat suara
+// ditentukan saat dicoblos dan tidak dapat ditulis ulang tanpa memautkannya ke
+// pemilih. Data Uji Coba tidak pernah mengunci saklar.
+describe("saklar mode kandidat tunggal dan suara tersimpan",()=>{
+ beforeEach(()=>setup());
+ const keptMessage=(n:number)=>`Mode kandidat tunggal tidak dapat diubah: ${n} suara tersimpan harus tetap dihitung dengan aturan yang sama.`;
+ async function oneCandidate(){await env.DB.prepare("INSERT INTO candidates(id,member_id,number,name,nickname,komsat_path) VALUES(1,'member-1',1,'Member 1','M1','/u')").run();}
+ async function keptBallots(count:number,isTest=0){for(let i=1;i<=count;i++)await env.DB.prepare("INSERT INTO ballots(id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES(?,1,1,'/u',?,?)").bind(`b-${isTest}-${i}`,`h-${isTest}-${i}`,isTest).run();}
+ it("menolak menonaktifkan dan mengaktifkan saklar selama suara tersimpan ada",async()=>{
+  await oneCandidate();
+  await env.DB.prepare("UPDATE elections SET single_candidate_mode=1").run();
+  await keptBallots(2);
+  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:true,editable:false,kept_ballots:2,reason:keptMessage(2)});
+  await expect(setSingleCandidateMode(env.DB,NOW,false,ACTOR)).rejects.toMatchObject({status:409,message:keptMessage(2)});
+  expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:1});
+  expect(await auditCount()).toBe(0);
+  // Arah sebaliknya juga ditolak: surat suara pilihan-kandidat tidak boleh masuk hitungan Setuju/Tidak Setuju.
+  await env.DB.prepare("UPDATE elections SET single_candidate_mode=0").run();
+  await expect(setSingleCandidateMode(env.DB,NOW,true,ACTOR)).rejects.toMatchObject({status:409,message:keptMessage(2)});
+  expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:0});
+  expect(await auditCount()).toBe(0);
+ });
+ it("tetap dapat diubah saat hanya ada data Uji Coba, dan Uji Coba setelah kembali dibersihkan Kunci berikutnya",async()=>{
+  await lockPreview();
+  await returnToDraft(env.DB,OPEN_NOW,PHRASE,ACTOR);
+  await castTestVote(env.DB,NOW,1,"member-8");
+  expect(await getSingleCandidateMode(env.DB)).toEqual({enabled:false,editable:true,kept_ballots:0,reason:null});
+  await setSingleCandidateMode(env.DB,NOW,false,ACTOR);
+  expect(await env.DB.prepare("SELECT single_candidate_mode FROM elections").first()).toEqual({single_candidate_mode:0});
+  // Kunci berikutnya membuang data uji coba seperti biasa.
+  await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots WHERE is_test=1").first()).toEqual({n:0});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
  });
 });

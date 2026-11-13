@@ -29,13 +29,19 @@ export async function getReadiness(db:D1Database,now:Date):Promise<ReadinessChec
   {key:"admin_candidate",ok:!adminCandidate,message:"Admin Voting tidak dapat menjadi kandidat"},
  ];
 }
+/** Jumlah suara tersimpan (bukan Uji Coba) pada pemilihan; data uji dibuang Kunci berikutnya. */
+async function keptVoteBallots(db:D1Database){ return (await db.prepare("SELECT COUNT(*) AS n FROM ballots WHERE is_test=0").first<{n:number}>())?.n??0; }
+const keptBallotsMessage=(n:number)=>`Mode kandidat tunggal tidak dapat diubah: ${n} suara tersimpan harus tetap dihitung dengan aturan yang sama.`;
 /**
  * Saklar mode kandidat tunggal untuk halaman Pengaturan: nilainya hanya dapat
- * diubah saat Draf, setelah Kunci & Jadwalkan saklar tampil baca-saja.
+ * diubah saat Draf, dan tetap beku selama suara tersimpan ada karena makna surat
+ * suara ditentukan saat dicoblos (design.md D5).
  */
-export async function getSingleCandidateMode(db:D1Database):Promise<{enabled:boolean;editable:boolean}> {
+export async function getSingleCandidateMode(db:D1Database):Promise<{enabled:boolean;editable:boolean;kept_ballots:number;reason:string|null}> {
  const row=await db.prepare("SELECT status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1").first<{status_lock:string;single_candidate_mode:number}>();
- return {enabled:row?.single_candidate_mode===1,editable:row?.status_lock==="draft"};
+ const kept=await keptVoteBallots(db);
+ const draft=row?.status_lock==="draft";
+ return {enabled:row?.single_candidate_mode===1,editable:draft&&kept===0,kept_ballots:kept,reason:kept>0?keptBallotsMessage(kept):draft?null:"Nilai ini dibekukan setelah Kunci & Jadwalkan."};
 }
 /**
  * Ubah mode kandidat tunggal (Draf saja). Mengaktifkan ditolak selama dua
@@ -47,6 +53,10 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
  const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
  if(row.status_lock!=="draft") throw new ElectionError("Mode kandidat tunggal hanya dapat diubah saat Draf",409);
+ // Kedua arah ditolak selama suara tersimpan ada: surat suara tidak dapat ditulis
+ // ulang ke bentuk lain tanpa memautkannya ke pemilih (design.md D5).
+ const kept=await keptVoteBallots(db);
+ if(kept>0) throw new ElectionError(keptBallotsMessage(kept),409);
  if(enabled) {
   const total=(await db.prepare("SELECT COUNT(*) AS n FROM candidates").first<{n:number}>())?.n??0;
   if(total>=2) throw new ElectionError(`Mode kandidat tunggal tidak dapat diaktifkan: saat ini terdaftar ${total} kandidat. Sisakan 0 atau 1 kandidat terlebih dahulu.`,409);

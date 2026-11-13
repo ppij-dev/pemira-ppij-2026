@@ -58,13 +58,13 @@ needed; no task touches the schema.
 
 ## 4. Backend: Mode kandidat tunggal frozen while kept ballots exist (election-lifecycle)
 
-- [ ] 4.1 Failing tests first in `test/election-lifecycle.test.ts`: with kept (is_test=0)
+- [x] 4.1 Failing tests first in `test/election-lifecycle.test.ts`: with kept (is_test=0)
       ballots, turning the switch off → 409 and value unchanged; turning it on (after a
       draft state that had it off) → 409; `getSingleCandidateMode` reports
       `editable:false` with the reason; with only `is_test=1` Uji Coba rows the switch
       stays editable and a Uji Coba after the return still works and is purged at the
       next Kunci.
-- [ ] 4.2 Extend `setSingleCandidateMode` and `getSingleCandidateMode` in
+- [x] 4.2 Extend `setSingleCandidateMode` and `getSingleCandidateMode` in
       `src/server/election/lifecycle.ts` with the kept-ballots check (is_test=0 only);
       run the group's tests green.
 
