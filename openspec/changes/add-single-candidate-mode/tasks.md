@@ -131,13 +131,13 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 9. UI: results and outcome (Dasbor, Hasil, landing)
 
-- [ ] 9.1 `src/pages/admin/dasbor.astro`: in single candidate mode render the three counts
+- [x] 9.1 `src/pages/admin/dasbor.astro`: in single candidate mode render the three counts
       "Setuju", "Tidak Setuju" and "Tidak memilih (dihitung Tidak Setuju)" with their
       shares of Hak pilih, the outcome line ("Terpilih" / "Tidak terpilih" / "Seri,
       keputusan diserahkan kepada panitia" / "Menunggu penutupan pemungutan suara") and
       the per-korda columns, all without a nomor urut (nickname and color only); normal
       mode rendering untouched; manual refresh behavior untouched.
-- [ ] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
+- [x] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
       presentation once Diumumkan, including the Seri line and the number-free candidate
       card linking to `/kandidat/<nickname>`; nothing before Diumumkan.
 - [ ] 9.3 Focused check: build passes and the outcome line strings match design.md D7
