@@ -56,7 +56,16 @@ describe("preview mode", () => {
     expect(voter.status).toBe("ACTIVE");
     expect(voter.komsat_path).toBe("/ppij/okayama");
     const stored = await env.DB.prepare("SELECT name, nickname, category, can_vote FROM voters WHERE member_id = 'member-new'").first<{ name: string; nickname: string; category: string; can_vote: number }>();
-    expect(stored).toMatchObject({ name: "New Member", nickname: "New Member", category: "BIASA", can_vote: 1 });
+    expect(stored).toMatchObject({ name: "New Member", nickname: "", category: "BIASA", can_vote: 1 });
+  });
+
+  it("never stores the member UUID as the name when the claim has no real name", async () => {
+    const uuid = "2b6b8200-6b6b-4e04-960d-1023682c5d56";
+    const session = { member_id: uuid, name: uuid, affiliation: "/ppij/okayama", auth_time: Math.floor(Date.now() / 1000) };
+    const { voter } = await authorizeVoter(env.DB, session);
+    expect(voter.name).toBe("");
+    const stored = await env.DB.prepare("SELECT name, nickname FROM voters WHERE member_id = ?").bind(uuid).first<{ name: string; nickname: string }>();
+    expect(stored).toEqual({ name: "", nickname: "" });
   });
 
   it("prefers the in-scope affiliation path from a multi-unit member", async () => {

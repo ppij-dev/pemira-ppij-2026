@@ -13,6 +13,7 @@ import {
 import AdminSidebar from "../components/ui/AdminSidebar.astro";
 import AdminTopBar from "../components/ui/AdminTopBar.astro";
 import BottomBar from "../components/ui/BottomBar.astro";
+import { NEUTRAL_ADMIN_NAME, initialsFor, resolveDisplayName } from "../server/lib/displayName";
 import { getSiteLogo } from "../server/lib/logo";
 import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
 const cookie = Astro.request.headers.get("cookie") ?? Astro.cookies.get(SESSION_COOKIE)?.value;
@@ -22,8 +23,11 @@ const bindings = env as unknown as AdminBindings;
 const adminSession = await openAdminSession(cookie, bindings);
 const authorized = await isAdminPageAuthorized(cookie, bindings);
 if (!authorized) Astro.response.status = 403;
-const accountInitial = (adminSession?.name ?? "").trim().charAt(0).toUpperCase() || "?";
-const accountName = adminSession?.name ?? "Admin Voting";
+// Nama akun: nama resmi dari roll (sinkronisasi portal), bukan UUID anggota.
+const accountName = authorized && adminSession && bindings.DB
+  ? await resolveDisplayName(bindings.DB, adminSession.member_id, adminSession.name, NEUTRAL_ADMIN_NAME)
+  : NEUTRAL_ADMIN_NAME;
+const accountInitial = initialsFor(accountName);
 const title = Astro.props.title ?? "Admin Voting";
 let configuredLogo: string | undefined;
 if (authorized && bindings.DB) {
@@ -70,7 +74,7 @@ const todayJst = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", week
       {authorized && <AdminSidebar items={nav} current={path} identity={identity} brand={{ src: logo.src, alt: "PPI Jepang", label: "PPI Jepang", caption: "Admin Voting" }} voterHref="/" />}
       <div class="min-w-0 min-[701px]:flex-1">
         {authorized && <>
-          <AdminTopBar variant="desktop" path={[{ label: "Admin Voting" }]} title={title} meta={[todayJst]} identity={identity} />
+          <AdminTopBar variant="desktop" path={[{ label: "Admin Voting" }]} title={title} meta={[todayJst]} />
           <AdminTopBar variant="phone" title={title} identity={identity} brand={{ src: logo.src, alt: "PPI Jepang", label: "Admin Voting" }} />
         </>}
         <main id="main" class="mx-auto w-full max-w-[1490px] px-4 pt-[19px] pb-[86px] min-[701px]:px-[clamp(24px,3vw,48px)] min-[701px]:py-7 min-[701px]:pb-9">

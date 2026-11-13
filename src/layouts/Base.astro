@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import BottomBar from "../components/ui/BottomBar.astro";
 import Button from "../components/ui/Button.astro";
 import { getSiteLogo } from "../server/lib/logo";
+import { NEUTRAL_ACCOUNT_NAME, initialsFor, resolveDisplayName } from "../server/lib/displayName";
 import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
 
 interface Props {
@@ -61,7 +62,12 @@ const session: SessionData | null =
   rawSessionCookie && (env as unknown as { APP_MASTER_KEY?: string }).APP_MASTER_KEY
     ? await openSession(rawSessionCookie, ((env as unknown as { APP_MASTER_KEY?: string }).APP_MASTER_KEY)!)
     : null;
-const accountInitial = (session?.name ?? "").trim().charAt(0).toUpperCase() || "?";
+// Nama akun pemilih: nama resmi dari roll (sinkronisasi portal), bukan UUID.
+const accountName = session && db
+  ? await resolveDisplayName(db, session.member_id, session.name, NEUTRAL_ACCOUNT_NAME)
+  : null;
+const accountInitial = initialsFor(accountName);
+const accountLabel = accountName && accountName !== NEUTRAL_ACCOUNT_NAME ? `Akun: ${accountName}` : "Akun";
 const hasMasukParam = Astro.url.searchParams.has("masuk");
 const election = await db?.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
 const showResultsTab = showHasil ?? election?.status_lock === "published";
@@ -123,7 +129,7 @@ const navItems = [
         </nav>
         <div class="ms-auto flex min-w-0 shrink-0 items-center gap-2">
           {session
-            ? <a href="/akun" aria-label={`Akun: ${session.name}`} aria-current={path === "/akun" ? "page" : undefined} class:list={["flex size-11 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-ring", path === "/akun" ? "border-brand-red text-brand-red" : "border-brand-border text-brand-ink hover:bg-accent"]}>{accountInitial}</a>
+            ? <a href="/akun" aria-label={accountLabel} aria-current={path === "/akun" ? "page" : undefined} class:list={["flex size-11 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-ring", path === "/akun" ? "border-brand-red text-brand-red" : "border-brand-border text-brand-ink hover:bg-accent"]}>{accountInitial}</a>
             : <Button href={loginHref} variant="secondary" size="sm">Masuk</Button>}
         </div>
       </div>

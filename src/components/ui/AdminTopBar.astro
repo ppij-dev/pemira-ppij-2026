@@ -2,10 +2,11 @@
 /**
  * Bilah atas Admin Voting untuk Astro, mengikuti `AdminTopBar` dari
  * ppij-design-system/packages/ui/src/components/admin-top-bar.tsx.
- * Desktop: jejak halaman, fakta tenang, dan identitas. Ponsel: logo, label,
- * dan sasaran identitas 44px.
+ * Desktop: jejak halaman dan fakta tenang; akun hanya muncul di footer
+ * sidebar. Ponsel (tanpa sidebar): logo, label, dan sasaran identitas 44px.
  */
 import { IconChevronRight } from "@tabler/icons-astro";
+import { NEUTRAL_ADMIN_NAME } from "../../server/lib/displayName";
 
 interface Props {
   variant: "desktop" | "phone";
@@ -14,11 +15,13 @@ interface Props {
   title: string;
   /** Fakta tenang; disembunyikan di bawah 1100px. */
   meta?: string[];
-  identity: { name: string; initials: string };
+  /** Identitas akun; hanya dipakai varian ponsel. */
+  identity?: { name: string; initials: string };
   brand?: { src: string; alt: string; label: string };
   class?: string;
 }
 const { variant, path = [], title, meta = [], identity, brand, class: className } = Astro.props;
+const accountLabel = identity && identity.name !== NEUTRAL_ADMIN_NAME ? `Akun: ${identity.name}` : "Akun";
 ---
 {variant === "phone" ? (
   <header data-slot="admin-top-bar" data-variant="phone" class:list={["sticky top-0 z-25 flex h-15 shrink-0 items-center justify-between border-b border-brand-border bg-card px-4 min-[701px]:hidden", className]}>
@@ -28,13 +31,13 @@ const { variant, path = [], title, meta = [], identity, brand, class: className 
         <span class="truncate">{brand.label}</span>
       </a>
     ) : <span class="truncate text-[15px] font-bold text-brand-ink">{title}</span>}
-    <div class="ml-auto flex shrink-0 items-center gap-2">
+    {identity && <div class="ml-auto flex shrink-0 items-center gap-2">
       <a
         href="/akun"
-        aria-label={`Akun: ${identity.name}`}
+        aria-label={accountLabel}
         class="grid size-11 shrink-0 place-items-center rounded-[10px] bg-brand-red/8 text-[13px] font-extrabold text-brand-red no-underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
       >{identity.initials}</a>
-    </div>
+    </div>}
   </header>
 ) : (
   <header data-slot="admin-top-bar" data-variant="desktop" class:list={["sticky top-0 z-20 flex h-[68px] shrink-0 items-center justify-between gap-4 border-b border-brand-border bg-card px-[clamp(24px,3vw,48px)] max-[700px]:hidden", className]}>
@@ -51,10 +54,6 @@ const { variant, path = [], title, meta = [], identity, brand, class: className 
     </nav>
     <div class="flex shrink-0 items-center gap-2.5 text-[13px] text-brand-muted">
       {meta.length > 0 && <span class="hidden items-center gap-2.5 min-[1100px]:flex">{meta.join(" · ")}</span>}
-      <a href="/akun" class="flex items-center gap-2 rounded-full pr-1 pl-0.5 no-underline transition-colors hover:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none max-[600px]:min-h-11 min-[600px]:h-8">
-        <span aria-hidden="true" class="grid size-8 place-items-center rounded-full bg-brand-red/8 text-xs font-extrabold text-brand-red">{identity.initials}</span>
-        <span class="hidden max-w-40 truncate font-bold text-brand-ink min-[900px]:block">{identity.name}</span>
-      </a>
     </div>
   </header>
 )}
