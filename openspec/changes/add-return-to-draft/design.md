@@ -147,6 +147,11 @@ for that person. Other edits stay open: name, nickname, description, intro, nomo
 (under the existing mode rules) and all rendering concerns, because they do not change
 who the ballots were cast for.
 
+A candidate referenced only by Uji Coba (`is_test=1`) ballots is refused the same
+explicit way, with a message naming the test ballots instead of the storage-layer
+failure today's code would surface as a generic 500; the test rows disappear at the
+next Kunci, after which the deletion goes through as usual.
+
 Known limitation, accepted: if a kept-ballot candidate's member later joins Admin
 Voting, readiness (`admin_candidate`) blocks the next Kunci and the candidate cannot be
 replaced while ballots exist. The escape hatch is the existing admin management — remove
@@ -182,7 +187,9 @@ stage, non-Admin session, already Draf — record nothing, matching every existi
   tunggal tidak dapat diubah: N suara tersimpan harus tetap dihitung dengan aturan yang
   sama."; candidate delete with ballots "Kandidat tidak dapat dihapus: N suara tersimpan
   menunjuk kandidat ini."; candidate replace with ballots "Kandidat tidak dapat
-  diganti: N suara tersimpan menunjuk kandidat ini.".
+  diganti: N suara tersimpan menunjuk kandidat ini."; candidate delete with only test
+  ballots "Kandidat tidak dapat dihapus: N suara Uji Coba menunjuk kandidat ini. Kunci &
+  Jadwalkan berikutnya menghapus data Uji Coba.".
 - Wording: "Admin Voting" for committee members, "Pemilih" for voters, stage labels as
   today (Draf, Terjadwal, Dibuka, Ditutup, Diumumkan).
 

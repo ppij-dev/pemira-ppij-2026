@@ -159,9 +159,11 @@ describe("kandidat yang dirujuk suara tersimpan",()=>{
   expect(await updateCandidate(env.DB,now,1,candidate(CARD_4,1,"One"))).toMatchObject({member_id:CARDED_UUID});
   await deleteCandidate(env.DB,now,2);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:1});
-  // Kandidat yang hanya punya suara uji coba tidak diberi penolakan baru; penghapusannya
-  // tetap seperti hari ini, terhenti oleh rujukan FK sampai data uji dibersihkan.
-  await expect(deleteCandidate(env.DB,now,1)).rejects.not.toThrow("suara tersimpan");
+  // Kandidat yang hanya dirujuk suara Uji Coba ditolak dengan pesan yang menyebut data uji,
+  // bukan galat constraint, dan kandidatnya tetap terdaftar.
+  await expect(deleteCandidate(env.DB,now,1)).rejects.toMatchObject({status:409,message:"Kandidat tidak dapat dihapus: 1 suara Uji Coba menunjuk kandidat ini. Kunci & Jadwalkan berikutnya menghapus data Uji Coba."});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:1});
+  // Setelah data uji dibersihkan (seperti Kunci berikutnya), penghapusan berjalan seperti biasa.
   await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   await deleteCandidate(env.DB,now,1);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:0});
