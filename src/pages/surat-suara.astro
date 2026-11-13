@@ -149,8 +149,16 @@ const votedAtJst = votedAt ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/
     }
     document.querySelector('#manual-check').open = !displayCode || Boolean(fragmentCode);
     if (document.querySelector('#choice-summary')) {
-      const matchingChoice = savedChoice && displayCode && savedChoice.receiptCode === displayCode && typeof savedChoice.nickname === 'string' && Number.isInteger(savedChoice.number);
-      if (matchingChoice) {
+      // Pemilihan biasa menyimpan nomor urut kandidat; mode kandidat tunggal tidak
+      // punya nomor urut, jadi yang tampil adalah jawaban yang dipilih.
+      const choiceLabel = savedChoice && displayCode && savedChoice.receiptCode === displayCode && typeof savedChoice.nickname === 'string'
+        ? (Number.isInteger(savedChoice.number)
+          ? savedChoice.nickname + ' · No. ' + savedChoice.number
+          : typeof savedChoice.choiceLabel === 'string'
+            ? savedChoice.choiceLabel + ' terhadap ' + savedChoice.nickname
+            : null)
+        : null;
+      if (choiceLabel) {
         const choiceText = document.querySelector('#choice-text');
         const toggle = document.querySelector('#toggle-choice');
         document.querySelector('#choice-summary').hidden = false;
@@ -158,7 +166,7 @@ const votedAtJst = votedAt ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/
           const revealed = toggle.getAttribute('aria-pressed') === 'true';
           toggle.setAttribute('aria-pressed', String(!revealed));
           toggle.setAttribute('aria-label', revealed ? 'Tampilkan pilihan kandidat' : 'Sembunyikan pilihan kandidat');
-          choiceText.textContent = revealed ? '••••••••' : savedChoice.nickname + ' · No. ' + savedChoice.number;
+          choiceText.textContent = revealed ? '••••••••' : choiceLabel;
           toggle.querySelector('[data-eye-show]').hidden = !revealed;
           toggle.querySelector('[data-eye-hide]').hidden = revealed;
         });
