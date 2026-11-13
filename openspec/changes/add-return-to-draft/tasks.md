@@ -80,12 +80,12 @@ needed; no task touches the schema.
 
 ## 6. UI: Pengaturan action and confirmation dialog (admin)
 
-- [ ] 6.1 `src/pages/admin/pemilihan.astro`: add the "Kembali ke Draf" action to
+- [x] 6.1 `src/pages/admin/pemilihan.astro`: add the "Kembali ke Draf" action to
       Pengaturan, shown only while the stage matrix allows it (locked + preview, or
       locked + now < opens_at), hidden in Draf and Diumumkan, with the helper text and
       the kept-votes line when ballots are kept; refresh by navigation only, no polling,
       no emoji.
-- [ ] 6.2 Confirmation dialog: restates the consequence with the kept count, requires
+- [x] 6.2 Confirmation dialog: restates the consequence with the kept count, requires
       typing "KEMBALI KE DRAF" (client check mirrors the server: case-insensitive,
       whitespace-collapsed), posts to `/api/election/return-to-draft`, shows the success
       feedback with the kept count and maps server refusals to their messages; focused
