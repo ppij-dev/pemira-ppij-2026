@@ -3,8 +3,9 @@
 ## Purpose
 
 Once results are published in single candidate mode, the public pages show the same three
-counts, percentages and the outcome line with no nomor urut, with the korda suppression
-and the publish-before-visible rule unchanged.
+counts and their shares of Hak pilih with no nomor urut and no outcome line, with the
+korda suppression and the publish-before-visible rule unchanged. The system does not state
+whether the candidate is elected (owner decision 2026-11-16, superseding W7 Q37/Q38).
 
 ## ADDED Requirements
 
@@ -24,22 +25,21 @@ While single candidate mode is on, the landing page's candidate card SHALL omit 
 
 ### Requirement: Published single-candidate results
 
-Once Diumumkan in single candidate mode, the landing page and Hasil tab SHALL present the Setuju, Tidak Setuju and Tidak memilih counts with their shares of Hak pilih plus one outcome line, and no nomor urut. Non-voters SHALL count as Tidak Setuju, derived from the frozen Hak pilih minus participation. Korda rows SHALL show the same three counts under the existing suppression, and turnout SHALL appear as today.
+Once Diumumkan in single candidate mode, the landing page and Hasil tab SHALL present the Setuju, Tidak Setuju and Abstain counts with their shares of Hak pilih and no nomor urut, and SHALL NOT show any outcome line. Korda rows SHALL show the same counts under the existing suppression, and turnout SHALL appear as today.
 
 #### Scenario: Published single-candidate results
 
-- **WHEN** a visitor opens the landing page after publication in single candidate mode with Hak pilih 100, 55 Setuju, 30 Tidak Setuju and 15 Tidak memilih
-- **THEN** the page shows the three counts with 55%, 30% and 15% of Hak pilih, the outcome line "Terpilih", permitted korda rows and turnout statistics, with no nomor urut
+- **WHEN** a visitor opens the landing page after publication in single candidate mode with Hak pilih 100, 50 Setuju, 30 Tidak Setuju, 5 Abstain cast and 15 who did not vote
+- **THEN** the page shows Setuju 50%, Tidak Setuju 30% and Abstain 20% of Hak pilih (5 cast plus 15 tidak memilih), permitted korda rows and turnout statistics, with no nomor urut and no outcome line
 
-#### Scenario: Published tie
+### Requirement: Published Abstain includes non-voters
 
-- **WHEN** results are published with Setuju equal to Tidak Setuju plus Tidak memilih and Hak pilih above zero
-- **THEN** the public outcome line reads "Seri, keputusan diserahkan kepada panitia" and no winner is named
+On the public pages, non-voters SHALL count as Abstain, derived from the frozen Hak pilih minus participation, and the Abstain total SHALL be shown with its parts: the Abstain answers cast and "tidak memilih (dihitung Abstain)".
 
 #### Scenario: Published with no ballots
 
 - **WHEN** results are published in single candidate mode and no ballots were cast at all
-- **THEN** every eligible member counts as Tidak memilih and the public outcome line reads "Tidak terpilih"
+- **THEN** every eligible member counts as "tidak memilih (dihitung Abstain)" and no outcome wording appears
 
 #### Scenario: Closed but not published
 

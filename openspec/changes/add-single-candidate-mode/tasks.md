@@ -17,6 +17,11 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 1.4 Revisi W7 Q37: edit `0012_ballot_choice.sql` in place to the two-value CHECK
       (no environment has applied it yet) and update `test/schema.test.ts`: 'abstain' is
       now rejected, only setuju/tidak_setuju and NULL pass.
+- [x] 1.5 Revisi 2026-11-16 (supersedes 1.4): never edit 0011/0012. Write
+      `migrations/0013_ballot_choice_abstain.sql`, which rebuilds `ballots` so the CHECK
+      allows `setuju`, `tidak_setuju`, `abstain` and NULL (keeps `WITHOUT ROWID`, the two
+      indexes, `receipt_hash UNIQUE`); extend `test/schema.test.ts`: 'abstain' passes, other
+      values fail, rows from before survive the rebuild.
 - [x] 1.3 Extend `test/schema.test.ts`: both migrations apply to a fresh D1, the elections
       default is off, an insert of a ballot with an out-of-range choice fails the CHECK,
       NULL passes, existing multi-candidate ballot inserts still succeed.
@@ -75,7 +80,12 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       `choice` only while the mode is on, enforce `candidate_id` = the single registered
       candidate, write `choice` in the existing single D1 batch, keep the nickname
       confirmation and one-vote-per-member guards identical; run the group's tests green.
-- [x] 4.3 Revisi W7 Q37: `choice` accepts only `setuju` and `tidak_setuju` in both the
+- [x] 4.4 Revisi 2026-11-16 (supersedes 4.3): `choice` accepts `setuju`, `tidak_setuju` and
+      `abstain` in both the Pemilih vote path and `castTestVote`; any other value → HTTP
+      400; multi-candidate votes carrying a choice (including `abstain`) → HTTP 400; update
+      `test/vote-api.test.ts`, `test/election-lifecycle.test.ts` and the single-mode
+      receipt-board test.
+- [x] 4.3 Revisi W7 Q37 (superseded by 4.4): `choice` accepts only `setuju` and `tidak_setuju` in both the
       Pemilih vote path and `castTestVote` ('abstain' → HTTP 400); update
       `test/vote-api.test.ts`, `test/election-lifecycle.test.ts` and the single-mode
       receipt-board test.
@@ -99,7 +109,13 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 6.2 Implement the aggregation and outcome computation in
       `src/server/results/queries.ts` (set-based SQL, same suppression constant); run the
       group's tests green.
-- [x] 6.3 Revisi W7 Q37/Q38: `abstain_count`/`abstain_percentage` are replaced by
+- [x] 6.4 Revisi 2026-11-16 (supersedes 6.3): drop `outcome` and `singleCandidateOutcome`;
+      non-voters (Hak pilih minus participation) count as Abstain; payload carries
+      `setuju_count`, `tidak_setuju_count`, `abstain_count` (cast + tidak memilih),
+      `abstain_cast_count`, `tidak_memilih_count` and shares of Hak pilih, overall and per
+      korda (null under the 10-ballot suppression). Tests cover non-voters as Abstain, the
+      no-ballots case and the absence of any outcome field.
+- [x] 6.3 Revisi W7 Q37/Q38 (superseded by 6.4): `abstain_count`/`abstain_percentage` are replaced by
       `tidak_memilih_count`/`tidak_memilih_percentage` (`eligible_count -
       participation_count`, clamped at zero) and all three percentages become shares of
       Hak pilih; the outcome becomes `terpilih | tidak_terpilih | seri |
@@ -126,6 +142,8 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       and the sheet states the chosen answer as "Pilihan Anda: Setuju terhadap <nickname>"
       (likewise "Tidak Setuju terhadap"); success screen, one-time code and Bukti Suara
       link untouched; keep the multi-candidate UI exactly as-is while the mode is off.
+- [x] 8.3 Revisi 2026-11-16: add the third answer "Abstain" to the ballot and the sheet
+      ("Pilihan Anda: Abstain terhadap <nickname>"); Uji Coba picker gains Abstain.
 - [x] 8.2 Focused check: build passes; manual smoke of the two answers against the local
       dev server is covered by the group 4 API tests plus this render check.
 
@@ -140,7 +158,10 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 9.2 `src/pages/hasil.astro` and `src/pages/index.astro`: render the same public
       presentation once Diumumkan, including the Seri line and the number-free candidate
       card linking to `/kandidat/<nickname>`; nothing before Diumumkan.
-- [x] 9.3 Focused check: build passes and the outcome line strings match design.md D7
+- [x] 9.4 Revisi 2026-11-16: Dasbor, Hasil and landing show Setuju, Tidak Setuju, Abstain
+      (cast and "tidak memilih (dihitung Abstain)" parts) with shares of Hak pilih and no
+      outcome line or "Menunggu penutupan" wording.
+- [x] 9.3 Focused (superseded by 9.4 for the outcome strings) check: build passes and the outcome line strings match design.md D7
       exactly (including "Menunggu penutupan pemungutan suara" before close).
 
 ## 10. Verification
