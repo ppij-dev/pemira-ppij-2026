@@ -3,6 +3,7 @@ import {env,reset} from "cloudflare:test";
 import base from "../migrations/0001_init.sql?raw";import units from "../migrations/0002_units.sql?raw";import lock from "../migrations/0003_election_lock.sql?raw";import snapshot from "../migrations/0005_closing_snapshot.sql?raw";import preview from "../migrations/0006_preview_mode.sql?raw";import memberNumber from "../migrations/0008_member_number.sql?raw";import categorySql from "../migrations/0009_voter_category.sql?raw";import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import {createCandidate} from "../src/server/election/candidates";
 import intro from "../migrations/0007_candidate_short_intro.sql?raw";import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import {canReturnToDraft,castTestVote,closeEarly,extendClosing,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
 import {stage} from "../src/server/lib/stage";
 import {verifyChain,type AuditRow} from "../src/server/lib/audit";
@@ -11,7 +12,7 @@ import {sealSession} from "../src/server/auth/session";
 import {createServiceApiStub} from "./lib/serviceapi-fixture";
 declare module "*.sql?raw" { const sql: string; export default sql; }
 const NOW=new Date("2026-10-20T00:00:00Z");const cfg={issuer:"https://fixture.invalid",clientId:"client",clientSecret:"secret",serviceApiUrl:"https://fixture.invalid"};
-async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
+async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql, ballotAbstainSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
 async function candidates(){for(let i=1;i<=2;i++){await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number) VALUES(?,?, '/u','ACTIVE','now',?)").bind(`member-${i}`,`Member ${i}`,`KARTU-00${i}`).run();await createCandidate(env.DB,NOW,{member_id:`KARTU-00${i}`,number:i,name:`Member ${i}`,nickname:`M${i}`,description:""});}}
 async function ready(){await candidates();for(let i=3;i<=8;i++)await env.DB.prepare("INSERT INTO voters(member_id,name,nickname,komsat_path,status,synced_at) VALUES(?,?,?,'/u','ACTIVE','now')").bind(`member-${i}`,`Member ${i}`,`M${i}`).run();await env.DB.prepare("INSERT INTO system_config(key,value) VALUES('pemilih_last_sync','2026-10-19T00:00:00Z')").run();await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z"});}
 // Satu kandidat saja (mode kandidat tunggal) plus jadwal dan roll siap kunci.
@@ -103,7 +104,7 @@ describe("mode kandidat tunggal",()=>{
  });
  it("menyimpan pilihan pada suara Uji Coba saat mode hidup dan menolak pilihan saat mode mati",async()=>{
   await readySingle();
-  // Rehearsal surat suara tunggal: panitia memilih salah satu jawaban.
+  // Rehearsal surat suara tunggal: panitia memilih salah satu dari tiga jawaban.
   const test=await castTestVote(env.DB,NOW,1,"member-8","tidak_setuju");
   expect(test.receipt_hash).toMatch(/^[0-9a-f]{64}$/);
   const testBallot=await env.DB.prepare("SELECT candidate_id,choice,is_test FROM ballots").first();
@@ -113,10 +114,15 @@ describe("mode kandidat tunggal",()=>{
   await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
   await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   await expect(castTestVote(env.DB,NOW,1,"member-8")).rejects.toMatchObject({status:400});
-  // Tanpa Abstain (W7 Q37): nilai lama itu ditolak seperti nilai lain di luar dua jawaban.
-  await expect(castTestVote(env.DB,NOW,1,"member-8","abstain")).rejects.toMatchObject({status:400});
+  // Nilai di luar tiga jawaban ditolak dan tidak menulis apa pun.
+  await expect(castTestVote(env.DB,NOW,1,"member-8","abstain-banget")).rejects.toMatchObject({status:400});
   await expect(castTestVote(env.DB,NOW,1,"member-8","setuju-banget")).rejects.toMatchObject({status:400});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
+  // Abstain adalah jawaban nyata (keputusan owner 2026-11-16) dan tersimpan pada suara Uji Coba.
+  await castTestVote(env.DB,NOW,1,"member-8","abstain");
+  expect(await env.DB.prepare("SELECT choice,is_test FROM ballots").first()).toEqual({choice:"abstain",is_test:1});
+  await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
+  await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   // Mode mati: bentuk suara uji tidak berubah (choice NULL) dan pilihan ditolak.
   await env.DB.prepare("UPDATE elections SET single_candidate_mode=0").run();
   await expect(castTestVote(env.DB,NOW,1,"member-8","setuju")).rejects.toMatchObject({status:400});

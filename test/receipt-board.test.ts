@@ -8,6 +8,7 @@ import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import { boardRoutes, ensureClosingSnapshot } from "../src/server/voting/board";
 import { closeEarly } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -23,7 +24,7 @@ const future = new Date(Date.now() + 60_000).toISOString();
 
 beforeEach(async () => {
   await reset();
-  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
+  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql, ballotAbstainSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(sql.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO elections (id,title,status_lock,opens_at,closes_at) VALUES (1,'Pemilihan','locked',?,?)").bind(open, future).run();
 });
@@ -128,13 +129,14 @@ describe("receipt board", () => {
     await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1").run();
     await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path) VALUES (1,'m',1,'A','A','x')").run();
     const receipt = await generateReceipt();
-    await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES ('single',1,1,'x',?,0,'setuju')").bind(receipt.hash).run();
+    await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES ('single',1,1,'x',?,0,'abstain')").bind(receipt.hash).run();
     const check = await app.request("/api/votes/receipt-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ receipt_hash: receipt.hash }) }, bindings);
     expect(await check.json()).toEqual({ found: true });
     await env.DB.prepare("UPDATE elections SET closes_at=? WHERE id=1").bind(new Date(Date.now() - 1000).toISOString()).run();
     const boardResponse = await app.request("/api/votes/board", {}, bindings);
     const boardText = await boardResponse.text();
     expect(boardText).not.toContain("setuju");
+    expect(boardText).not.toContain("abstain");
     expect(boardText).not.toContain(receipt.code);
     expect(JSON.parse(boardText)).toMatchObject({ receipt_hashes: [receipt.hash], ballot_count: 1 });
   });

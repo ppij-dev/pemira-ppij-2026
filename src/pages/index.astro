@@ -38,22 +38,17 @@ let singleCandidateMode = false;
 if (db) try { singleCandidateMode = await isSingleCandidateMode(db); } catch { singleCandidateMode = false; }
 const showHasil = currentStage === "published";
 const publicResults: any = showHasil && singleCandidateMode && db ? await getPublicResults(db, new Date()).catch(() => null) : null;
-const singleOutcomeLabels: Record<string, string> = {
-  terpilih: "Terpilih",
-  tidak_terpilih: "Tidak terpilih",
-  seri: "Seri, keputusan diserahkan kepada panitia",
-  menunggu_penutupan: "Menunggu penutupan pemungutan suara",
-};
-const singleOutcome = publicResults ? singleOutcomeLabels[publicResults.outcome as string] ?? "Tidak terpilih" : null;
-const singleOutcomeTone = publicResults?.outcome === "terpilih" ? "success" : publicResults?.outcome === "seri" ? "warning" : "neutral";
 const eligibleCount: number = publicResults?.eligible_count ?? 0;
 const shareText = (count: number) => eligibleCount > 0 ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(Math.round((count / eligibleCount) * 1000) / 10) + "%" : "—";
-// Tidak memilih = Hak pilih beku dikurangi partisipasi; tidak pernah dibaca per orang.
+// Tidak memilih = Hak pilih beku dikurangi partisipasi (dihitung Abstain); tidak pernah dibaca per orang.
 const notVotingCount = Math.max(0, eligibleCount - (publicResults?.participation_count ?? 0));
+const abstainCastCount: number = publicResults?.abstain_cast_count ?? 0;
 const singleResultFacts = publicResults ? [
   { label: "Setuju", value: `${publicResults.setuju_count ?? 0} suara · ${shareText(publicResults.setuju_count ?? 0)}` },
   { label: "Tidak Setuju", value: `${publicResults.tidak_setuju_count ?? 0} suara · ${shareText(publicResults.tidak_setuju_count ?? 0)}` },
-  { label: "Tidak memilih (dihitung Tidak Setuju)", value: `${notVotingCount} suara · ${shareText(notVotingCount)}` },
+  { label: "Abstain", value: `${publicResults.abstain_count ?? abstainCastCount + notVotingCount} suara · ${shareText(publicResults.abstain_count ?? abstainCastCount + notVotingCount)}` },
+  { label: "Abstain diberikan", value: `${abstainCastCount} suara · ${shareText(abstainCastCount)}` },
+  { label: "Tidak memilih (dihitung Abstain)", value: `${notVotingCount} suara · ${shareText(notVotingCount)}` },
 ] : [];
 const boardReady = currentStage === "closed" || currentStage === "published";
 let voted = false;
@@ -151,8 +146,8 @@ const scheduleFacts = [
 
   {showHasil && <section id="hasil" class="mt-8" aria-labelledby="hasil-heading">
     <PanelCard title="Hasil pemilihan" description="Hasil resmi telah diumumkan panitia." icon={IconRosetteDiscountCheck}>
-      {singleOutcome && <Callout tone={singleOutcomeTone} title={singleOutcome} class="mb-4">
-        <p>{publicResults?.outcome === "seri" ? "Perolehan Setuju dan Tidak Setuju sama. Keputusan diserahkan kepada panitia." : "Setuju menang bila lebih dari separuh Hak pilih. Pemilih yang tidak memilih dihitung Tidak Setuju."}</p>
+      {publicResults && <Callout tone="neutral" title="Perolehan suara" class="mb-4">
+        <p>Persentase dihitung dari Hak pilih. Pemilih yang tidak memilih dihitung Abstain.</p>
         <FactList items={singleResultFacts} variant="inline" class="mt-2" />
       </Callout>}
       <div class="flex flex-wrap items-center gap-3">

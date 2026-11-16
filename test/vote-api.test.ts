@@ -16,6 +16,7 @@ import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -92,7 +93,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -369,8 +370,8 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
     await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
   }
-  // Hanya dua jawaban: tidak ada Abstain (W7 Q37).
-  const choices = ["setuju", "tidak_setuju"] as const;
+  // Tiga jawaban; Abstain jawaban nyata (keputusan owner 2026-11-16).
+  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
 
   it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
     await enableSingleMode();
@@ -388,11 +389,11 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
   });
 
-  it("menolak permintaan tanpa pilihan, Abstain, atau pilihan di luar dua jawaban tanpa menulis baris", async () => {
+  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
     await enableSingleMode();
     const cookie = await sessionCookie("voter-1");
     // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
-    for (const choice of [undefined, null, "abstain", "setuju-banget", "SETUJU"]) {
+    for (const choice of [undefined, null, "abstain-banget", "setuju-banget", "ABSTAIN"]) {
       const res = await voteRequest(cookie, choice === undefined ? { candidate_id: 1, confirmation_text: "Budi" } : { candidate_id: 1, confirmation_text: "Budi", choice });
       expect(res.status).toBe(400);
       expect((await res.json() as { error: string }).error).toBe("invalid_choice");
@@ -411,6 +412,16 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     const wrongName = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Sari", choice: "setuju" });
     expect(wrongName.status).toBe(400);
     expect((await wrongName.json() as { error: string }).error).toBe("confirmation_mismatch");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak Abstain dan pilihan lain pada pemilihan multi-kandidat", async () => {
+    // Multi-kandidat tidak punya Abstain: semua pilihan non-NULL ditolak dan tidak menulis baris.
+    for (const choice of ["abstain", "setuju", "tidak_setuju"]) {
+      const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice });
+      expect(res.status).toBe(400);
+      expect((await res.json() as { error: string }).error).toBe("invalid_choice");
+    }
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
   });
 

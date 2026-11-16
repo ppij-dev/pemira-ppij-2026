@@ -6,6 +6,7 @@ import electionLockMigrationSql from "../migrations/0003_election_lock.sql?raw";
 import closingSnapshotMigrationSql from "../migrations/0005_closing_snapshot.sql?raw";
 import singleCandidateModeMigrationSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceMigrationSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainMigrationSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -36,6 +37,7 @@ beforeEach(async () => {
     closingSnapshotMigrationSql,
     singleCandidateModeMigrationSql,
     ballotChoiceMigrationSql,
+    ballotAbstainMigrationSql,
   ].join(";")
     .split(";")
     .map((statement) => statement.trim())
@@ -95,7 +97,7 @@ describe("migrations/0001_init.sql", () => {
       name: string;
     }>();
     const columns = results.map((row) => row.name);
-    // choice hanya berisi jawaban Setuju/Tidak Setuju (mode kandidat tunggal);
+    // choice hanya berisi jawaban Setuju/Tidak Setuju/Abstain (mode kandidat tunggal);
     // tidak ada kolom anggota dan tidak ada kolom waktu.
     expect(columns).toEqual([
       "id",
@@ -132,7 +134,7 @@ describe("migrations/0001_init.sql", () => {
       .rejects.toThrow(/CHECK constraint failed/);
   });
 
-  it("menerima hanya setuju/tidak_setuju dan NULL pada ballots.choice", async () => {
+  it("menerima hanya setuju/tidak_setuju/abstain dan NULL pada ballots.choice", async () => {
     await insertElection(1);
     await insertCandidate(1, "m-c-1");
     const insertBallot = (id: string, choice: string | null) =>
@@ -141,15 +143,52 @@ describe("migrations/0001_init.sql", () => {
       )
         .bind(id, 1, 1, "PPIJ/PPI Okayama", `hash-${id}`, 0, choice)
         .run();
-    // NULL = surat suara multi-kandidat biasa; dua jawaban hanya dipakai di mode kandidat tunggal.
+    // NULL = surat suara multi-kandidat biasa; tiga jawaban hanya dipakai di mode kandidat tunggal.
     await insertBallot("b-null", null);
-    for (const choice of ["setuju", "tidak_setuju"]) await insertBallot(`b-${choice}`, choice);
-    // Tanpa Abstain (W7 Q37): nilai lama itu ditolak begitu juga nilai lain.
-    for (const choice of ["abstain", "setuju-banget", ""]) {
+    for (const choice of ["setuju", "tidak_setuju", "abstain"]) await insertBallot(`b-${choice}`, choice);
+    for (const choice of ["setuju-banget", "Abstain", ""]) {
       await expect(insertBallot(`b-bad-${choice}`, choice)).rejects.toThrow(/CHECK constraint failed/);
     }
     const { results } = await env.DB.prepare("SELECT choice FROM ballots ORDER BY id").all<{ choice: string | null }>();
-    expect(results.map((row) => row.choice)).toEqual([null, "setuju", "tidak_setuju"]);
+    expect(results.map((row) => row.choice)).toEqual(["abstain", null, "setuju", "tidak_setuju"]);
+  });
+
+  it("0013 membangun ulang ballots tanpa kehilangan baris, indeks, atau WITHOUT ROWID", async () => {
+    // Rebuild dijalankan ulang atas data yang sudah ada: baris dari sebelum 0013 tetap utuh.
+    await reset();
+    const before = [migrationSql, unitsMigrationSql, electionLockMigrationSql, closingSnapshotMigrationSql, singleCandidateModeMigrationSql, ballotChoiceMigrationSql]
+      .join(";").split(";").map((statement) => statement.trim()).filter(Boolean);
+    await env.DB.batch(before.map((statement) => env.DB.prepare(statement)));
+    await insertElection(1);
+    await insertCandidate(1, "m-c-1");
+    const insertBallot = (id: string, choice: string | null) =>
+      env.DB.prepare(
+        "INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test, choice) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+        .bind(id, 1, 1, "PPIJ/PPI Okayama", `hash-${id}`, 0, choice)
+        .run();
+    await insertBallot("old-null", null);
+    await insertBallot("old-setuju", "setuju");
+    await insertBallot("old-tidak", "tidak_setuju");
+    // Sebelum 0013 abstain ditolak.
+    await expect(insertBallot("old-abstain", "abstain")).rejects.toThrow(/CHECK constraint failed/);
+    await env.DB.batch(
+      ballotAbstainMigrationSql.split(";").map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement)),
+    );
+    const { results } = await env.DB.prepare("SELECT id, choice, receipt_hash FROM ballots ORDER BY id").all<{ id: string; choice: string | null; receipt_hash: string }>();
+    expect(results).toEqual([
+      { id: "old-null", choice: null, receipt_hash: "hash-old-null" },
+      { id: "old-setuju", choice: "setuju", receipt_hash: "hash-old-setuju" },
+      { id: "old-tidak", choice: "tidak_setuju", receipt_hash: "hash-old-tidak" },
+    ]);
+    await insertBallot("new-abstain", "abstain");
+    // receipt_hash tetap UNIQUE, rowid tetap tidak ada, kedua indeks dibuat ulang, tidak ada tabel sisa.
+    await expect(insertBallot("dup", "setuju").then(() => env.DB.prepare("INSERT INTO ballots (id, election_id, candidate_id, komsat_path, receipt_hash, is_test) VALUES ('dup2', 1, 1, 'x', 'hash-dup', 0)").run()))
+      .rejects.toThrow(/UNIQUE constraint failed/);
+    await expect(env.DB.prepare("SELECT rowid FROM ballots LIMIT 1").all()).rejects.toThrow(/no such column: rowid/);
+    const indexes = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'ballots' AND name LIKE 'idx_%' ORDER BY name").all<{ name: string }>();
+    expect(indexes.results.map((row) => row.name)).toEqual(["idx_ballots_election_candidate", "idx_ballots_election_komsat"]);
+    expect(await env.DB.prepare("SELECT name FROM sqlite_master WHERE name = 'ballots_new'").first()).toBeNull();
   });
 
   it("menolak receipt_hash yang sama", async () => {
