@@ -31,4 +31,12 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
       expect(page).toContain("Tidak memilih (dihitung Abstain)");
     }
   });
+
+  it("Pilih Suara memakai kata tahap Ditutup dari keputusan owner Q191 dan menjaga kata Terjadwal", () => {
+    expect(ballot).toContain('eligibility.stage === "scheduled" ? "Pemilihan terjadwal" : "Pemilihan ditutup"');
+    expect(ballot).toContain('"Pemungutan suara belum dimulai. Kembali saat jadwal dibuka." : "Batas waktu pemungutan suara telah lewat."');
+    expect(ballot).toContain("not_open:'Batas waktu pemungutan suara telah lewat.'");
+    expect(ballot).not.toContain("Pemungutan suara sudah ditutup");
+    expect(ballot).not.toContain("Saat ini pemungutan suara tidak dibuka");
+  });
 });

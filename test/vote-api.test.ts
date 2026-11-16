@@ -293,7 +293,7 @@ describe("POST /api/votes", () => {
       { beforeBatch: async () => {
         await env.DB.prepare("UPDATE elections SET closed_early_at = ?").bind(new Date().toISOString()).run();
       } },
-    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    )).rejects.toMatchObject({ status: 409, reason: "not_open", message: "Batas waktu pemungutan suara telah lewat." });
     const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
@@ -312,7 +312,7 @@ describe("POST /api/votes", () => {
       session,
       { candidate_id: 1, confirmation_text: "Budi" },
       { beforeBatch: async () => new Promise((resolve) => setTimeout(resolve, 350)) },
-    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    )).rejects.toMatchObject({ status: 409, reason: "not_open", message: "Batas waktu pemungutan suara telah lewat." });
     const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
