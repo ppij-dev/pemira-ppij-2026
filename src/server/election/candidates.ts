@@ -64,6 +64,12 @@ async function rollMemberById(db: D1Database, memberId: string) {
 }
 
 export async function listCandidates(db:D1Database) { return (await db.prepare("SELECT c.id,c.member_id,c.number,c.name,c.nickname,c.komsat_path,c.description,c.short_intro,c.color,v.member_number FROM candidates c LEFT JOIN voters v ON v.member_id=c.member_id ORDER BY c.number").all()).results; }
+/**
+ * Surat suara yang menunjuk satu kandidat. Suara tersimpan (is_test=0) berlalu
+ * permanen sampai pemilihan diulang; data Uji Coba (is_test=1) dibuang Kunci &
+ * Jadwalkan berikutnya, jadi pesan penolakannya berbeda.
+ */
+async function ballotsFor(db:D1Database,candidateId:number,isTest:0|1){ return (await db.prepare("SELECT COUNT(*) AS n FROM ballots WHERE candidate_id=? AND is_test=?").bind(candidateId,isTest).first<{n:number}>())?.n??0; }
 export async function createCandidate(db:D1Database, now:Date, input:{member_id:string;number:number;name:string;nickname:string;description:string;short_intro?:string}) {
   await draft(db);
   const name = validateName(input.name);
@@ -99,6 +105,12 @@ export async function updateCandidate(db:D1Database,now:Date,id:number,input:{me
   if(!voter) throw new ElectionError("Anggota tidak ada di daftar Pemilih. Pakai nomor kartu anggota dari portal (jalankan 'Perbarui Nama & Kategori dari Portal' bila belum ada).",409);
   const resolvedId=voter.member_id;
   if(await db.prepare("SELECT 1 FROM admin_voting WHERE member_id=?").bind(resolvedId).first()) throw new ElectionError("Admin Voting tidak dapat menjadi kandidat",409);
+  // Surat suara yang sudah masuk milik orang ini, jadi anggotanya tidak dapat
+  // diganti selama suara tersimpan menunjuk kandidat; suntingan lain tetap boleh.
+  if(resolvedId!==old.member_id) {
+   const kept=await ballotsFor(db,id,0);
+   if(kept>0) throw new ElectionError(`Kandidat tidak dapat diganti: ${kept} suara tersimpan menunjuk kandidat ini.`,409);
+  }
   // Mode kandidat tunggal tidak pernah menulis ulang nomor urut tersimpan.
   const single = await isSingleCandidateMode(db);
   const number = single ? old.number : input.number;
@@ -109,6 +121,12 @@ export async function updateCandidate(db:D1Database,now:Date,id:number,input:{me
 }
 export async function deleteCandidate(db:D1Database,now:Date,id:number) {
   await draft(db);
+  // Rujukan ballots.candidate_id bersifat FK; pesan eksplisit lebih jelas bagi panitia
+  // daripada galat constraint, dan membedakan suara tersimpan dari data Uji Coba.
+  const kept=await ballotsFor(db,id,0);
+  if(kept>0) throw new ElectionError(`Kandidat tidak dapat dihapus: ${kept} suara tersimpan menunjuk kandidat ini.`,409);
+  const rehearsal=await ballotsFor(db,id,1);
+  if(rehearsal>0) throw new ElectionError(`Kandidat tidak dapat dihapus: ${rehearsal} suara Uji Coba menunjuk kandidat ini. Kunci & Jadwalkan berikutnya menghapus data Uji Coba.`,409);
   const result=await db.batch([db.prepare("DELETE FROM candidates WHERE id=?").bind(id),await audit(db,now,"Kandidat dihapus",String(id))]);
   if(!result[0]?.meta.changes) throw new ElectionError("Kandidat tidak ditemukan",404);
 }

@@ -1,6 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import { IconCalendarEvent, IconChecklist, IconCircleCheck, IconCircleX, IconLock, IconSpeakerphone } from "@tabler/icons-astro";
+import { IconArrowBackUp, IconCalendarEvent, IconChecklist, IconCircleCheck, IconCircleX, IconLock, IconSpeakerphone } from "@tabler/icons-astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import PanelCard from "../../components/ui/PanelCard.astro";
@@ -8,18 +8,37 @@ import Callout from "../../components/ui/Callout.astro";
 import Badge from "../../components/ui/Badge.astro";
 import Button from "../../components/ui/Button.astro";
 import FormField from "../../components/ui/FormField.astro";
+import { canReturnToDraft, getSingleCandidateMode } from "../../server/election/lifecycle";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
 const db = authorized ? bindings.DB : undefined;
 const e = await db?.prepare('SELECT title,description,opens_at,closes_at,preview_mode,status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1').first<any>();
-// Mode kandidat tunggal hanya dapat diubah saat Draf; setelah Kunci tampil baca-saja.
-const singleCandidateMode = e?.single_candidate_mode === 1;
-const singleCandidateEditable = e?.status_lock === 'draft';
+// Matriks tampil-tombol Kembali ke Draf dipakai bersama server (design.md D2); server
+// tetap memeriksa ulang saat tombol dikirim.
+const canReturn = Boolean(e && canReturnToDraft({ status_lock: String(e.status_lock), preview_mode: Number(e.preview_mode) || 0, opens_at: e.opens_at ?? null }, new Date()));
+// Suara tersimpan (bukan Uji Coba) tetap dihitung setelah kembali ke Draf, jadi
+// jumlahnya disebut di bantuan, dialog dan pesan hasil.
+const keptBallots = (await db?.prepare('SELECT COUNT(*) AS n FROM ballots WHERE is_test=0').first<{ n: number }>())?.n ?? 0;
+const number = new Intl.NumberFormat('id-ID');
+// Kalimat bantuan untuk tindakan; hitungan suara tersimpan hanya disebut bila ada.
+const keptBallotsText = keptBallots > 0 ? `${number.format(keptBallots)} suara tetap tersimpan` : null;
+const returnHelp = keptBallotsText
+  ? `Kembalikan pemilihan ke Draf untuk mengubah pengaturan. Jadwal tetap, ${keptBallotsText}, dan daftar Pemilih dibekukan lagi saat Kunci & Jadwalkan berikutnya.`
+  : 'Kembalikan pemilihan ke Draf untuk mengubah pengaturan. Jadwal tetap dan daftar Pemilih dibekukan lagi saat Kunci & Jadwalkan berikutnya.';
+// Mode kandidat tunggal: saklar dan alasannya berasal dari fungsi yang sama dengan
+// GET /api/election/single-candidate-mode; halaman hanya menampilkan hasilnya.
+const singleCandidate = db ? await getSingleCandidateMode(db) : { enabled: false, editable: false, kept_ballots: 0, reason: null as string | null };
+const singleCandidateMode = singleCandidate.enabled;
+const singleCandidateEditable = singleCandidate.editable;
+const singleCandidateReason = singleCandidate.reason;
+// Pesan hasil kembali ke Draf tampil setelah muat ulang lewat navigasi (tanpa polling).
+const returnedToDraft = Astro.url.searchParams.get('kembali') === '1';
 const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
 ---
 <AdminLayout title="Pemilihan">
   <PageHeader title="Persiapan Pemilihan" eyebrow="Admin Voting" description="Atur jadwal, periksa kesiapan, dan kelola tahap pemungutan suara." />
+  {returnedToDraft && <Callout tone="success" icon={IconCircleCheck} title="Pemilihan kembali ke Draf." class="mt-5">{keptBallots > 0 && <p class="m-0">{number.format(keptBallots)} suara tetap tersimpan.</p>}</Callout>}
   <div class="mt-5 grid gap-[17px] min-[901px]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
     <PanelCard title="Jadwal dan informasi" description="Semua waktu mengikuti zona waktu Jepang (JST)." icon={IconCalendarEvent}>
       <form id="schedule" class="grid grid-cols-1 items-start gap-x-3.5 gap-y-4 min-[601px]:grid-cols-2 [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11">
@@ -48,24 +67,29 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
           <Button type="submit" variant="primary" size="sm">Simpan Jadwal</Button>
         </div>
       </form>
-      <div class="mt-5 border-t border-brand-border pt-4">
+      <div data-slot="single-candidate-mode" class="mt-5 border-t border-brand-border pt-4">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Mode kandidat tunggal</h3>
-              <Badge tone={singleCandidateMode ? 'brand' : 'neutral'} size="sm">{singleCandidateMode ? 'Aktif' : 'Tidak aktif'}</Badge>
+              <span id="single-candidate-badge"><Badge tone={singleCandidateMode ? 'brand' : 'neutral'} size="sm">{singleCandidateMode ? 'Aktif' : 'Tidak aktif'}</Badge></span>
             </div>
-            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, Kunci &amp; Jadwalkan menuntut tepat satu kandidat dan surat suara menanyakan Setuju atau Tidak Setuju untuk kandidat itu.</p>
+            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, Kunci &amp; Jadwalkan menuntut tepat satu kandidat dan surat suara menanyakan Setuju, Tidak Setuju atau Abstain untuk kandidat itu.</p>
           </div>
           <label for="single-candidate-mode" class="mt-1 inline-flex shrink-0 cursor-pointer items-center">
             <input id="single-candidate-mode" type="checkbox" role="switch" aria-label="Mode kandidat tunggal" class="peer sr-only" checked={singleCandidateMode} disabled={!singleCandidateEditable} data-editable={singleCandidateEditable ? '1' : '0'} />
             <span aria-hidden="true" class="relative h-6 w-11 shrink-0 rounded-full bg-brand-border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary peer-checked:after:translate-x-5 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></span>
           </label>
         </div>
-        {!singleCandidateEditable && <p class="mt-2 text-xs leading-5 text-brand-muted">Nilai ini dibekukan setelah Kunci &amp; Jadwalkan.</p>}
+        <p id="single-candidate-reason" class="mt-2 text-xs leading-5 text-brand-muted" hidden={!singleCandidateReason}>{singleCandidateReason ?? ''}</p>
         <Callout id="single-candidate-error" tone="danger" class="mt-3" hidden></Callout>
         <p id="single-candidate-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
       </div>
+      {canReturn && <div data-slot="return-to-draft" class="mt-5 border-t border-brand-border pt-4">
+        <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Kembali ke Draf</h3>
+        <p class="mt-1 text-xs leading-5 text-brand-muted">{returnHelp}</p>
+        <Button id="open-return" type="button" variant="secondary" size="sm" class="mt-3 w-fit text-destructive hover:bg-red-50"><IconArrowBackUp size={16} stroke={1.8} aria-hidden="true" /> Kembali ke Draf</Button>
+      </div>}
     </PanelCard>
 
     <PanelCard title="Kesiapan" description="Selesaikan semua pemeriksaan sebelum mengunci pemilihan." icon={IconChecklist}>
@@ -112,6 +136,43 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
         <Button id="publish" type="button" variant="secondary" size="sm" class="mt-1 w-fit text-brand-red hover:bg-brand-red/5"><IconSpeakerphone size={16} stroke={1.8} aria-hidden="true" /> Umumkan Hasil</Button>
       </div>
     </PanelCard>
+    <div id="abstain-card" class="mt-4" hidden><PanelCard padding="none">
+      <div class="grid content-start gap-3 p-[22px] max-[700px]:p-[17px]">
+        <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Hitung Abstain</h3>
+        <p class="m-0 text-xs leading-5 text-brand-muted">Mode kandidat tunggal: Pemilih yang tidak memilih baru dihitung Abstain setelah Anda menjalankan tindakan ini. Hanya dapat dijalankan sekali setelah pemungutan suara ditutup dan tidak dapat dibatalkan. Umumkan hasil baru tersedia sesudahnya.</p>
+        <p id="abstain-state" class="m-0 text-[13px] text-brand-muted" role="status" aria-live="polite"></p>
+        <Button id="open-abstain" type="button" variant="secondary" size="sm" class="mt-1 w-fit" disabled>Hitung Abstain</Button>
+      </div>
+    </PanelCard></div>
+  </section>
+  <div id="abstain-backdrop" hidden class="fixed inset-0 z-30 bg-foreground/40"></div>
+  <section id="abstain-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="abstain-title" class="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+    <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
+    <h2 id="abstain-title" class="text-xl font-bold tracking-tight text-brand-ink">Hitung Abstain</h2>
+    <p class="mt-2 text-sm leading-6 text-brand-muted"><strong id="abstain-number" class="text-brand-ink tabular-nums">0</strong> Pemilih yang tidak memilih akan ditambahkan ke Abstain. Angkanya Hak pilih dikurangi yang sudah memilih, hanya jumlah dan tidak pernah per orang. Tindakan ini hanya dapat dijalankan sekali dan tidak dapat dibatalkan.</p>
+    <Callout id="abstain-error" tone="danger" class="mt-3" hidden></Callout>
+    <p id="abstain-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
+    <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
+      <Button id="abstain-confirm" type="button" variant="danger" class="flex-1">Hitung Abstain</Button>
+      <Button id="abstain-cancel" type="button" variant="secondary">Batal</Button>
+    </div>
+  </section>
+  <div id="return-backdrop" hidden class="fixed inset-0 z-30 bg-foreground/40"></div>
+  <section id="return-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="return-title" class="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+    <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
+    <h2 id="return-title" class="text-xl font-bold tracking-tight text-brand-ink">Kembali ke Draf</h2>
+    <p class="mt-2 text-sm leading-6 text-brand-muted">Tindakan ini mengembalikan pemilihan ke Draf.{keptBallots > 0 ? ` Suara yang sudah masuk (${number.format(keptBallots)} suara) tetap tersimpan dan tidak dapat dicabut.` : ''} Jadwal dan pengaturan lain tidak berubah, lalu dapat diubah lagi.</p>
+    <div class="mt-4">
+      <FormField label="Ketik KEMBALI KE DRAF" for="return-phrase" hint="Huruf besar atau kecil sama saja. Tombol konfirmasi aktif setelah frasanya cocok.">
+        <input id="return-phrase" type="text" autocomplete="off" spellcheck="false" placeholder="KEMBALI KE DRAF" class="min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-sm" />
+      </FormField>
+    </div>
+    <Callout id="return-error" tone="danger" class="mt-3" hidden></Callout>
+    <p id="return-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
+    <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
+      <Button id="return-confirm" type="button" variant="danger" class="flex-1" disabled>Kembali ke Draf</Button>
+      <Button id="return-cancel" type="button" variant="secondary">Batal</Button>
+    </div>
   </section>
   <script is:inline>
 // Penjaga null: setiap tombol dipasang sendiri-sendiri, jadi satu elemen yang
@@ -122,13 +183,48 @@ const say=(text)=>{if(msg)msg.textContent=text};
 const on=(selector,event,handler)=>{const el=document.querySelector(selector);if(el)el.addEventListener(event,handler)};
 async function readiness(){const r=await fetch('/api/election/readiness'),d=await r.json();if(!list)return;list.replaceChildren();for(const c of d.checks||[]){const li=document.createElement('li');li.className='flex items-start gap-2 '+(c.ok?'text-brand-ink':'text-destructive');const icon=document.createElement('span');icon.className='mt-0.5 shrink-0';icon.append((c.ok?okTemplate:failTemplate).content.cloneNode(true));const text=document.createElement('span');text.className='min-w-0 text-[13px]';text.textContent=(c.ok?'':'Belum siap: ')+(labels[c.key]||c.message||c.key);li.append(icon,text);list.append(li)}if(!d.checks?.length)list.textContent=d.error||'Tidak ada pemeriksaan tersedia'}
 function values(form){const v=Object.fromEntries(new FormData(form));for(const k of ['opens_at','closes_at'])if(v[k]&&/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(v[k]))v[k]+=':00+09:00';return v}
-async function action(path,body={},confirmText){if(confirmText&&!confirm(confirmText))return;say('Memproses...');const r=await fetch('/api/election/'+path,{method:path==='schedule'?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),d=await r.json().catch(()=>({}));say(r.ok?'Perubahan berhasil disimpan.':(d.error||'Tindakan gagal')+(d.checks?' — '+d.checks.filter(c=>!c.ok).map(c=>c.message).join('; '):''));await readiness()}
+async function action(path,body={},confirmText){if(confirmText&&!confirm(confirmText))return;say('Memproses...');const r=await fetch('/api/election/'+path,{method:path==='schedule'?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),d=await r.json().catch(()=>({}));say(r.ok?'Perubahan berhasil disimpan.':(d.error||'Tindakan gagal')+(d.checks?' — '+d.checks.filter(c=>!c.ok).map(c=>c.message).join('; '):''));await readiness();await loadSingleCandidateMode()}
 on('#refresh','click',readiness);
-// Saklar mode kandidat tunggal: kirim seluruh nilai (bukan selisih), tampilkan
-// teks galat server apa adanya, dan kembalikan saklar bila ditolak.
-const scToggle=document.querySelector('#single-candidate-mode'),scError=document.querySelector('#single-candidate-error'),scStatus=document.querySelector('#single-candidate-status');
+// Saklar mode kandidat tunggal: nilai, ketereditan dan alasannya dibaca dari GET
+// supaya pembekuan karena suara tersimpan (design.md D5) sama dengan server.
+const scToggle=document.querySelector('#single-candidate-mode'),scError=document.querySelector('#single-candidate-error'),scStatus=document.querySelector('#single-candidate-status'),scBadge=document.querySelector('#single-candidate-badge > span'),scReason=document.querySelector('#single-candidate-reason');
 const scClear=()=>{if(scError){scError.textContent='';scError.setAttribute('hidden','')}};
-if(scToggle)scToggle.addEventListener('change',async()=>{const enabled=scToggle.checked;scClear();if(scStatus)scStatus.textContent='Menyimpan...';scToggle.disabled=true;try{const r=await fetch('/api/election/single-candidate-mode',{method:'PUT',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})}),d=await r.json().catch(()=>({}));if(!r.ok){scToggle.checked=!enabled;if(scError){scError.textContent=d.error||'Mode kandidat tunggal gagal disimpan.';scError.removeAttribute('hidden')}if(scStatus)scStatus.textContent='';return}if(scStatus)scStatus.textContent=enabled?'Mode kandidat tunggal diaktifkan.':'Mode kandidat tunggal dinonaktifkan.';await readiness()}catch{scToggle.checked=!enabled;if(scError){scError.textContent='Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.';scError.removeAttribute('hidden')}}finally{scToggle.disabled=scToggle.dataset.editable!=='1'}});
+const scBadgeTone=(active)=>active?'bg-brand-50 text-brand-800':'bg-muted text-muted-foreground';
+const applySingleCandidateMode=(d)=>{if(!scToggle||!d)return;scToggle.checked=Boolean(d.enabled);scToggle.dataset.editable=d.editable?'1':'0';scToggle.disabled=!d.editable;if(scBadge){scBadge.textContent=d.enabled?'Aktif':'Tidak aktif';for(const c of ['bg-brand-50','text-brand-800','bg-muted','text-muted-foreground'])scBadge.classList.remove(c);for(const c of scBadgeTone(Boolean(d.enabled)).split(' '))scBadge.classList.add(c)}if(scReason){scReason.textContent=d.reason||'';scReason.hidden=!d.reason}};
+async function loadSingleCandidateMode(){if(!scToggle)return;try{const r=await fetch('/api/election/single-candidate-mode',{credentials:'same-origin'});if(!r.ok)return;applySingleCandidateMode(await r.json())}catch{}}
+if(scToggle)scToggle.addEventListener('change',async()=>{const enabled=scToggle.checked;scClear();if(scStatus)scStatus.textContent='Menyimpan...';scToggle.disabled=true;try{const r=await fetch('/api/election/single-candidate-mode',{method:'PUT',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})}),d=await r.json().catch(()=>({}));if(!r.ok){scToggle.checked=!enabled;if(scError){scError.textContent=d.error||'Mode kandidat tunggal gagal disimpan.';scError.removeAttribute('hidden')}if(scStatus)scStatus.textContent='';return}if(scStatus)scStatus.textContent=enabled?'Mode kandidat tunggal diaktifkan.':'Mode kandidat tunggal dinonaktifkan.';await readiness();await loadSingleCandidateMode()}catch{scToggle.checked=!enabled;if(scError){scError.textContent='Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.';scError.removeAttribute('hidden')}}finally{scToggle.disabled=scToggle.dataset.editable!=='1'}});
+// Kembali ke Draf: dialog menuntut frasa yang sama dengan pemeriksaan server
+// (tanpa beda huruf besar/kecil dan spasi ganda), lalu memuat ulang lewat navigasi.
+const RETURN_PHRASE='KEMBALI KE DRAF';
+const returnDialog=document.querySelector('#return-dialog'),returnBackdrop=document.querySelector('#return-backdrop'),openReturn=document.querySelector('#open-return'),returnPhrase=document.querySelector('#return-phrase'),returnConfirm=document.querySelector('#return-confirm'),returnCancel=document.querySelector('#return-cancel'),returnError=document.querySelector('#return-error'),returnStatus=document.querySelector('#return-status');
+const normalizePhrase=(value)=>String(value??'').replace(/\s+/g,' ').trim().toUpperCase();
+let returnBusy=false;
+const returnClear=()=>{if(returnError){returnError.textContent='';returnError.setAttribute('hidden','')}if(returnStatus)returnStatus.textContent=''};
+const syncReturn=()=>{if(returnConfirm)returnConfirm.disabled=returnBusy||normalizePhrase(returnPhrase&&returnPhrase.value)!==RETURN_PHRASE};
+const closeReturnDialog=()=>{if(!returnDialog||returnDialog.hidden)return;returnDialog.hidden=true;returnBackdrop.hidden=true;document.body.style.overflow='';if(openReturn)openReturn.focus()};
+if(openReturn)openReturn.addEventListener('click',()=>{if(!returnDialog)return;returnClear();returnBusy=false;if(returnPhrase){returnPhrase.value='';returnPhrase.disabled=false}syncReturn();returnDialog.hidden=false;returnBackdrop.hidden=false;document.body.style.overflow='hidden';if(returnPhrase)returnPhrase.focus()});
+if(returnCancel)returnCancel.addEventListener('click',closeReturnDialog);
+if(returnBackdrop)returnBackdrop.addEventListener('click',closeReturnDialog);
+if(returnPhrase)returnPhrase.addEventListener('input',syncReturn);
+if(returnDialog)returnDialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!returnBusy){e.preventDefault();closeReturnDialog()}});
+if(returnConfirm)returnConfirm.addEventListener('click',async()=>{if(returnBusy||!returnPhrase||normalizePhrase(returnPhrase.value)!==RETURN_PHRASE)return;returnBusy=true;syncReturn();returnPhrase.disabled=true;returnClear();if(returnStatus)returnStatus.textContent='Mengembalikan ke Draf...';try{const r=await fetch('/api/election/return-to-draft',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:returnPhrase.value})}),d=await r.json().catch(()=>({}));if(r.ok){location.assign('/admin/pemilihan?kembali=1');return}if(returnError){returnError.textContent=d.error||'Pemilihan belum dapat dikembalikan ke Draf.';returnError.removeAttribute('hidden')}if(returnStatus)returnStatus.textContent=''}catch{if(returnError){returnError.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.';returnError.removeAttribute('hidden')}if(returnStatus)returnStatus.textContent=''}finally{returnBusy=false;if(returnPhrase)returnPhrase.disabled=false;syncReturn()}});
+// Tanda muat ulang dari dialog hanya dipakai sekali; muat ulang manual tidak mengulang pesan.
+if(new URLSearchParams(location.search).has('kembali'))history.replaceState(null,'',location.pathname);
+// Hitung Abstain (Q193): kartu hanya tampil pada mode kandidat tunggal; angka di dialog
+// berasal dari server (Hak pilih beku dikurangi partisipasi) dan tindakannya sekali jalan.
+const abstainCard=document.querySelector('#abstain-card'),abstainDialog=document.querySelector('#abstain-dialog'),abstainBackdrop=document.querySelector('#abstain-backdrop'),openAbstain=document.querySelector('#open-abstain'),abstainState=document.querySelector('#abstain-state'),abstainNumber=document.querySelector('#abstain-number'),abstainConfirm=document.querySelector('#abstain-confirm'),abstainCancel=document.querySelector('#abstain-cancel'),abstainError=document.querySelector('#abstain-error'),abstainStatus=document.querySelector('#abstain-status');
+let abstainBusy=false;
+const abstainNum=(n)=>new Intl.NumberFormat('id-ID').format(n);
+const abstainClear=()=>{if(abstainError){abstainError.textContent='';abstainError.setAttribute('hidden','')}if(abstainStatus)abstainStatus.textContent=''};
+const closeAbstainDialog=()=>{if(!abstainDialog||abstainDialog.hidden)return;abstainDialog.hidden=true;abstainBackdrop.hidden=true;document.body.style.overflow='';if(openAbstain)openAbstain.focus()};
+async function loadAbstain(){if(!abstainCard)return;try{const r=await fetch('/api/election/abstain-count',{credentials:'same-origin'});if(!r.ok)return;const d=await r.json();abstainCard.hidden=!d.single_candidate_mode;if(!d.single_candidate_mode)return;if(abstainNumber)abstainNumber.textContent=abstainNum(d.pending_count);if(openAbstain)openAbstain.disabled=!d.can_run;if(abstainState)abstainState.textContent=d.counted?'Sudah dijalankan: '+abstainNum(d.counted_count)+' Pemilih yang tidak memilih dihitung Abstain.':(d.reason||abstainNum(d.pending_count)+' Pemilih belum memilih dan akan ditambahkan ke Abstain.')}catch{}}
+if(openAbstain)openAbstain.addEventListener('click',()=>{if(!abstainDialog)return;abstainClear();abstainBusy=false;if(abstainConfirm)abstainConfirm.disabled=false;abstainDialog.hidden=false;abstainBackdrop.hidden=false;document.body.style.overflow='hidden';if(abstainConfirm)abstainConfirm.focus()});
+if(abstainCancel)abstainCancel.addEventListener('click',closeAbstainDialog);
+if(abstainBackdrop)abstainBackdrop.addEventListener('click',closeAbstainDialog);
+if(abstainDialog)abstainDialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!abstainBusy){e.preventDefault();closeAbstainDialog()}});
+if(abstainConfirm)abstainConfirm.addEventListener('click',async()=>{if(abstainBusy)return;abstainBusy=true;abstainConfirm.disabled=true;abstainClear();if(abstainStatus)abstainStatus.textContent='Menghitung Abstain...';try{const r=await fetch('/api/election/abstain-count',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}'}),d=await r.json().catch(()=>({}));if(r.ok){closeAbstainDialog();say('Hitung Abstain dijalankan: '+abstainNum(d.counted_count)+' Pemilih yang tidak memilih dihitung Abstain.');await loadAbstain();return}if(abstainError){abstainError.textContent=d.error||'Hitung Abstain belum dapat dijalankan.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false;await loadAbstain()}catch{if(abstainError){abstainError.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false}});
+loadAbstain();
+loadSingleCandidateMode();
 on('#schedule','submit',e=>{e.preventDefault();const form=e.currentTarget;const v=values(form);v.preview_mode=document.querySelector('#preview-mode').checked;action('schedule',v)});
 on('#lock','click',()=>action('lock',{},'Kunci pemilihan dan jadwalkan sekarang?'));
 on('#extend','submit',e=>{e.preventDefault();action('extend',values(e.currentTarget))});

@@ -50,37 +50,69 @@ export async function sha256Hex(input: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+const AUDIT_COLUMNS =
+  "(at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash)";
+
 /**
- * Builds the INSERT statement for one audit entry, with prev_hash taken from the
- * last row and hash = SHA-256(prev_hash || canonical row). Awaiting this returns
- * a prepared statement the caller includes in its D1 batch next to the action
- * it records.
+ * One audit INSERT, with prev_hash taken from the last row and
+ * hash = SHA-256(prev_hash || canonical row). Guarded inserts only write when the
+ * statement just before them in the same D1 batch changed a row, so a refused
+ * action cannot leave an entry behind.
  */
-export async function buildAuditInsert(
+async function prepareAuditInsert(
   db: D1Database,
   entry: AuditEntry,
+  guarded: boolean,
 ): Promise<D1PreparedStatement> {
   const last = await db
     .prepare("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1")
     .first<{ hash: string }>();
   const prevHash = last?.hash ?? AUDIT_GENESIS_HASH;
   const hash = await sha256Hex(prevHash + canonicalRow({ ...entry, prev_hash: prevHash }));
+  const values = [
+    entry.at,
+    entry.actor_type,
+    entry.actor_member_id,
+    entry.actor_name,
+    entry.action,
+    entry.target,
+    entry.komsat_path,
+    entry.detail_json,
+    prevHash,
+    hash,
+  ];
+  const placeholders = values.map(() => "?").join(", ");
   return db
     .prepare(
-      "INSERT INTO audit_log (at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      guarded
+        ? `INSERT INTO audit_log ${AUDIT_COLUMNS} SELECT ${placeholders} WHERE changes() = 1`
+        : `INSERT INTO audit_log ${AUDIT_COLUMNS} VALUES (${placeholders})`,
     )
-    .bind(
-      entry.at,
-      entry.actor_type,
-      entry.actor_member_id,
-      entry.actor_name,
-      entry.action,
-      entry.target,
-      entry.komsat_path,
-      entry.detail_json,
-      prevHash,
-      hash,
-    );
+    .bind(...values);
+}
+
+/**
+ * Builds the INSERT statement for one audit entry. Awaiting this returns a
+ * prepared statement the caller includes in its D1 batch next to the action it
+ * records.
+ */
+export async function buildAuditInsert(
+  db: D1Database,
+  entry: AuditEntry,
+): Promise<D1PreparedStatement> {
+  return prepareAuditInsert(db, entry, false);
+}
+
+/**
+ * Same entry and hash chain, but the INSERT is a no-op unless the previous
+ * statement in the batch changed exactly one row — used by actions whose write
+ * is guarded, so a refused request records nothing.
+ */
+export async function buildGuardedAuditInsert(
+  db: D1Database,
+  entry: AuditEntry,
+): Promise<D1PreparedStatement> {
+  return prepareAuditInsert(db, entry, true);
 }
 
 /**

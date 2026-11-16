@@ -6,6 +6,8 @@ import lockSql from "../migrations/0003_election_lock.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
+import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -40,7 +42,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql]) {
+  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -357,8 +359,8 @@ describe("Results API - Korda Suppression and Fallback", () => {
   });
 });
 
-describe("Results API - Single candidate mode tallies and outcome", () => {
-  type SingleChoice = "setuju" | "tidak_setuju";
+describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / Abstain, no outcome)", () => {
+  type SingleChoice = "setuju" | "tidak_setuju" | "abstain";
 
   /** Pemilihan mode kandidat tunggal dengan satu kandidat (id 1, nomor internal 1). */
   async function seedSingleElection(opts: { status?: "draft" | "locked" | "published"; frozen?: number | null; closed?: boolean } = {}) {
@@ -408,104 +410,129 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
     ).bind(memberId, memberId, path, new Date().toISOString()).run();
   }
 
+  /** Admin Voting menjalankan Hitung Abstain: simpan Hak pilih beku dikurangi partisipasi nyata. */
+  async function countNow() {
+    await env.DB.prepare(
+      "UPDATE elections SET abstain_counted_at = ?, abstain_counted_count = MAX(0, frozen_hak_pilih - (SELECT COUNT(*) FROM participation WHERE election_id = 1 AND is_test = 0))",
+    ).bind(new Date().toISOString()).run();
+  }
+
   async function dashboardData(): Promise<DashboardPayload> {
     const res = await requestDashboard();
     expect(res.status).toBe(200);
     return (await res.json()) as DashboardPayload;
   }
 
-  it("shows Setuju, Tidak Setuju and Tidak memilih with their shares of Hak pilih and the Terpilih outcome", async () => {
-    // Hak pilih 100, 55 Setuju, 30 Tidak Setuju, 15 tidak memilih → 55 > 45.
+  it("shows Setuju, Tidak Setuju and Abstain (cast plus non-voters) with their shares of Hak pilih", async () => {
+    // Hak pilih 100: 50 Setuju, 30 Tidak Setuju, 5 Abstain diberikan, 15 tidak memilih.
     await seedSingleElection({ closed: true });
-    await castChoice("setuju", `${SCOPE}/komsat-a`, 55);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    await countNow();
     const data = await dashboardData();
     expect(data).toMatchObject({
       stage: "closed",
       single_candidate_mode: true,
       eligible_count: 100,
-      outcome: "terpilih",
-      setuju_count: 55,
+      setuju_count: 50,
       tidak_setuju_count: 30,
+      abstain_cast_count: 5,
       tidak_memilih_count: 15,
-      setuju_percentage: 55,
+      abstain_count: 20,
+      setuju_percentage: 50,
       tidak_setuju_percentage: 30,
-      tidak_memilih_percentage: 15,
+      abstain_percentage: 20,
       ballot_count: 85,
     });
-    // Tidak ada pilihan per orang: payload tidak punya kolom abstain atau per-anggota.
-    expect(data).not.toHaveProperty("abstain_count");
+    // Tiga bagian menjumlah ke Hak pilih; tidak ada data per orang di payload.
+    expect(data.setuju_count! + data.tidak_setuju_count! + data.abstain_count!).toBe(data.eligible_count);
+    expect(data.setuju_percentage! + data.tidak_setuju_percentage! + data.abstain_percentage!).toBe(100);
     expect(JSON.stringify(data)).not.toContain("voter-");
     // Larik kandidat tetap ada supaya pemeriksaan jumlah surat suara tetap utuh.
     expect(data.candidates).toHaveLength(1);
     expect(data.candidates[0]).toMatchObject({ id: 1, votes: 85 });
   });
 
-  it("reports Tidak terpilih when Tidak Setuju plus non-voters beat Setuju", async () => {
-    // Hak pilih 100, 40 Setuju, 35 Tidak Setuju, 25 tidak memilih → 40 < 60.
+  it("counts non-voters as Abstain, never as Tidak Setuju", async () => {
+    // Hak pilih 100, hanya 40 Setuju dan 35 Tidak Setuju, 25 tidak memilih.
     await seedSingleElection({ closed: true });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 40);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 35);
+    await countNow();
     const data = await dashboardData();
     expect(data).toMatchObject({
-      outcome: "tidak_terpilih",
-      setuju_count: 40,
       tidak_setuju_count: 35,
-      tidak_memilih_count: 25,
-      setuju_percentage: 40,
       tidak_setuju_percentage: 35,
-      tidak_memilih_percentage: 25,
+      abstain_cast_count: 0,
+      tidak_memilih_count: 25,
+      abstain_count: 25,
+      abstain_percentage: 25,
     });
   });
 
-  it("reports Seri when Setuju equals Tidak Setuju plus non-voters", async () => {
-    // Hak pilih 100, 50 Setuju, 20 Tidak Setuju, 30 tidak memilih → 50 = 50.
-    await seedSingleElection({ closed: true });
-    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
-    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 20);
-    const data = await dashboardData();
-    expect(data.outcome).toBe("seri");
-    expect(data.tidak_memilih_count).toBe(30);
-    // Tidak ada keputusan yang dicatat: hanya baris hasil yang menyebut Seri.
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE detail_json LIKE '%seri%'").first()).toEqual({ n: 0 });
-  });
-
-  it("keeps menunggu_penutupan before voting closes and while Draf", async () => {
+  it("never states an outcome, in any stage, on Dasbor or public results", async () => {
+    // Setuju melebihi separuh, sama kuat, dan kalah: tidak ada yang menghasilkan baris keputusan.
+    for (const [setuju, tidak] of [[60, 10], [50, 20], [10, 60]] as const) {
+      await reset();
+      await applyMigrations();
+      await seedBase();
+      await seedSingleElection({ closed: true });
+      await castChoice("setuju", `${SCOPE}/komsat-a`, setuju);
+      await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, tidak);
+      const closed = await dashboardData();
+      expect(closed).not.toHaveProperty("outcome");
+      expect(JSON.stringify(closed)).not.toMatch(/terpilih|seri|menunggu/i);
+    }
+    await reset();
+    await applyMigrations();
+    await seedBase();
     await seedSingleElection();
     await castChoice("setuju", `${SCOPE}/komsat-a`, 5);
     const open = await dashboardData();
-    expect(open).toMatchObject({ stage: "open", outcome: "menunggu_penutupan", setuju_count: 5, tidak_memilih_count: 95 });
+    expect(open).toMatchObject({ stage: "open", setuju_count: 5, tidak_memilih_count: 95 });
+    expect(open).not.toHaveProperty("outcome");
     await env.DB.prepare("UPDATE elections SET status_lock = 'draft', frozen_hak_pilih = NULL, frozen_at = NULL").run();
-    const draft = await dashboardData();
-    expect(draft.outcome).toBe("menunggu_penutupan");
+    expect(await dashboardData()).not.toHaveProperty("outcome");
+    await env.DB.prepare("UPDATE elections SET status_lock = 'published', frozen_hak_pilih = 100, closes_at = ?").bind(new Date(Date.now() - 60e3).toISOString()).run();
+    const published = (await (await requestPublicResults()).json()) as ResultsPayload;
+    expect(published).not.toHaveProperty("outcome");
   });
 
-  it("counts every eligible member as Tidak memilih when no ballots were cast", async () => {
+  it("counts every eligible member as Abstain (tidak memilih) when no ballots were cast", async () => {
     await seedSingleElection({ status: "published", closed: true });
+    await countNow();
     const res = await requestPublicResults();
     expect(res.status).toBe(200);
     const data = (await res.json()) as ResultsPayload;
     expect(data).toMatchObject({
       single_candidate_mode: true,
-      outcome: "tidak_terpilih",
       setuju_count: 0,
       tidak_setuju_count: 0,
+      abstain_cast_count: 0,
       tidak_memilih_count: 100,
+      abstain_count: 100,
       setuju_percentage: 0,
-      tidak_memilih_percentage: 100,
+      tidak_setuju_percentage: 0,
+      abstain_percentage: 100,
       ballot_count: 0,
     });
   });
 
   it("carries the three counts per korda above the suppression threshold and hides them below", async () => {
     // Korda Okayama: 10 pemilih (termasuk admin-1 dari seedBase) + 9 yang tidak
-    // memilih = 20 Hak pilih, dengan 10 surat suara (6 Setuju, 4 Tidak Setuju).
+    // memilih = 20 Hak pilih, dengan 10 surat suara (5 Setuju, 3 Tidak Setuju, 2 Abstain).
     await seedSingleElection({ frozen: 24 });
     for (let i = 0; i < 9; i++) await seedEligible(`ok-extra-${i}`, `${SCOPE}/komsat-z`);
-    await castChoice("setuju", `${SCOPE}/komsat-a`, 6);
-    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 4);
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 5);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 3);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 2);
     // Korda Tokyo: 4 surat suara, di bawah ambang penyembunyian.
     await castChoice("setuju", "/ppij/tokyo/komsat-a", 4);
+    // Sebelum Hitung Abstain: korda hanya menunjukkan Abstain diberikan, tanpa rincian tidak memilih.
+    const before = (await dashboardData()).korda.find((row) => row.key === SCOPE);
+    expect(before).toMatchObject({ abstain_cast_count: 2, tidak_memilih_count: null, abstain_count: 2, abstain_percentage: 10 });
+    await countNow();
     const data = await dashboardData();
     const okayama = data.korda.find((row) => row.key === SCOPE);
     expect(okayama).toMatchObject({
@@ -513,33 +540,75 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
       used_count: 10,
       ballot_count: 10,
       suppressed: false,
-      setuju_count: 6,
-      tidak_setuju_count: 4,
+      setuju_count: 5,
+      tidak_setuju_count: 3,
+      abstain_cast_count: 2,
       tidak_memilih_count: 10,
-      setuju_percentage: 30,
-      tidak_setuju_percentage: 20,
-      tidak_memilih_percentage: 50,
+      abstain_count: 12,
+      setuju_percentage: 25,
+      tidak_setuju_percentage: 15,
+      abstain_percentage: 60,
     });
     const tokyo = data.korda.find((row) => row.key === "/ppij/tokyo");
     expect(tokyo).toMatchObject({ ballot_count: 4, suppressed: true });
     expect(tokyo?.setuju_count).toBeNull();
     expect(tokyo?.tidak_memilih_count).toBeNull();
+    expect(tokyo?.abstain_count).toBeNull();
+    expect(tokyo?.abstain_percentage).toBeNull();
     expect(tokyo?.candidates).toBeNull();
   });
 
-  it("counts Draf test ballots in the tally and still shows menunggu_penutupan", async () => {
+  it("counts Draf test ballots in the tally without any outcome", async () => {
     await seedSingleElection({ status: "draft" });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 1, { isTest: 1 });
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 1, { isTest: 1 });
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 1, { isTest: 1 });
     const data = await dashboardData();
     expect(data).toMatchObject({
       setuju_count: 1,
       tidak_setuju_count: 1,
+      abstain_cast_count: 1,
       tidak_memilih_count: 100,
-      ballot_count: 2,
-      test: { participation_count: 0, ballot_count: 2 },
-      outcome: "menunggu_penutupan",
+      abstain_counted: false,
+      abstain_count: 1,
+      ballot_count: 3,
+      test: { participation_count: 0, ballot_count: 3 },
     });
+    expect(data).not.toHaveProperty("outcome");
+  });
+
+  it("before Hitung Abstain shows Abstain = cast only plus the not-yet-counted non-voters", async () => {
+    await seedSingleElection({ closed: true });
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    const data = await dashboardData();
+    expect(data).toMatchObject({
+      abstain_counted: false,
+      abstain_counted_at: null,
+      abstain_cast_count: 5,
+      tidak_memilih_count: 15,
+      abstain_count: 5,
+      abstain_percentage: 5,
+    });
+  });
+
+  it("after Hitung Abstain the Abstain total is cast plus the stored count, and the stored count stays fixed", async () => {
+    await seedSingleElection({ closed: true });
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    await countNow();
+    // Anggota baru yang disinkronkan sesudahnya tidak mengubah angka tersimpan.
+    await seedEligible("late-member", `${SCOPE}/komsat-z`);
+    const data = await dashboardData();
+    expect(data).toMatchObject({
+      abstain_counted: true,
+      abstain_cast_count: 5,
+      tidak_memilih_count: 45,
+      abstain_count: 50,
+      abstain_percentage: 50,
+    });
+    expect(data.abstain_counted_at).not.toBeNull();
   });
 
   it("keeps today's payload shape with the mode off", async () => {
@@ -549,14 +618,16 @@ describe("Results API - Single candidate mode tallies and outcome", () => {
     const data = await dashboardData();
     expect(data).toMatchObject({
       single_candidate_mode: false,
-      outcome: null,
       setuju_count: null,
       tidak_setuju_count: null,
+      abstain_cast_count: null,
       tidak_memilih_count: null,
+      abstain_count: null,
       setuju_percentage: null,
-      tidak_memilih_percentage: null,
+      abstain_percentage: null,
       ballot_count: 12,
     });
+    expect(data).not.toHaveProperty("outcome");
     // Daftar kandidat dan rincian per korda tetap seperti hari ini.
     expect(data.candidates.map((candidate) => candidate.number)).toEqual([1, 2]);
     expect(data.korda[0]?.candidates?.map((candidate) => candidate.votes)).toEqual([12, 0]);

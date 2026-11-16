@@ -10,15 +10,21 @@ import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
 import limitsSql from "../migrations/0004_vote_limits.sql?raw";
+import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
 import previewSql from "../migrations/0006_preview_mode.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
+import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
+import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
 import { castVote, type VoteSession } from "../src/server/voting/vote";
+import { lockElection, returnToDraft } from "../src/server/election/lifecycle";
+import { checkReceipt, getPublicBoard } from "../src/server/voting/board";
+import { getDashboard } from "../src/server/results/queries";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
 import type { Bindings } from "../src/server/app";
 
@@ -88,7 +94,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -288,7 +294,7 @@ describe("POST /api/votes", () => {
       { beforeBatch: async () => {
         await env.DB.prepare("UPDATE elections SET closed_early_at = ?").bind(new Date().toISOString()).run();
       } },
-    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    )).rejects.toMatchObject({ status: 409, reason: "not_open", message: "Batas waktu pemungutan suara telah lewat." });
     const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
@@ -307,7 +313,7 @@ describe("POST /api/votes", () => {
       session,
       { candidate_id: 1, confirmation_text: "Budi" },
       { beforeBatch: async () => new Promise((resolve) => setTimeout(resolve, 350)) },
-    )).rejects.toMatchObject({ status: 409, reason: "not_open" });
+    )).rejects.toMatchObject({ status: 409, reason: "not_open", message: "Batas waktu pemungutan suara telah lewat." });
     const after = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
@@ -365,8 +371,8 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
     await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
   }
-  // Hanya dua jawaban: tidak ada Abstain (W7 Q37).
-  const choices = ["setuju", "tidak_setuju"] as const;
+  // Tiga jawaban; Abstain jawaban nyata (keputusan owner 2026-11-16).
+  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
 
   it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
     await enableSingleMode();
@@ -384,11 +390,11 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
   });
 
-  it("menolak permintaan tanpa pilihan, Abstain, atau pilihan di luar dua jawaban tanpa menulis baris", async () => {
+  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
     await enableSingleMode();
     const cookie = await sessionCookie("voter-1");
     // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
-    for (const choice of [undefined, null, "abstain", "setuju-banget", "SETUJU"]) {
+    for (const choice of [undefined, null, "abstain-banget", "setuju-banget", "ABSTAIN"]) {
       const res = await voteRequest(cookie, choice === undefined ? { candidate_id: 1, confirmation_text: "Budi" } : { candidate_id: 1, confirmation_text: "Budi", choice });
       expect(res.status).toBe(400);
       expect((await res.json() as { error: string }).error).toBe("invalid_choice");
@@ -407,6 +413,16 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     const wrongName = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Sari", choice: "setuju" });
     expect(wrongName.status).toBe(400);
     expect((await wrongName.json() as { error: string }).error).toBe("confirmation_mismatch");
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak Abstain dan pilihan lain pada pemilihan multi-kandidat", async () => {
+    // Multi-kandidat tidak punya Abstain: semua pilihan non-NULL ditolak dan tidak menulis baris.
+    for (const choice of ["abstain", "setuju", "tidak_setuju"]) {
+      const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice });
+      expect(res.status).toBe(400);
+      expect((await res.json() as { error: string }).error).toBe("invalid_choice");
+    }
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
   });
 
@@ -486,5 +502,49 @@ describe("GET /api/votes/eligibility", () => {
     expect((await luar.json() as Record<string, unknown>).reason).toBe("not_regular_member");
     const unknown = await getRequest("/api/votes/eligibility", await sessionCookie("voter-unknown"));
     expect((await unknown.json() as Record<string, unknown>).reason).toBe("category_unknown");
+  });
+});
+
+// Kembali ke Draf mempertahankan suara: aturan satu suara per anggota tetap
+// berlaku setelah Kunci ulang, dan surat suara lama tetap dihitung.
+const NO_SYNC = (() => { throw new Error("Mode Pratinjau tidak boleh menyinkronkan"); }) as unknown as typeof fetch;
+describe("suara tersimpan melewati Kembali ke Draf", () => {
+  it("menolak suara kedua anggota yang sudah memilih setelah kembali dan Kunci ulang", async () => {
+    await env.DB.prepare("UPDATE elections SET preview_mode=1").run();
+    const first = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(first.status).toBe(201);
+    const receipt = (await first.json() as { receipt_code: string }).receipt_code;
+    const ballotBefore = await env.DB.prepare("SELECT * FROM ballots").first<Record<string, unknown>>();
+    const participationBefore = await env.DB.prepare("SELECT * FROM participation").first<Record<string, unknown>>();
+    expect(await returnToDraft(env.DB, new Date(), "KEMBALI KE DRAF")).toMatchObject({ kept_ballots: 1, kept_participation: 1 });
+    // Surat suara dan partisipasi tidak berubah sedikit pun oleh pengembalian ke Draf.
+    expect(await env.DB.prepare("SELECT * FROM ballots").first()).toEqual(ballotBefore);
+    expect(await env.DB.prepare("SELECT * FROM participation").first()).toEqual(participationBefore);
+    await seedVoter("voter-2", { name: "Anggota Baru" });
+    await lockElection(env.DB, { issuer: "", clientId: "", clientSecret: "", serviceApiUrl: "" }, new Date(), NO_SYNC);
+    const entriesBefore = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>();
+    const second = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 2, confirmation_text: "Sari" });
+    expect(second.status).toBe(409);
+    // Pesan penolakan yang sama seperti hari ini: kode alasan stabil dari guard satu suara.
+    expect(await second.json()).toEqual({ error: "already_voted" });
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>()).toEqual(entriesBefore);
+    // Anggota baru pada roll hasil Kunci ulang memilih normal dan menerima kode bukti sekali pakai.
+    const fresh = await voteRequest(await sessionCookie("voter-2"), { candidate_id: 1, confirmation_text: "Budi" });
+    expect(fresh.status).toBe(201);
+    expect(((await fresh.json()) as { receipt_code: string }).receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await rowCounts()).toEqual({ participation: 2, ballots: 2 });
+    // Anggota yang tidak ada di roll baru tetap dihitung suaranya.
+    await env.DB.prepare("DELETE FROM voters WHERE member_id='voter-1'").run();
+    const dashboard = await getDashboard(env.DB, new Date());
+    expect(dashboard).toMatchObject({ participation_count: 2, ballot_count: 2 });
+    expect(dashboard.candidates.find(candidate => candidate.id === 1)).toMatchObject({ votes: 2 });
+    // Bukti suara pembukaan sebelumnya tetap terverifikasi setelah pemilihan ditutup lagi.
+    await env.DB.prepare("UPDATE elections SET closes_at=?").bind(new Date(Date.now() - 1_000).toISOString()).run();
+    const receiptHash = await hashReceipt(normalizeReceiptCode(receipt));
+    expect(await checkReceipt(env.DB, receiptHash)).toEqual({ found: true });
+    const board = await getPublicBoard(env.DB, new Date());
+    expect(board!.receipt_hashes).toContain(receiptHash);
+    expect(board!.ballot_count).toBe(2);
   });
 });

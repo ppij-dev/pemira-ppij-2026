@@ -191,15 +191,15 @@ describe("Single candidate mode switch route", () => {
 
   it("reads and toggles the switch in Draf with an audit entry each time", async () => {
     await seedDraftElection(0);
-    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: false, editable: true });
+    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: false, editable: true, kept_ballots: 0, reason: null });
     const on = await toggle(true);
     expect(on.status).toBe(200);
     expect(await on.json()).toEqual({ enabled: true });
-    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: true, editable: true });
+    expect(await (await request("/api/election/single-candidate-mode", "admin-1")).json()).toEqual({ enabled: true, editable: true, kept_ballots: 0, reason: null });
     expect((await toggle(false)).status).toBe(200);
     expect(await auditActions()).toEqual(["Mode kandidat tunggal diaktifkan", "Mode kandidat tunggal dinonaktifkan"]);
-    // Pelaku tercatat dari sesi Admin Voting.
-    expect(await env.DB.prepare("SELECT actor_type,actor_member_id FROM audit_log ORDER BY seq LIMIT 1").first()).toEqual({ actor_type: "admin", actor_member_id: "admin-1" });
+    // Pelaku tercatat dari sesi Admin Voting dengan nama tampilan roll, bukan klaim sesi mentah.
+    expect(await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name FROM audit_log ORDER BY seq LIMIT 1").first()).toEqual({ actor_type: "admin", actor_member_id: "admin-1", actor_name: "Admin 1" });
   });
 
   it("refuses the switch with two candidates, a non-boolean value and a non-admin session", async () => {

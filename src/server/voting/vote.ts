@@ -152,8 +152,11 @@ export async function authorizeVoter(
   }
 
   if (!election.frozen_at) throw new VoteError("Daftar pemilih belum dibekukan.", 409, "not_locked");
-  if (stage(election, new Date().toISOString()) !== "open") {
-    throw new VoteError("Pemilihan sudah ditutup atau belum dibuka.", 409, "not_open");
+  const currentStage = stage(election, new Date().toISOString());
+  if (currentStage !== "open") {
+    // Kata yang sama dengan Pilih Suara (keputusan owner Q191): Terjadwal belum dimulai,
+    // selain itu batas waktu sudah lewat atau pemilihan ditutup lebih awal.
+    throw new VoteError(currentStage === "scheduled" ? "Pemungutan suara belum dimulai." : "Batas waktu pemungutan suara telah lewat.", 409, "not_open");
   }
 
   // Admin Voting hanya boleh memilih bila pengaturan mengizinkan
@@ -192,7 +195,7 @@ export async function authorizeVoter(
 export interface VoteRequest {
   candidate_id: number;
   confirmation_text: string;
-  /** Jawaban Setuju/Tidak Setuju; hanya mode kandidat tunggal. */
+  /** Jawaban Setuju/Tidak Setuju/Abstain; hanya mode kandidat tunggal. */
   choice?: string | null;
 }
 
@@ -225,7 +228,8 @@ export async function castVote(
   if (typeof req.confirmation_text !== "string") throw new VoteError("confirmation_text tidak valid.", 400, "invalid_body");
 
   // Mode kandidat tunggal: surat suara menyimpan kandidat tunggal plus jawaban
-  // setuju/tidak_setuju (tanpa Abstain). Di luar mode itu pilihan harus kosong, supaya
+  // setuju/tidak_setuju/abstain. Di luar mode itu pilihan harus kosong (tidak ada
+  // Abstain di multi-kandidat), supaya
   // perilaku pemilihan multi-kandidat tidak berubah.
   const requestedChoice: unknown = req.choice ?? null;
   const single = (await db.prepare(ELECTION_SQL).first<ElectionRow>())?.single_candidate_mode === 1;
@@ -318,7 +322,7 @@ export async function castVote(
 
     const latest = await db.prepare(ELECTION_SQL).first<ElectionRow>();
     if (!latest || !latest.frozen_at || stage(latest, new Date().toISOString()) !== "open") {
-      throw new VoteError("Pemilihan sudah ditutup.", 409, "not_open");
+      throw new VoteError("Batas waktu pemungutan suara telah lewat.", 409, "not_open");
     }
     if (attempt === 2) throw new VoteError("Pemilihan sedang menerima suara lain. Coba lagi.", 409, "audit_tip_changed");
   }

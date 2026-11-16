@@ -119,3 +119,54 @@ describe("candidate Draf CRUD",()=>{
  });
  it("rejects create, update, and delete after lock",async()=>{const made=await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));await env.DB.prepare("UPDATE elections SET status_lock='locked'").run();await expect(createCandidate(env.DB,now,candidate(CARD_2,2,"Two"))).rejects.toThrow();await expect(updateCandidate(env.DB,now,Number(made!.id),candidate(CARD_1,1,"Changed"))).rejects.toThrow();await expect(deleteCandidate(env.DB,now,Number(made!.id))).rejects.toThrow();});
 });
+
+// Kandidat yang dirujuk suara tersimpan (is_test=0) tidak boleh dihapus atau
+// diganti anggotanya: surat suara itu milik orang tersebut. Suntingan lain tetap
+// terbuka, dan data Uji Coba tidak melindungi apa pun.
+describe("kandidat yang dirujuk suara tersimpan",()=>{
+ const ballot=async(candidateId:number,isTest=0,id=`ballot-${candidateId}-${isTest}`)=>{
+  await env.DB.prepare("INSERT INTO ballots(id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES(?,1,?,'/u',?,?)").bind(id,candidateId,`hash-${id}`,isTest).run();
+ };
+ it("menolak menghapus kandidat yang dirujuk suara tersimpan dan menyebut jumlahnya",async()=>{
+  await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));
+  await ballot(1);
+  await expect(deleteCandidate(env.DB,now,1)).rejects.toMatchObject({status:409,message:"Kandidat tidak dapat dihapus: 1 suara tersimpan menunjuk kandidat ini."});
+  await ballot(1,0,"ballot-kedua");
+  await expect(deleteCandidate(env.DB,now,1)).rejects.toMatchObject({status:409,message:"Kandidat tidak dapat dihapus: 2 suara tersimpan menunjuk kandidat ini."});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:1});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='Kandidat dihapus'").first()).toEqual({n:0});
+ });
+ it("menolak mengganti anggota kandidat yang dirujuk suara tersimpan",async()=>{
+  await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));
+  await ballot(1);
+  await expect(updateCandidate(env.DB,now,1,candidate(CARD_2,1,"One"))).rejects.toMatchObject({status:409,message:"Kandidat tidak dapat diganti: 1 suara tersimpan menunjuk kandidat ini."});
+  expect(await env.DB.prepare("SELECT member_id FROM candidates WHERE id=1").first()).toEqual({member_id:"v1"});
+ });
+ it("tetap membolehkan suntingan lain dan penyebutan anggota yang sama",async()=>{
+  await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));
+  await ballot(1);
+  expect(await updateCandidate(env.DB,now,1,{...candidate(CARD_1,1,"One Baru"),name:"Nama Baru",description:"Artikel baru",short_intro:"Intro baru"})).toMatchObject({member_id:"v1",name:"Nama Baru",nickname:"One Baru",description:"Artikel baru",short_intro:"Intro baru"});
+  // Nomor urut tetap mengikuti aturan mode yang berjalan (mode mati: dari form).
+  expect(await updateCandidate(env.DB,now,1,{...candidate(CARD_1,2,"One Baru")})).toMatchObject({number:2});
+  await env.DB.prepare("UPDATE elections SET single_candidate_mode=1").run();
+  expect(await updateCandidate(env.DB,now,1,{member_id:CARD_1,name:"Nama Baru",nickname:"One Baru",description:"Artikel baru"})).toMatchObject({number:2});
+ });
+ it("tidak mengubah perilaku kandidat tanpa suara tersimpan dan tidak melindungi data Uji Coba",async()=>{
+  await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));
+  await createCandidate(env.DB,now,candidate(CARD_2,2,"Two"));
+  await ballot(1,1);
+  // Suara uji coba tidak pernah mengunci kandidat: hapus dan ganti tetap seperti hari ini.
+  expect(await updateCandidate(env.DB,now,1,candidate(CARD_4,1,"One"))).toMatchObject({member_id:CARDED_UUID});
+  await deleteCandidate(env.DB,now,2);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:1});
+  // Kandidat yang hanya dirujuk suara Uji Coba ditolak dengan pesan yang menyebut data uji,
+  // bukan galat constraint, dan kandidatnya tetap terdaftar.
+  await expect(deleteCandidate(env.DB,now,1)).rejects.toMatchObject({status:409,message:"Kandidat tidak dapat dihapus: 1 suara Uji Coba menunjuk kandidat ini. Kunci & Jadwalkan berikutnya menghapus data Uji Coba."});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:1});
+  // Setelah data uji dibersihkan (seperti Kunci berikutnya), penghapusan berjalan seperti biasa.
+  await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
+  await deleteCandidate(env.DB,now,1);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:0});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='Kandidat dihapus'").first()).toEqual({n:2});
+ });
+});

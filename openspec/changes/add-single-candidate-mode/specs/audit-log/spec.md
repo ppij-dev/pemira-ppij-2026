@@ -25,3 +25,13 @@ Turning single candidate mode on or off SHALL be recorded as an Admin Voting act
 
 - **WHEN** a Pemilih votes "Setuju" in single candidate mode
 - **THEN** the audit entry records that the member voted without any choice
+
+### Requirement: Hitung Abstain audit
+
+Running Hitung Abstain SHALL be recorded as one Admin Voting action whose detail names the count of members added to Abstain, an aggregate with no member, ballot or choice reference. A refused attempt SHALL write no entry.
+
+#### Scenario: Count recorded
+
+- **WHEN** an Admin Voting runs Hitung Abstain with 15 members who did not vote
+- **THEN** one audit entry records the action, actor, time and the count 15, with no member or ballot reference
+
