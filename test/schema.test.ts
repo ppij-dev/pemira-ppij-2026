@@ -7,6 +7,7 @@ import closingSnapshotMigrationSql from "../migrations/0005_closing_snapshot.sql
 import singleCandidateModeMigrationSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceMigrationSql from "../migrations/0012_ballot_choice.sql?raw";
 import ballotAbstainMigrationSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
+import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -38,6 +39,7 @@ beforeEach(async () => {
     singleCandidateModeMigrationSql,
     ballotChoiceMigrationSql,
     ballotAbstainMigrationSql,
+    abstainCountedSql,
   ].join(";")
     .split(";")
     .map((statement) => statement.trim())

@@ -4,7 +4,9 @@
 
 Lets Admin Voting run a one-candidate election: a Draf-only switch in Pengaturan, a
 readiness rule of exactly one candidate while the switch is on, and the frozen mode value
-recorded by the Kunci & Jadwalkan audit entry.
+recorded by the Kunci & Jadwalkan audit entry. After voting closes in single candidate mode, Admin Voting runs
+"Hitung Abstain" once by hand to add the members who did not vote to Abstain, and Umumkan waits for it
+(owner decision Q193).
 
 ## ADDED Requirements
 
@@ -69,3 +71,51 @@ On successful Kunci & Jadwalkan, the single candidate mode value SHALL be frozen
 
 - **WHEN** Kunci & Jadwalkan succeeds while single candidate mode is off
 - **THEN** the lock audit entry's detail records the frozen off value
+
+### Requirement: Hitung Abstain by hand after close
+
+In single candidate mode, once voting has closed, Admin Voting SHALL be offered a "Hitung Abstain" action among the closed-stage actions in Pengaturan, with a dialog stating how many members will be added to Abstain. It SHALL run once, cannot be undone, and store that aggregate count and the time it ran (migration `0014_abstain_counted.sql`).
+
+#### Scenario: Run after close
+
+- **WHEN** voting has closed in single candidate mode with Hak pilih 100 and 85 members having voted and an Admin Voting confirms Hitung Abstain
+- **THEN** the count 15 and the time are stored, an audit entry names the count, and results show 15 more Abstain
+
+#### Scenario: Confirmation states the number
+
+- **WHEN** an Admin Voting opens the Hitung Abstain dialog
+- **THEN** the dialog states how many members will be added to Abstain and that the action runs once and cannot be undone
+
+#### Scenario: Refused before close or outside the mode
+
+- **WHEN** Hitung Abstain is requested while voting is still open or scheduled, or in a multi-candidate election
+- **THEN** it is refused with a message naming the reason and nothing is stored or audited
+
+#### Scenario: Runs only once
+
+- **WHEN** Hitung Abstain is requested again after it has run, including two requests at the same time
+- **THEN** only the first succeeds, the stored count and time are unchanged and exactly one audit entry exists
+
+### Requirement: Umumkan waits for Hitung Abstain
+
+In single candidate mode Umumkan SHALL be refused until Hitung Abstain has run, with a message telling Admin Voting to run it first. Umumkan SHALL be unchanged for multi-candidate elections.
+
+#### Scenario: Publish before Hitung Abstain
+
+- **WHEN** an Admin Voting presses Umumkan in single candidate mode before Hitung Abstain has run
+- **THEN** it is refused with HTTP 409, the election stays closed and no audit entry is written
+
+#### Scenario: Publish after Hitung Abstain
+
+- **WHEN** Hitung Abstain has run and an Admin Voting presses Umumkan
+- **THEN** the results are published as usual
+
+### Requirement: Kembali ke Draf resets the stored count
+
+When Kembali ke Draf discards the closing data of a stage, it SHALL also clear the stored Hitung Abstain count and time, so the next Kunci & Jadwalkan starts without one.
+
+#### Scenario: Reset on return to Draf
+
+- **WHEN** a Mode Pratinjau election in single candidate mode is returned to Draf after Hitung Abstain ran
+- **THEN** the stored count and time are cleared
+

@@ -6,6 +6,7 @@ Once results are published in single candidate mode, the public pages show the s
 counts and their shares of Hak pilih with no nomor urut and no outcome line, with the
 korda suppression and the publish-before-visible rule unchanged. The system does not state
 whether the candidate is elected (owner decision 2026-11-16, superseding W7 Q37/Q38).
+Results cannot be published before Admin Voting has run Hitung Abstain (owner decision Q193), so public pages show non-voters counted as Abstain.
 
 ## ADDED Requirements
 
@@ -34,7 +35,7 @@ Once Diumumkan in single candidate mode, the landing page and Hasil tab SHALL pr
 
 ### Requirement: Published Abstain includes non-voters
 
-On the public pages, non-voters SHALL count as Abstain, derived from the frozen Hak pilih minus participation, and the Abstain total SHALL be shown with its parts: the Abstain answers cast and "tidak memilih (dihitung Abstain)".
+On the public pages, non-voters SHALL count as Abstain using the count stored when Admin Voting ran Hitung Abstain (frozen Hak pilih minus participation at that time), and the Abstain total SHALL be shown with its parts: the Abstain answers cast and "tidak memilih (dihitung Abstain)". A payload without a stored count SHALL show Abstain as the answers cast plus "N tidak memilih (belum dihitung)" rather than adding non-voters.
 
 #### Scenario: Published with no ballots
 

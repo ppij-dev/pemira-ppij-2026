@@ -136,6 +136,26 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
         <Button id="publish" type="button" variant="secondary" size="sm" class="mt-1 w-fit text-brand-red hover:bg-brand-red/5"><IconSpeakerphone size={16} stroke={1.8} aria-hidden="true" /> Umumkan Hasil</Button>
       </div>
     </PanelCard>
+    <div id="abstain-card" class="mt-4" hidden><PanelCard padding="none">
+      <div class="grid content-start gap-3 p-[22px] max-[700px]:p-[17px]">
+        <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Hitung Abstain</h3>
+        <p class="m-0 text-xs leading-5 text-brand-muted">Mode kandidat tunggal: Pemilih yang tidak memilih baru dihitung Abstain setelah Anda menjalankan tindakan ini. Hanya dapat dijalankan sekali setelah pemungutan suara ditutup dan tidak dapat dibatalkan. Umumkan hasil baru tersedia sesudahnya.</p>
+        <p id="abstain-state" class="m-0 text-[13px] text-brand-muted" role="status" aria-live="polite"></p>
+        <Button id="open-abstain" type="button" variant="secondary" size="sm" class="mt-1 w-fit" disabled>Hitung Abstain</Button>
+      </div>
+    </PanelCard></div>
+  </section>
+  <div id="abstain-backdrop" hidden class="fixed inset-0 z-30 bg-foreground/40"></div>
+  <section id="abstain-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="abstain-title" class="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+    <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
+    <h2 id="abstain-title" class="text-xl font-bold tracking-tight text-brand-ink">Hitung Abstain</h2>
+    <p class="mt-2 text-sm leading-6 text-brand-muted"><strong id="abstain-number" class="text-brand-ink tabular-nums">0</strong> Pemilih yang tidak memilih akan ditambahkan ke Abstain. Angkanya Hak pilih dikurangi yang sudah memilih, hanya jumlah dan tidak pernah per orang. Tindakan ini hanya dapat dijalankan sekali dan tidak dapat dibatalkan.</p>
+    <Callout id="abstain-error" tone="danger" class="mt-3" hidden></Callout>
+    <p id="abstain-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
+    <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
+      <Button id="abstain-confirm" type="button" variant="danger" class="flex-1">Hitung Abstain</Button>
+      <Button id="abstain-cancel" type="button" variant="secondary">Batal</Button>
+    </div>
   </section>
   <div id="return-backdrop" hidden class="fixed inset-0 z-30 bg-foreground/40"></div>
   <section id="return-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="return-title" class="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
@@ -190,6 +210,20 @@ if(returnDialog)returnDialog.addEventListener('keydown',e=>{if(e.key==='Escape'&
 if(returnConfirm)returnConfirm.addEventListener('click',async()=>{if(returnBusy||!returnPhrase||normalizePhrase(returnPhrase.value)!==RETURN_PHRASE)return;returnBusy=true;syncReturn();returnPhrase.disabled=true;returnClear();if(returnStatus)returnStatus.textContent='Mengembalikan ke Draf...';try{const r=await fetch('/api/election/return-to-draft',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:returnPhrase.value})}),d=await r.json().catch(()=>({}));if(r.ok){location.assign('/admin/pemilihan?kembali=1');return}if(returnError){returnError.textContent=d.error||'Pemilihan belum dapat dikembalikan ke Draf.';returnError.removeAttribute('hidden')}if(returnStatus)returnStatus.textContent=''}catch{if(returnError){returnError.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.';returnError.removeAttribute('hidden')}if(returnStatus)returnStatus.textContent=''}finally{returnBusy=false;if(returnPhrase)returnPhrase.disabled=false;syncReturn()}});
 // Tanda muat ulang dari dialog hanya dipakai sekali; muat ulang manual tidak mengulang pesan.
 if(new URLSearchParams(location.search).has('kembali'))history.replaceState(null,'',location.pathname);
+// Hitung Abstain (Q193): kartu hanya tampil pada mode kandidat tunggal; angka di dialog
+// berasal dari server (Hak pilih beku dikurangi partisipasi) dan tindakannya sekali jalan.
+const abstainCard=document.querySelector('#abstain-card'),abstainDialog=document.querySelector('#abstain-dialog'),abstainBackdrop=document.querySelector('#abstain-backdrop'),openAbstain=document.querySelector('#open-abstain'),abstainState=document.querySelector('#abstain-state'),abstainNumber=document.querySelector('#abstain-number'),abstainConfirm=document.querySelector('#abstain-confirm'),abstainCancel=document.querySelector('#abstain-cancel'),abstainError=document.querySelector('#abstain-error'),abstainStatus=document.querySelector('#abstain-status');
+let abstainBusy=false;
+const abstainNum=(n)=>new Intl.NumberFormat('id-ID').format(n);
+const abstainClear=()=>{if(abstainError){abstainError.textContent='';abstainError.setAttribute('hidden','')}if(abstainStatus)abstainStatus.textContent=''};
+const closeAbstainDialog=()=>{if(!abstainDialog||abstainDialog.hidden)return;abstainDialog.hidden=true;abstainBackdrop.hidden=true;document.body.style.overflow='';if(openAbstain)openAbstain.focus()};
+async function loadAbstain(){if(!abstainCard)return;try{const r=await fetch('/api/election/abstain-count',{credentials:'same-origin'});if(!r.ok)return;const d=await r.json();abstainCard.hidden=!d.single_candidate_mode;if(!d.single_candidate_mode)return;if(abstainNumber)abstainNumber.textContent=abstainNum(d.pending_count);if(openAbstain)openAbstain.disabled=!d.can_run;if(abstainState)abstainState.textContent=d.counted?'Sudah dijalankan: '+abstainNum(d.counted_count)+' Pemilih yang tidak memilih dihitung Abstain.':(d.reason||abstainNum(d.pending_count)+' Pemilih belum memilih dan akan ditambahkan ke Abstain.')}catch{}}
+if(openAbstain)openAbstain.addEventListener('click',()=>{if(!abstainDialog)return;abstainClear();abstainBusy=false;if(abstainConfirm)abstainConfirm.disabled=false;abstainDialog.hidden=false;abstainBackdrop.hidden=false;document.body.style.overflow='hidden';if(abstainConfirm)abstainConfirm.focus()});
+if(abstainCancel)abstainCancel.addEventListener('click',closeAbstainDialog);
+if(abstainBackdrop)abstainBackdrop.addEventListener('click',closeAbstainDialog);
+if(abstainDialog)abstainDialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!abstainBusy){e.preventDefault();closeAbstainDialog()}});
+if(abstainConfirm)abstainConfirm.addEventListener('click',async()=>{if(abstainBusy)return;abstainBusy=true;abstainConfirm.disabled=true;abstainClear();if(abstainStatus)abstainStatus.textContent='Menghitung Abstain...';try{const r=await fetch('/api/election/abstain-count',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}'}),d=await r.json().catch(()=>({}));if(r.ok){closeAbstainDialog();say('Hitung Abstain dijalankan: '+abstainNum(d.counted_count)+' Pemilih yang tidak memilih dihitung Abstain.');await loadAbstain();return}if(abstainError){abstainError.textContent=d.error||'Hitung Abstain belum dapat dijalankan.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false;await loadAbstain()}catch{if(abstainError){abstainError.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false}});
+loadAbstain();
 loadSingleCandidateMode();
 on('#schedule','submit',e=>{e.preventDefault();const form=e.currentTarget;const v=values(form);v.preview_mode=document.querySelector('#preview-mode').checked;action('schedule',v)});
 on('#lock','click',()=>action('lock',{},'Kunci pemilihan dan jadwalkan sekarang?'));

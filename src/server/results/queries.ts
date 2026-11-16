@@ -44,7 +44,7 @@ export interface KordaResult {
   tidak_setuju_count: number | null;
   /** Jawaban Abstain yang diberikan Pemilih korda ini. */
   abstain_cast_count: number | null;
-  /** Hak pilih korda minus partisipasi korda, dihitung sebagai Abstain. */
+  /** Hak pilih korda minus partisipasi korda; null sampai Hitung Abstain dijalankan. */
   tidak_memilih_count: number | null;
   /** Total Abstain: jawaban Abstain diberikan ditambah tidak memilih. */
   abstain_count: number | null;
@@ -77,9 +77,18 @@ export interface ResultsPayload {
   tidak_setuju_count: number | null;
   /** Jawaban Abstain yang diberikan Pemilih. */
   abstain_cast_count: number | null;
-  /** Hak pilih dikurangi partisipasi (minimal 0); dihitung sebagai Abstain. */
+  /**
+   * Hak pilih dikurangi partisipasi (minimal 0). Sebelum Hitung Abstain dijalankan
+   * ini hanya angka "belum dihitung"; sesudahnya ini angka tersimpan yang dihitung Abstain.
+   */
   tidak_memilih_count: number | null;
-  /** Total Abstain: jawaban Abstain diberikan ditambah tidak memilih. */
+  /** True setelah Admin Voting menjalankan Hitung Abstain (keputusan owner Q193); null saat mode mati. */
+  abstain_counted: boolean | null;
+  abstain_counted_at: string | null;
+  /**
+   * Total Abstain: jawaban Abstain diberikan; ditambah tidak memilih hanya
+   * setelah Hitung Abstain dijalankan.
+   */
   abstain_count: number | null;
   setuju_percentage: number | null;
   tidak_setuju_percentage: number | null;
@@ -102,6 +111,8 @@ interface ElectionRow {
   allow_admin_voting: number;
   frozen_hak_pilih: number | null;
   single_candidate_mode: number;
+  abstain_counted_at: string | null;
+  abstain_counted_count: number | null;
 }
 
 /** Canonical region prefix "/ppij/<korda>"; malformed paths fall back to a named bucket. */
@@ -114,7 +125,7 @@ export function regionKey(komsatPath: string): string {
 
 async function getElection(db: D1Database): Promise<ElectionRow> {
   const row = await db
-    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode FROM elections ORDER BY id LIMIT 1")
+    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode, abstain_counted_at, abstain_counted_count FROM elections ORDER BY id LIMIT 1")
     .first<ElectionRow>();
   if (!row) throw new ResultsError("pemilihan_belum_dibuat", 503);
   return row;
@@ -240,8 +251,13 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   // Tidak memilih = Hak pilih beku dikurangi partisipasi, tidak pernah per orang,
   // dan dihitung sebagai Abstain (keputusan owner 2026-11-16). Sistem tidak
   // menyatakan hasil apa pun: hanya angka dan bagiannya dari Hak pilih.
-  const tidakMemilih = Math.max(0, eligibleCount - participationCount);
-  const abstainTotal = abstainCast + tidakMemilih;
+  // Tidak memilih baru masuk Abstain setelah Admin Voting menjalankan Hitung Abstain
+  // (keputusan owner 2026-11-16, Q193); angka yang dihitung adalah angka tersimpan.
+  const abstainCounted = election.abstain_counted_at !== null;
+  const tidakMemilih = abstainCounted
+    ? election.abstain_counted_count ?? 0
+    : Math.max(0, eligibleCount - participationCount);
+  const abstainTotal = abstainCast + (abstainCounted ? tidakMemilih : 0);
   const votesByRegionCandidate = new Map<string, Map<number, number>>();
   for (const row of votesByRegionRows) {
     const key = regionKey(row.path);
@@ -261,8 +277,9 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     const kordaSetuju = single && !suppressed ? perChoice?.get("setuju") ?? 0 : null;
     const kordaTidak = single && !suppressed ? perChoice?.get("tidak_setuju") ?? 0 : null;
     const kordaAbstainCast = single && !suppressed ? perChoice?.get("abstain") ?? 0 : null;
-    const kordaTidakMemilih = single && !suppressed ? Math.max(0, eligible - used) : null;
-    const kordaAbstain = kordaAbstainCast === null || kordaTidakMemilih === null ? null : kordaAbstainCast + kordaTidakMemilih;
+    // Rincian tidak memilih per korda hanya muncul setelah Hitung Abstain dijalankan.
+    const kordaTidakMemilih = single && !suppressed && abstainCounted ? Math.max(0, eligible - used) : null;
+    const kordaAbstain = kordaAbstainCast === null ? null : kordaAbstainCast + (kordaTidakMemilih ?? 0);
     return {
       key,
       name: names.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : formatUnitPath(key)),
@@ -305,6 +322,8 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     tidak_setuju_count: single ? tidakSetuju : null,
     abstain_cast_count: single ? abstainCast : null,
     tidak_memilih_count: single ? tidakMemilih : null,
+    abstain_counted: single ? abstainCounted : null,
+    abstain_counted_at: single ? election.abstain_counted_at : null,
     abstain_count: single ? abstainTotal : null,
     // Semua bagian dihitung dari Hak pilih yang sama, jadi jumlahnya 100.
     setuju_percentage: single ? percentage(setuju, eligibleCount) : null,

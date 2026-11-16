@@ -3,6 +3,7 @@ import ballot from "../src/pages/pilih-suara.astro?raw";
 import dasbor from "../src/pages/admin/dasbor.astro?raw";
 import hasil from "../src/pages/hasil.astro?raw";
 import landing from "../src/pages/index.astro?raw";
+import pengaturan from "../src/pages/admin/pemilihan.astro?raw";
 import { VOTE_CHOICES, VOTE_CHOICE_LABELS } from "../src/server/voting/choice";
 
 // Halaman memakai aturan yang sama dengan server: tiga jawaban, Abstain jawaban nyata,
@@ -38,5 +39,25 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
     expect(ballot).toContain("not_open:'Batas waktu pemungutan suara telah lewat.'");
     expect(ballot).not.toContain("Pemungutan suara sudah ditutup");
     expect(ballot).not.toContain("Saat ini pemungutan suara tidak dibuka");
+  });
+  it("Dasbor, Hasil dan beranda menyebut '(belum dihitung)' sebelum Hitung Abstain dan memakai abstain_counted", () => {
+    for (const page of [dasbor, hasil]) {
+      expect(page).toContain("tidak memilih (belum dihitung)");
+      expect(page).toContain("abstain_counted");
+    }
+    expect(landing).toContain("(belum dihitung)");
+    expect(landing).toContain("abstain_counted");
+    // Rincian tidak memilih per korda hanya muncul setelah Hitung Abstain.
+    expect(dasbor).toContain("i===2&&d.abstain_counted");
+    expect(hasil).toContain("data.abstain_counted?'<span");
+  });
+
+  it("Pengaturan menaruh Hitung Abstain di Tindakan tahap dengan dialog yang menyebut angkanya", () => {
+    expect(pengaturan).toContain("'/api/election/abstain-count'");
+    expect(pengaturan).toContain('id="abstain-dialog"');
+    expect(pengaturan).toContain('id="abstain-number"');
+    expect(pengaturan).toContain("hanya dapat dijalankan sekali dan tidak dapat dibatalkan");
+    expect(pengaturan).toContain("abstainCard.hidden=!d.single_candidate_mode");
+    expect(pengaturan).toContain("openAbstain.disabled=!d.can_run");
   });
 });

@@ -47,9 +47,14 @@ conclusion. Ballot secrecy, receipts, eligibility and participation rules are un
   migration `0013_ballot_choice_abstain.sql` rebuilds the column CHECK to `setuju`,
   `tidak_setuju`, `abstain`, NULL for normal multi-candidate ballots). Design explains why
   this preserves secrecy and backward compatibility.
-- **Non-voters count as Abstain; the system decides nothing.** A member of the frozen
-  Hak pilih who has not voted by the deadline counts as Abstain, derived from the frozen
-  Hak pilih minus participation, never per person. The system shows no terpilih /
+- **Non-voters count as Abstain, only after Hitung Abstain; the system decides nothing.**
+  A member of the frozen Hak pilih who has not voted by the deadline counts as Abstain,
+  but only once Admin Voting runs "Hitung Abstain" by hand after voting closes (owner
+  decision Q193: not automatic). The count is the frozen Hak pilih minus participation,
+  stored once with the time (migration `0014_abstain_counted.sql`), never per person.
+  Umumkan is refused in single candidate mode until it has run, and Kembali ke Draf
+  clears it. Before it runs, results show Abstain as the answers cast plus a line
+  "N tidak memilih (belum dihitung)". The system shows no terpilih /
   tidak terpilih / seri outcome and no "Menunggu penutupan pemungutan suara" wording in
   any stage; it presents only the counts and their shares of Hak pilih. Re-election is out
   of scope. (Owner decision 2026-11-16; supersedes the winning rule, W7 Q37/Q38.)

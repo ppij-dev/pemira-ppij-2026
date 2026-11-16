@@ -7,6 +7,7 @@ import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
+import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -41,7 +42,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql]) {
+  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -409,6 +410,13 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     ).bind(memberId, memberId, path, new Date().toISOString()).run();
   }
 
+  /** Admin Voting menjalankan Hitung Abstain: simpan Hak pilih beku dikurangi partisipasi nyata. */
+  async function countNow() {
+    await env.DB.prepare(
+      "UPDATE elections SET abstain_counted_at = ?, abstain_counted_count = MAX(0, frozen_hak_pilih - (SELECT COUNT(*) FROM participation WHERE election_id = 1 AND is_test = 0))",
+    ).bind(new Date().toISOString()).run();
+  }
+
   async function dashboardData(): Promise<DashboardPayload> {
     const res = await requestDashboard();
     expect(res.status).toBe(200);
@@ -421,6 +429,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
     await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    await countNow();
     const data = await dashboardData();
     expect(data).toMatchObject({
       stage: "closed",
@@ -450,6 +459,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await seedSingleElection({ closed: true });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 40);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 35);
+    await countNow();
     const data = await dashboardData();
     expect(data).toMatchObject({
       tidak_setuju_count: 35,
@@ -491,6 +501,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
 
   it("counts every eligible member as Abstain (tidak memilih) when no ballots were cast", async () => {
     await seedSingleElection({ status: "published", closed: true });
+    await countNow();
     const res = await requestPublicResults();
     expect(res.status).toBe(200);
     const data = (await res.json()) as ResultsPayload;
@@ -518,6 +529,10 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await castChoice("abstain", `${SCOPE}/komsat-a`, 2);
     // Korda Tokyo: 4 surat suara, di bawah ambang penyembunyian.
     await castChoice("setuju", "/ppij/tokyo/komsat-a", 4);
+    // Sebelum Hitung Abstain: korda hanya menunjukkan Abstain diberikan, tanpa rincian tidak memilih.
+    const before = (await dashboardData()).korda.find((row) => row.key === SCOPE);
+    expect(before).toMatchObject({ abstain_cast_count: 2, tidak_memilih_count: null, abstain_count: 2, abstain_percentage: 10 });
+    await countNow();
     const data = await dashboardData();
     const okayama = data.korda.find((row) => row.key === SCOPE);
     expect(okayama).toMatchObject({
@@ -554,11 +569,46 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
       tidak_setuju_count: 1,
       abstain_cast_count: 1,
       tidak_memilih_count: 100,
-      abstain_count: 101,
+      abstain_counted: false,
+      abstain_count: 1,
       ballot_count: 3,
       test: { participation_count: 0, ballot_count: 3 },
     });
     expect(data).not.toHaveProperty("outcome");
+  });
+
+  it("before Hitung Abstain shows Abstain = cast only plus the not-yet-counted non-voters", async () => {
+    await seedSingleElection({ closed: true });
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    const data = await dashboardData();
+    expect(data).toMatchObject({
+      abstain_counted: false,
+      abstain_counted_at: null,
+      abstain_cast_count: 5,
+      tidak_memilih_count: 15,
+      abstain_count: 5,
+      abstain_percentage: 5,
+    });
+  });
+
+  it("after Hitung Abstain the Abstain total is cast plus the stored count, and the stored count stays fixed", async () => {
+    await seedSingleElection({ closed: true });
+    await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
+    await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
+    await countNow();
+    // Anggota baru yang disinkronkan sesudahnya tidak mengubah angka tersimpan.
+    await seedEligible("late-member", `${SCOPE}/komsat-z`);
+    const data = await dashboardData();
+    expect(data).toMatchObject({
+      abstain_counted: true,
+      abstain_cast_count: 5,
+      tidak_memilih_count: 45,
+      abstain_count: 50,
+      abstain_percentage: 50,
+    });
+    expect(data.abstain_counted_at).not.toBeNull();
   });
 
   it("keeps today's payload shape with the mode off", async () => {

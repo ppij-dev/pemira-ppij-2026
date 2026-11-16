@@ -164,6 +164,24 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 9.3 Focused (superseded by 9.4 for the outcome strings) check: build passes and the outcome line strings match design.md D7
       exactly (including "Menunggu penutupan pemungutan suara" before close).
 
+## 9b. Hitung Abstain (owner decision 2026-11-16, Q193)
+
+- [x] 9.5 `migrations/0014_abstain_counted.sql`: `elections.abstain_counted_at` and
+      `abstain_counted_count`; add it to every test schema list.
+- [x] 9.6 `countAbstain` and `getAbstainCount` in `src/server/election/lifecycle.ts`,
+      routes `GET`/`POST /api/election/abstain-count`: once only, single candidate mode
+      only, Ditutup only, one gated D1 batch with the audit entry naming the count.
+      Tests: refusal before close and outside the mode, run once (also concurrent), audit
+      entry, route with an Admin Voting session.
+- [x] 9.7 `publishResults` refuses in single candidate mode until Hitung Abstain ran;
+      `returnToDraft` clears the stored count. Tests for both.
+- [x] 9.8 `src/server/results/queries.ts`: `abstain_counted`, `abstain_counted_at`; Abstain
+      is cast only until the run, then cast plus the stored count; per-korda
+      `tidak_memilih_count` null until the run. Tests for before and after.
+- [x] 9.9 UI: Hitung Abstain card and dialog (number stated) in Pengaturan "Tindakan
+      tahap"; Dasbor, Hasil and the landing card show "N tidak memilih (belum dihitung)"
+      before and the split after; page-source tests.
+
 ## 10. Verification
 
 - [x] 10.1 Worker tier: build + the focused tests of every group above green.

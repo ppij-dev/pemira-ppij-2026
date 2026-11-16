@@ -105,6 +105,12 @@ tidak terpilih / seri computation, no "Menunggu penutupan pemungutan suara" word
 committee reads the counts and shares and draws its own conclusion. Re-election is not
 modeled anywhere.
 
+**Only after Hitung Abstain (owner decision Q193, see D9).** The `abstain_count` and
+`tidak_memilih_count` rules above describe the state after Admin Voting has run Hitung
+Abstain. Before it runs, `abstain_count` is `abstain_cast_count` only and
+`tidak_memilih_count` is the live `eligible_count - participation_count` shown as
+"N tidak memilih (belum dihitung)".
+
 Owner decisions (2026-11-13) that still hold: Uji Coba may pick any answer; percentages
 are shares of Hak pilih per scope (overall and per korda).
 
@@ -184,6 +190,35 @@ answer: "Pilihan Anda: Setuju terhadap <nickname>", "Pilihan Anda: Tidak Setuju 
 <nickname>" or "Pilihan Anda: Abstain terhadap <nickname>" (the Abstain wording is back
 by the owner decision of 2026-11-16).
 
+### D9: Hitung Abstain, a manual once-only action (owner decision Q193)
+
+Non-voters are not added to Abstain automatically. After voting closes (deadline passed
+or closed early) in single candidate mode, Admin Voting presses "Hitung Abstain" in the
+closed-stage actions on Pengaturan ("Tindakan tahap"). Dasbor stays read-only and links
+there while the action is pending. The dialog states the number that will be added.
+
+- **Storage:** `elections.abstain_counted_at` (TEXT, NULL until run) and
+  `elections.abstain_counted_count` (INTEGER >= 0), migration `0014_abstain_counted.sql`,
+  mirroring the `closing_snapshot_*` columns. The count is the frozen Hak pilih minus
+  non-test participation at the time of the run: an aggregate, never per person.
+- **Once only, atomic:** one D1 batch with an UPDATE gated on `abstain_counted_at IS NULL`,
+  `status_lock = 'locked'` and `single_candidate_mode = 1`, plus a guarded audit insert
+  that is written only when that UPDATE changed a row. A repeated or concurrent request
+  changes nothing and writes no entry.
+- **Refusals (HTTP 409, nothing changed or audited):** outside single candidate mode,
+  before the stage is Ditutup, after publication, and when it already ran.
+- **Audit:** "Hitung Abstain dijalankan", actor recorded, detail
+  `{"tidak_memilih_ditambahkan": N}`; no member, ballot or choice reference.
+- **Results:** `abstain_counted` and `abstain_counted_at` join the payload. Before the run
+  `abstain_count = abstain_cast_count` and `tidak_memilih_count` is the live number; after
+  it `tidak_memilih_count` is the stored count and `abstain_count = cast + stored`. Per
+  korda, `tidak_memilih_count` is null until the run, then `eligible - used` for that
+  korda, still under the 10-ballot suppression. Dasbor, Hasil and the landing card follow.
+- **Umumkan gate:** `publishResults` refuses in single candidate mode until the count was
+  stored, with a message to run Hitung Abstain first; the publish UPDATE repeats the gate.
+- **Reset:** Kembali ke Draf clears both columns together with the other closing data.
+  Uji Coba (Draf only) never touches them. Kunci & Jadwalkan leaves them NULL.
+
 ## Risks / Trade-offs
 
 - **Mode mishandled between Draf and Kunci** — mitigated by the mode-aware readiness check
@@ -200,6 +235,8 @@ by the owner decision of 2026-11-16).
 1. `0011_single_candidate_mode.sql` — add the elections column (default off).
 2. `0012_ballot_choice.sql` — add `ballots.choice` with the two answers of the earlier
    decision. Never edited again: it may already be applied.
+4. `0014_abstain_counted.sql` — add `elections.abstain_counted_at` and
+   `abstain_counted_count` (both NULL until Hitung Abstain runs).
 3. `0013_ballot_choice_abstain.sql` — rebuild `ballots` so the CHECK on `choice` allows
    `setuju`, `tidak_setuju`, `abstain` and NULL. Existing rows (NULL, `setuju`,
    `tidak_setuju`) copy over unchanged.
@@ -212,4 +249,5 @@ backfill is needed (no election has run in this mode before).
 _None._ Q35 (the switch refuses to turn on with 2+ candidates) still holds. W7 Q37 (no
 Abstain) and W7 Q38 (non-voters count as Tidak Setuju, outcome after close) are superseded
 by the owner's decision of 2026-11-16 (three answers, non-voters count as Abstain, the
-system decides no outcome).
+system decides no outcome). Owner decision Q193 refines when non-voters join Abstain: only
+after Admin Voting runs Hitung Abstain by hand (D9).
