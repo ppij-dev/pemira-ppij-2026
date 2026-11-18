@@ -10,6 +10,7 @@ import ballotAbstainMigrationSql from "../migrations/0013_ballot_choice_abstain.
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveVoterRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -29,6 +30,7 @@ const TABLES = [
   "reminders",
   "audit_log",
   "units",
+  "direct_invitations",
 ];
 
 beforeEach(async () => {
@@ -44,6 +46,7 @@ beforeEach(async () => {
     abstainCountedSql,
     liveVoterRollSql,
     closingHakPilihSql,
+    directInvitationsSql,
   ].join(";")
     .split(";")
     .map((statement) => statement.trim())
@@ -276,5 +279,52 @@ describe("migrations/0001_init.sql", () => {
       "SELECT member_id FROM participation WHERE election_id = 2"
     ).all<{ member_id: string }>();
     expect(participations.results).toEqual([{ member_id: "m-dup" }]);
+  });
+
+  it("0017 membuat direct_invitations tanpa menyentuh tabel invitations", async () => {
+    const { results } = await env.DB.prepare("PRAGMA table_info(direct_invitations)").all<{ name: string; notnull: number }>();
+    expect(results.map((row) => row.name)).toEqual([
+      "id",
+      "reference",
+      "token_hash",
+      "token_enc",
+      "created_at",
+      "created_by",
+      "created_by_name",
+      "claimed_at",
+      "claim_id",
+      "guest_name",
+      "guest_email",
+      "komsat_path",
+      "used_at",
+      "cancelled_at",
+      "cancelled_by",
+      "cancelled_by_name",
+    ]);
+    const required = new Set(["reference", "token_hash", "token_enc", "created_at", "created_by", "created_by_name"]);
+    for (const column of results) {
+      if (required.has(column.name)) expect(column.notnull).toBe(1);
+      else expect(column.notnull).toBe(0);
+    }
+    await env.DB.prepare(
+      "INSERT INTO direct_invitations (reference,token_hash,token_enc,created_at,created_by,created_by_name) VALUES ('AAA111','hash-1','v1:x:y','2026-11-19T00:00:00Z','admin-1','Admin 1')",
+    ).run();
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO direct_invitations (reference,token_hash,token_enc,created_at,created_by,created_by_name) VALUES ('AAA111','hash-2','v1:x:y','2026-11-19T00:00:00Z','admin-1','Admin 1')",
+      ).run(),
+    ).rejects.toThrow(/UNIQUE constraint failed: direct_invitations\.reference/);
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO direct_invitations (reference,token_hash,token_enc,created_at,created_by,created_by_name) VALUES ('BBB222','hash-1','v1:x:y','2026-11-19T00:00:00Z','admin-1','Admin 1')",
+      ).run(),
+    ).rejects.toThrow(/UNIQUE constraint failed: direct_invitations\.token_hash/);
+    const index = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'direct_invitations' AND name LIKE 'idx_%' ORDER BY name",
+    ).all<{ name: string }>();
+    expect(index.results.map((row) => row.name)).toEqual(["idx_direct_invitations_status"]);
+    // Tabel undangan Admin Voting tetap seperti semula.
+    const legacy = await env.DB.prepare("PRAGMA table_info(invitations)").all<{ name: string }>();
+    expect(legacy.results.map((row) => row.name)).toEqual(["token_hash", "member_id", "created_at", "expires_at", "accepted_at", "cancelled_at"]);
   });
 });

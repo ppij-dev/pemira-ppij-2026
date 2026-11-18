@@ -6,6 +6,7 @@ import { electionRoutes } from "./election/routes";
 import { serviceApiRoutes } from "./serviceapi/routes";
 import { resultsRoutes } from "./results/routes";
 import { voteRoutes } from "./voting/routes";
+import { directRoutes } from "./direct/routes";
 import { boardRoutes } from "./voting/board";
 import { auditRoutes } from "./audit/routes";
 import { requireAdmin } from "./admin/routes";
@@ -29,6 +30,9 @@ app.route("/setup", setupRoutes);
 // Sama untuk /votes*: sesi divalidasi internal, bukan oleh guard panitia.
 app.route("/", resultsRoutes);
 app.route("/", voteRoutes);
+// Endpoint undangan langsung (klaim + surat suara tamu) juga publik dengan
+// guard internal, sama seperti /votes*.
+app.route("/", directRoutes);
 app.route("/", boardRoutes);
 
 app.route("/", createAuthRoutes({

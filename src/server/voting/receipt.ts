@@ -7,6 +7,8 @@
  * disimpan.
  */
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+/** Alfabet Crockford yang sama, dipakai juga untuk kode tautan Undangan Langsung. */
+export const CROCKFORD_ALPHABET = ALPHABET;
 const DECODE_MAP: Record<string, number> = {};
 for (let i = 0; i < ALPHABET.length; i++) DECODE_MAP[ALPHABET[i]!] = i;
 // Crockford aliases

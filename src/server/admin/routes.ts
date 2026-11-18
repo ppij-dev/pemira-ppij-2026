@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import type { D1Database } from "@cloudflare/workers-types";
 import { getCookie } from "hono/cookie";
 import type { Bindings } from "../app";
 import { SESSION_COOKIE, openSession, type SessionData } from "../auth/session";
 import { buildAuditInsert } from "../lib/audit";
 import { NEUTRAL_ADMIN_NAME, resolveDisplayName } from "../lib/displayName";
+import { DirectInviteError, cancelDirectInvitation, generateDirectInvitations, listDirectInvitations } from "../direct/create";
 
 type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 type AffiliationClaim = string | string[] | null;
@@ -153,6 +155,62 @@ export function createAdminRoutes() {
     await c.env.DB.batch([audit]);
     return c.json({ok:true});
   });
+  // Undangan Langsung (direct invite links). Tabel `direct_invitations` berbeda
+  // dari `invitations` di atas; tautan hanya dapat disalin lagi sebelum dipakai.
+  routes.get("/admin/undangan", async (c) => {
+    const actor = c.get("adminAuth")!;
+    const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
+    if (!key) return jsonError(c, "situs_belum_dikonfigurasi", 503);
+    try {
+      const data = await listDirectInvitations(c.env.DB, new Date(), { member_id: actor.session.member_id, name: actor.displayName }, { masterKey: key, baseUrl: await inviteBaseUrl(c.env.DB, c.req.url) });
+      return c.json(data, 200);
+    } catch (error) {
+      if (error instanceof DirectInviteError) return jsonError(c, error.message, error.status as 400 | 403 | 404 | 409 | 503);
+      throw error;
+    }
+  });
+  routes.post("/admin/undangan", async (c) => {
+    const actor = c.get("adminAuth")!;
+    const key = c.get("authRuntime")?.masterKey ?? c.env.APP_MASTER_KEY;
+    if (!key) return jsonError(c, "situs_belum_dikonfigurasi", 503);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return jsonError(c, "body_tidak_valid", 400);
+    }
+    const count = typeof body === "object" && body !== null ? (body as { count?: unknown }).count : undefined;
+    try {
+      const data = await generateDirectInvitations(c.env.DB, new Date(), count, { member_id: actor.session.member_id, name: actor.displayName }, { masterKey: key, baseUrl: await inviteBaseUrl(c.env.DB, c.req.url) });
+      return c.json(data, 201);
+    } catch (error) {
+      if (error instanceof DirectInviteError) return jsonError(c, error.message, error.status as 400 | 403 | 404 | 409 | 503);
+      throw error;
+    }
+  });
+  routes.delete("/admin/undangan/:id", async (c) => {
+    const actor = c.get("adminAuth")!;
+    try {
+      const result = await cancelDirectInvitation(c.env.DB, new Date(), c.req.param("id"), { member_id: actor.session.member_id, name: actor.displayName });
+      return c.json({ ok: true, reference: result.reference }, 200);
+    } catch (error) {
+      if (error instanceof DirectInviteError) return jsonError(c, error.message, error.status as 400 | 403 | 404 | 409 | 503);
+      throw error;
+    }
+  });
   return routes;
 }
 async function digest(value:string):Promise<string>{const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return [...new Uint8Array(bytes)].map(v=>v.toString(16).padStart(2,"0")).join("");}
+/** Basis URL tautan: site_base_url bila valid, selain itu origin permintaan. */
+async function inviteBaseUrl(db: D1Database, requestUrl: string): Promise<string> {
+  const row = await db.prepare("SELECT value FROM system_config WHERE key = 'site_base_url'").first<{ value: string }>();
+  const configured = row?.value?.trim();
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // abaikan nilai tidak valid
+    }
+  }
+  return new URL(requestUrl).origin;
+}

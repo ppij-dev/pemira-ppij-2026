@@ -1,0 +1,312 @@
+---
+/**
+ * Undangan Pemilih: Admin Voting membuat tautan undangan langsung untuk anggota
+ * tanpa akun portal. Daftar memuat tautan penuh selama tautan belum dipakai atau
+ * dibatalkan (keputusan pemilik 2026-11-19); filter dan unduhan .xlsx dikerjakan
+ * di peramban, server hanya mengembalikan JSON.
+ */
+import { env } from "cloudflare:workers";
+import { IconAlertCircle, IconAlertTriangle, IconPlus, IconTicket, IconDownload } from "@tabler/icons-astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
+import Button from "../../components/ui/Button.astro";
+import Callout from "../../components/ui/Callout.astro";
+import Empty from "../../components/ui/Empty.astro";
+import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
+const bindings = env as unknown as AdminBindings;
+const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
+const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]";
+---
+<AdminLayout title="Undangan">
+  <PageHeader title="Undangan Pemilih" eyebrow="Admin Voting" description="Undangan langsung untuk anggota tanpa akun portal. Sistem mempercayai tautan; panitia memeriksa sendiri agar tidak ada yang menerima dua tautan.">
+    <Button id="export" variant="secondary" size="sm" type="button" disabled><IconDownload size={16} stroke={1.8} aria-hidden="true" />Unduh Excel</Button>
+  </PageHeader>
+
+  {!authorized && <Callout tone="warning" icon={IconAlertTriangle} title="Akses khusus Admin Voting" class="mt-5">Anda tidak memiliki akses ke halaman undangan.</Callout>}
+
+  {authorized && <>
+    <Callout id="undangan-error" tone="danger" icon={IconAlertCircle} class="mt-5" hidden></Callout>
+
+    <section class={panel + " mt-5"} aria-label="Buat undangan">
+      <h2 class="text-lg leading-snug font-bold tracking-tight text-brand-ink">Buat undangan</h2>
+      <p class="mt-1 text-[13px] leading-5 text-brand-muted">Setiap tautan yang belum dibatalkan menambah satu Hak pilih. Tautan hanya dapat dibuat atau dibatalkan sebelum pemungutan suara ditutup.</p>
+      <div class="mt-4 flex flex-wrap items-end gap-3">
+        <div class="min-w-0">
+          <label for="undangan-count" class="block text-xs font-semibold text-brand-muted">Jumlah tautan</label>
+          <input id="undangan-count" type="number" min="1" max="50" step="1" value="10" inputmode="numeric" class="mt-1.5 min-h-11 w-28 min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm" />
+        </div>
+        <Button id="generate" type="button"><IconPlus size={18} stroke={1.8} aria-hidden="true" />Buat undangan</Button>
+      </div>
+      <p id="generate-result" class="mt-3 mb-0 hidden rounded-lg bg-[#f1f5f3] px-3.5 py-3 text-[13px] font-semibold leading-5 text-[#35604a]"></p>
+      <p id="window-note" class="mt-3 mb-0 hidden rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]">Tautan tidak dapat dibuat atau dibatalkan setelah pemungutan suara ditutup.</p>
+    </section>
+
+    <section class={panel + " mt-5"} aria-label="Daftar undangan">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 class="text-lg leading-snug font-bold tracking-tight text-brand-ink">Daftar undangan</h2>
+          <p class="mt-1 text-[13px] text-brand-muted" id="undangan-summary">Memuat daftar undangan...</p>
+        </div>
+        <div class="flex flex-wrap items-end gap-2 max-[600px]:w-full">
+          <div class="min-w-0">
+            <label for="status-filter" class="block text-xs font-semibold text-brand-muted">Status</label>
+            <select id="status-filter" class="mt-1.5 min-h-11 w-44 min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm">
+              <option value="semua">Semua status</option>
+              <option value="belum">Belum Dipakai</option>
+              <option value="dipakai">Sudah Dipakai</option>
+              <option value="dibatalkan">Dibatalkan</option>
+            </select>
+          </div>
+          <div class="min-w-0 max-[600px]:flex-1">
+            <label for="reference-search" class="block text-xs font-semibold text-brand-muted">Cari referensi</label>
+            <input id="reference-search" type="search" autocomplete="off" spellcheck="false" placeholder="Cari referensi" class="mt-1.5 min-h-11 w-44 min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm max-[600px]:w-full" />
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full caption-bottom text-sm">
+          <thead>
+            <tr class="border-b border-brand-border">
+              <th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Link</th>
+              <th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Dibuat Pada</th>
+              <th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Oleh</th>
+              <th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Status</th>
+            </tr>
+          </thead>
+          <tbody id="undangan-rows"></tbody>
+        </table>
+      </div>
+      <div id="undangan-empty" hidden>
+        <Empty icon={IconTicket} title="Belum ada undangan" description="Buat tautan undangan untuk dibagikan ke korda dan komsat." />
+      </div>
+      <p id="undangan-filtered" class="mt-3 mb-0 hidden text-[13px] text-brand-muted">Tidak ada undangan yang cocok dengan filter ini.</p>
+    </section>
+  </>}
+</AdminLayout>
+
+{authorized && <script>
+  import writeExcelFile from "write-excel-file/browser";
+
+  type Row = {
+    id: number;
+    reference: string;
+    link: string | null;
+    status: "belum" | "dipakai" | "dibatalkan";
+    created_at: string;
+    created_by_name: string;
+    claimed: { name: string | null; since: string } | null;
+    used_at: string | null;
+    guest_name: string | null;
+    guest_email: string | null;
+    komsat_path: string | null;
+    komsat_label: string | null;
+  };
+  type ListPayload = { stage: string; active_count: number; used_count: number; cancelled_count: number; rows: Row[] };
+
+  const root = document.querySelector<HTMLElement>("#undangan-rows")!;
+  const empty = document.querySelector<HTMLElement>("#undangan-empty")!;
+  const error = document.querySelector<HTMLElement>("#undangan-error")!;
+  const summary = document.querySelector<HTMLElement>("#undangan-summary")!;
+  const filtered = document.querySelector<HTMLElement>("#undangan-filtered")!;
+  const statusFilter = document.querySelector<HTMLSelectElement>("#status-filter")!;
+  const search = document.querySelector<HTMLInputElement>("#reference-search")!;
+  const generateButton = document.querySelector<HTMLButtonElement>("#generate")!;
+  const countInput = document.querySelector<HTMLInputElement>("#undangan-count")!;
+  const result = document.querySelector<HTMLElement>("#generate-result")!;
+  const windowNote = document.querySelector<HTMLElement>("#window-note")!;
+  const exportButton = document.querySelector<HTMLButtonElement>("#export")!;
+
+  const STATUS_LABEL: Record<Row["status"], string> = { belum: "Belum Dipakai", dipakai: "Sudah Dipakai", dibatalkan: "Dibatalkan" };
+  const STATUS_TONE: Record<Row["status"], string> = {
+    belum: "bg-[#f0f4fa] text-[#4c627b]",
+    dipakai: "bg-[#f1f5f3] text-[#35604a]",
+    dibatalkan: "bg-muted text-muted-foreground",
+  };
+  const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
+  const jst = (value: string | null) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) return value;
+    return new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date) + " JST";
+  };
+
+  let rows: Row[] = [];
+  let stage = "draft";
+
+  function visibleRows(): Row[] {
+    const wanted = statusFilter.value;
+    const needle = search.value.trim().toUpperCase();
+    return rows.filter((row) => (wanted === "semua" || row.status === wanted) && (needle === "" || row.reference.toUpperCase().includes(needle)));
+  }
+
+  function render() {
+    const shown = visibleRows();
+    root.replaceChildren();
+    for (const row of shown) {
+      const tr = document.createElement("tr");
+      tr.className = "border-b border-brand-border last:border-b-0 align-top";
+      const linkCell = document.createElement("td");
+      linkCell.className = "p-2 align-middle";
+      if (row.link) {
+        const code = document.createElement("code");
+        code.className = "block max-w-[22rem] font-mono text-xs break-all text-brand-ink";
+        code.textContent = row.link;
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.dataset.copy = String(row.id);
+        copy.className = "mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-card-foreground hover:bg-accent min-[600px]:min-h-8";
+        copy.append("Salin");
+        linkCell.append(code, copy);
+        if (row.claimed) {
+          const note = document.createElement("span");
+          note.className = "mt-1 block text-xs text-brand-muted";
+          note.textContent = `sedang diisi ${row.claimed.name ?? "seseorang"}, sejak ${jst(row.claimed.since)}`;
+          linkCell.append(note);
+        }
+      } else {
+        const code = document.createElement("span");
+        code.className = "font-mono text-xs text-brand-muted";
+        code.textContent = row.reference;
+        const note = document.createElement("span");
+        note.className = "mt-1 block text-xs text-brand-muted";
+        note.textContent = row.status === "dipakai" ? "Tautan hanya tersedia sebelum dipakai." : "Tautan dibatalkan.";
+        linkCell.append(code, note);
+      }
+      const createdCell = document.createElement("td");
+      createdCell.className = "p-2 align-middle text-[13px] tabular-nums whitespace-nowrap";
+      createdCell.textContent = jst(row.created_at);
+      const byCell = document.createElement("td");
+      byCell.className = "p-2 align-middle text-[13px]";
+      byCell.textContent = row.created_by_name;
+      const statusCell = document.createElement("td");
+      statusCell.className = "p-2 align-middle";
+      const badge = document.createElement("span");
+      badge.className = "inline-flex w-fit shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap " + STATUS_TONE[row.status];
+      badge.textContent = STATUS_LABEL[row.status];
+      statusCell.append(badge);
+      if (row.status === "belum") {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.dataset.cancel = String(row.id);
+        cancel.dataset.reference = row.reference;
+        cancel.className = "ml-2 inline-flex min-h-11 items-center rounded-md px-2 text-xs font-medium text-destructive hover:bg-red-50 min-[600px]:min-h-8";
+        cancel.textContent = "Batalkan";
+        statusCell.append(cancel);
+      }
+      tr.append(linkCell, createdCell, byCell, statusCell);
+      root.append(tr);
+    }
+    empty.hidden = rows.length !== 0;
+    filtered.hidden = rows.length === 0 || shown.length !== 0;
+    summary.textContent = `${rows.length} undangan · ${rows.filter((row) => row.status === "belum").length} belum dipakai · ${rows.filter((row) => row.status === "dipakai").length} sudah dipakai · ${rows.filter((row) => row.status === "dibatalkan").length} dibatalkan`;
+    exportButton.disabled = shown.length === 0;
+    const closed = stage === "closed" || stage === "published";
+    generateButton.disabled = closed;
+    countInput.disabled = closed;
+    windowNote.hidden = !closed;
+  }
+
+  async function load() {
+    error.setAttribute("hidden", "");
+    try {
+      const response = await fetch("/api/admin/undangan", { credentials: "same-origin" });
+      const data = (await response.json()) as ListPayload & { error?: string };
+      if (!response.ok) throw new Error(data.error || "Daftar undangan gagal dimuat.");
+      rows = data.rows;
+      stage = data.stage;
+      render();
+    } catch (problem) {
+      summary.textContent = "";
+      error.textContent = (problem as Error).message + " Coba muat ulang.";
+      error.removeAttribute("hidden");
+    }
+  }
+
+  root.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement;
+    const copyId = target.closest<HTMLElement>("[data-copy]")?.dataset.copy;
+    const cancelId = target.closest<HTMLElement>("[data-cancel]")?.dataset.cancel;
+    if (copyId) {
+      const row = rows.find((item) => item.id === Number(copyId));
+      if (!row?.link) return;
+      try {
+        await navigator.clipboard.writeText(row.link);
+        target.textContent = "Tersalin";
+        setTimeout(() => { target.textContent = "Salin"; }, 1500);
+      } catch {
+        target.textContent = "Salin manual";
+      }
+      return;
+    }
+    if (cancelId) {
+      const row = rows.find((item) => item.id === Number(cancelId));
+      if (!row) return;
+      if (!window.confirm(`Batalkan tautan ${row.reference}? Hak pilih berkurang satu.`)) return;
+      error.setAttribute("hidden", "");
+      const response = await fetch(`/api/admin/undangan/${cancelId}`, { method: "DELETE", credentials: "same-origin" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        error.textContent = data.error || "Tautan tidak dapat dibatalkan.";
+        error.removeAttribute("hidden");
+        return;
+      }
+      await load();
+    }
+  });
+
+  generateButton.addEventListener("click", async () => {
+    error.setAttribute("hidden", "");
+    result.hidden = true;
+    const count = Number(countInput.value);
+    generateButton.disabled = true;
+    try {
+      const response = await fetch("/api/admin/undangan", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ count }),
+      });
+      const data = (await response.json()) as { created?: number; error?: string };
+      if (!response.ok) throw new Error(data.error || "Undangan gagal dibuat.");
+      result.textContent = `${data.created} tautan undangan dibuat. Salin dan bagikan sekarang.`;
+      result.hidden = false;
+      await load();
+    } catch (problem) {
+      error.textContent = (problem as Error).message;
+      error.removeAttribute("hidden");
+    } finally {
+      generateButton.disabled = stage === "closed" || stage === "published";
+    }
+  });
+
+  statusFilter.addEventListener("change", render);
+  search.addEventListener("input", render);
+
+  exportButton.addEventListener("click", async () => {
+    error.setAttribute("hidden", "");
+    const shown = visibleRows();
+    const header = ["Link", "Referensi", "Dibuat Pada", "Oleh", "Status", "Dipakai Pada", "Nama", "Email", "Korda/Komsat"];
+    const data = [
+      header,
+      ...shown.map((row) => [
+        row.link ?? "",
+        row.reference,
+        jst(row.created_at),
+        row.created_by_name,
+        STATUS_LABEL[row.status],
+        row.used_at ? jst(row.used_at) : "",
+        row.guest_name ?? "",
+        row.guest_email ?? "",
+        row.komsat_label ?? "",
+      ]),
+    ];
+    try {
+      await writeExcelFile(data).toFile("undangan-pemilih.xlsx");
+    } catch {
+      error.textContent = "Berkas Excel gagal dibuat. Coba lagi.";
+      error.removeAttribute("hidden");
+    }
+  });
+
+  load();
+</script>}

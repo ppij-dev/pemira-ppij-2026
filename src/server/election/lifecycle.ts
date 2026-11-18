@@ -4,7 +4,7 @@ import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
-import { liveHakPilih } from "./hakPilih";
+import { directInviteTerm, liveHakPilih, withDirectInvites } from "./hakPilih";
 import { ensureClosingHakPilih } from "../voting/board";
 import { isVoteChoice, type VoteChoice } from "../voting/choice";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
@@ -186,7 +186,10 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
  for(let i=colors.length-1;i>0;i--){const j=crypto.getRandomValues(new Uint32Array(1))[0]!%(i+1); [colors[i],colors[j]]=[colors[j]!,colors[i]!];}
  const deletions=await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=1").bind(row.id).first<{n:number}>();
  const votes=deletions?.n??0;
- const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:live?undefined:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,single_candidate_mode:row.single_candidate_mode===1,live_voter_roll:live,...(live&&portalViewCount!=null?{portal_view_count:portalViewCount}:{}),...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
+ // Tautan Undangan Langsung dicatat terpisah dari roll beku: `frozen_hak_pilih`
+ // tetap hanya suku roll, dan istilah tautan hidup di election/hakPilih.ts.
+ const activeDirectLinks=await directInviteTerm(db);
+ const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:live?undefined:frozen,active_direct_links:activeDirectLinks,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,single_candidate_mode:row.single_candidate_mode===1,live_voter_roll:live,...(live&&portalViewCount!=null?{portal_view_count:portalViewCount}:{}),...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
  const statements=[live
   ?db.prepare("UPDATE elections SET status_lock='locked' WHERE id=? AND status_lock='draft'").bind(row.id)
   :db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
@@ -242,9 +245,11 @@ export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCou
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
  // Mode Tidak Membekukan DPT: angka dasarnya Hak pilih akhir yang tersimpan
  // (penetapan dijalankan di pembacaan ini bila belum ada), bukan hitungan live.
+ // Istilah tautan undangan sudah termasuk di liveHakPilih/snapshot; pada roll
+ // beku (saklar mati) ditambahkan di sini lewat helper yang sama.
  const eligible=row.live_voter_roll===1
   ?((await ensureClosingHakPilih(db,now))??await liveHakPilih(db))
-  :(row.frozen_hak_pilih??0);
+  :withDirectInvites(row.frozen_hak_pilih??0,await directInviteTerm(db));
  const pending=Math.max(0,eligible-participation);
  const counted=row.abstain_counted_at!==null;
  const reason=row.single_candidate_mode!==1?"Hitung Abstain hanya berlaku pada mode kandidat tunggal."

@@ -10,8 +10,10 @@ import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
+import { getAbstainCount } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
 import type { DashboardPayload, ResultsPayload } from "../src/server/results/queries";
 
@@ -44,7 +46,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql]) {
+  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -714,6 +716,82 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(lockedData.ballot_count).toBe(1);
     expect(lockedData.test).toBeNull();
   });
+
+  it("counts active invite links in Hak pilih, keeping used ones and dropping cancelled ones", async () => {
+    await seedElection({ status: "locked", frozen: 100 });
+    await inviteRow("INV001");
+    await inviteRow("INV002");
+    await inviteRow("INV003", { used: true, komsat: `${SCOPE}/komsat-a` });
+    await inviteRow("INV004", { cancelled: true });
+    const res = await requestDashboard();
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as DashboardPayload;
+    // 100 roll + 3 tautan hidup (INV001, INV002, INV003); yang dibatalkan tidak dihitung.
+    expect(data.active_invite_count).toBe(3);
+    expect(data.eligible_count).toBe(103);
+    expect(data.unused_count).toBe(103);
+    expect(data.count_matches).toBe(true);
+  });
+
+  it("adds the invite term to the Draf roll fallback", async () => {
+    await seedElection({ status: "draft", frozen: null });
+    await env.DB.prepare("INSERT INTO voters (member_id, name, komsat_path, status, synced_at, can_vote) VALUES ('m-1', 'M 1', ?, 'ACTIVE', ?, 1), ('m-2', 'M 2', ?, 'ACTIVE', ?, 1)")
+      .bind(`${SCOPE}/komsat-a`, new Date().toISOString(), `${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    await inviteRow("INV001");
+    const res = await requestDashboard();
+    const data = (await res.json()) as DashboardPayload;
+    // admin-1 + m-1 + m-2 = 3 baris roll, ditambah 1 tautan.
+    expect(data.active_invite_count).toBe(1);
+    expect(data.eligible_count).toBe(4);
+  });
+
+  it("counts a used invite in its chosen korda and keeps unused links out of every korda", async () => {
+    await seedElection({ status: "locked", frozen: 40 });
+    await seedCandidates();
+    await inviteRow("INV001");
+    await inviteRow("INV002", { used: true, komsat: `${SCOPE}/komsat-a` });
+    await env.DB.prepare("INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, 'undangan:INV002', 'Tamu INV002', ?, 0)")
+      .bind(new Date().toISOString()).run();
+    await castBallot(1, `${SCOPE}/komsat-a`, 0);
+    const res = await requestDashboard();
+    const data = (await res.json()) as DashboardPayload;
+    expect(data.eligible_count).toBe(42);
+    const okayama = data.korda.find((row) => row.key === SCOPE)!;
+    // Korda Okayama: baris roll (admin-1, dua kandidat) ditambah satu tautan terpakai.
+    expect(okayama.eligible_count).toBe(4);
+    expect(okayama.used_count).toBe(1);
+    expect(okayama.ballot_count).toBe(1);
+    expect(okayama.suppressed).toBe(true);
+    const total = data.korda.reduce((sum, row) => sum + row.eligible_count, 0);
+    // Tautan belum dipakai dihitung nasional saja, jadi jumlah korda lebih kecil.
+    expect(total).toBe(4);
+    expect(data.eligible_count - total).toBe(38);
+  });
+
+  it("treats unused links as non-voters, not as a count mismatch", async () => {
+    await seedElection({ status: "locked", frozen: 10 });
+    await seedCandidates();
+    await inviteRow("INV001");
+    await inviteRow("INV002");
+    await recordParticipation("admin-1", `${SCOPE}/komsat-a`);
+    await castBallot(1, `${SCOPE}/komsat-a`);
+    const res = await requestDashboard();
+    const data = (await res.json()) as DashboardPayload;
+    expect(data.eligible_count).toBe(12);
+    expect(data.participation_count).toBe(1);
+    expect(data.ballot_count).toBe(1);
+    expect(data.count_matches).toBe(true);
+    expect(data.unused_count).toBe(11);
+  });
+
+  it("includes unused links in the Hitung Abstain pending count", async () => {
+    await seedElection({ status: "locked", frozen: 10 });
+    await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1 WHERE id = 1").run();
+    await inviteRow("INV001");
+    await inviteRow("INV002");
+    const count = await getAbstainCount(env.DB, new Date());
+    expect(count.pending_count).toBe(12);
+  });
 });
 
 describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
@@ -786,3 +864,25 @@ describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
     expect(data.abstain_percentage).toBeCloseTo(80, 1);
   });
 });
+
+/** Baris undangan langsung untuk uji agregasi; tidak lewat HTTP. */
+async function inviteRow(
+  reference: string,
+  opts: { used?: boolean; cancelled?: boolean; komsat?: string | null } = {},
+) {
+  await env.DB.prepare(
+    "INSERT INTO direct_invitations (reference, token_hash, token_enc, created_at, created_by, created_by_name, used_at, cancelled_at, komsat_path, guest_name, guest_email) VALUES (?, ?, ?, ?, 'admin-1', 'Admin 1', ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      reference,
+      `hash-${reference}`,
+      "v1:sealed:sealed",
+      new Date().toISOString(),
+      opts.used ? new Date().toISOString() : null,
+      opts.cancelled ? new Date().toISOString() : null,
+      opts.komsat ?? null,
+      opts.used ? `Tamu ${reference}` : null,
+      opts.used ? "tamu@example.test" : null,
+    )
+    .run();
+}

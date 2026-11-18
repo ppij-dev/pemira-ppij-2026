@@ -270,8 +270,9 @@ All read from the one effective Hak pilih helper (D3):
 ### D10: Audit entries
 
 Through the normal hash-chained path (`buildGuardedAuditInsert`/`buildAuditInsert`), four
-entries; the link actions carry `target =` the row's short `reference`, and none of them
-ever carries a token, a link, an email or a ballot choice:
+entries; the single-link actions carry `target = undangan:<reference>` so the audit view
+can render "Undangan A7K3M9", and none of them ever carries a token, a link, an email or
+a ballot choice:
 
 - **"Undangan langsung dibuat"** — actor the Admin Voting, `detail_json` with
   `{"count": N, "references": ["A7K3M9", ...]}` (references only, never codes).

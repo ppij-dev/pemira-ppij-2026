@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
 import { resolveHakPilih } from "../voting/board";
+import { directInviteTerm } from "../election/hakPilih";
 import { formatUnitPath } from "../../lib/formatKomsat";
 
 /** Candidate counts of a korda are hidden below this many ballots (admin-dashboard spec). */
@@ -60,6 +61,8 @@ export interface ResultsPayload {
   closes_at: string | null;
   updated_at: string;
   eligible_count: number;
+  /** Jumlah tautan Undangan Langsung yang belum dibatalkan; bagian dari eligible_count. */
+  active_invite_count: number;
   used_count: number;
   unused_count: number;
   turnout_percentage: number;
@@ -196,6 +199,14 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
         .bind(election.id),
     );
   }
+  // Undangan Langsung: tautan yang sudah dipakai masuk korda komsat pilihannya.
+  // Istilah Hak pilih dari tautan hidup di election/hakPilih.ts (liveHakPilih),
+  // jadi batch ini hanya menambah pengelompokan per korda, bukan denominator.
+  statements.push(
+    db.prepare(
+      "SELECT komsat_path AS path, COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL AND used_at IS NOT NULL GROUP BY komsat_path",
+    ),
+  );
   const batchResults = await db.batch(statements);
   const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, choiceTotalResult, choiceByRegionResult] = batchResults;
   const candidates = candidatesResult as { results: CandidateTally[] };
@@ -222,6 +233,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const testCountRow = testCounts.results[0];
   const unitRows = units.results;
   const adminCountRow = adminCount.results[0];
+  const inviteByPathResult = batchResults.at(-1) as { results: { path: string; n: number }[] };
 
   const testSummary = realOnly ? null : {
     participation_count: testCountRow?.participation_count ?? 0,
@@ -233,14 +245,25 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   // Hak pilih: satu penyelesai untuk semua konsumen (keputusan owner 2026-11-19).
   // Saklar mati memakai frozen_hak_pilih dengan fallback hitungan view saat Draf;
   // saklar menyala memakai hitungan view selama Dibuka dan snapshot penutupan
-  // (ditetapkan di pembacaan pertama setelah Ditutup) sesudahnya.
+  // (ditetapkan di pembacaan pertama setelah Ditutup) sesudahnya. Penyelesai itu
+  // sudah memasukkan tautan Undangan Langsung (election/hakPilih.ts).
   const resolution = await resolveHakPilih(db, new Date(nowIso));
   const eligibleCount = resolution.hakPilih;
+  // Angka tautan aktif untuk tampilan Dasbor; istilah yang sama dengan penyelesai.
+  const inviteTerm = await directInviteTerm(db);
   const participationCount = participationCountRow?.n ?? 0;
   const ballotCount = ballotCountRow?.n ?? 0;
   const names = new Map(unitRows.map((unit) => [unit.path, unit.name]));
   const eligibleByRegion = bucketByRegion(votersByPathRows);
   const usedByRegion = bucketByRegion(participationByPathRows);
+  // Tautan terpakai masuk korda komsat yang dipilih tamu; tautan belum dipakai
+  // tidak masuk korda mana pun (komsatnya baru diketahui saat diklaim), sehingga
+  // baris korda bisa berjumlah kurang dari Hak pilih nasional dan halaman menyebutnya.
+  const inviteByRegion = bucketByRegion(inviteByPathResult.results);
+  for (const [key, n] of inviteByRegion) {
+    eligibleByRegion.set(key, (eligibleByRegion.get(key) ?? 0) + n);
+    usedByRegion.set(key, (usedByRegion.get(key) ?? 0) + n);
+  }
   const ballotsByRegion = bucketByRegion(ballotsByPathRows);
   // Pilihan surat suara hanya dibaca sebagai agregat, tidak pernah per surat suara.
   const choiceTotals = new Map<string, number>();
@@ -316,6 +339,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     closes_at: election.closes_at,
     updated_at: nowIso,
     eligible_count: eligibleCount,
+    active_invite_count: inviteTerm,
     used_count: participationCount,
     unused_count: Math.max(0, eligibleCount - participationCount),
     turnout_percentage: eligibleCount > 0 ? Math.round(((participationCount / eligibleCount) * 100) * 10) / 10 : 0,

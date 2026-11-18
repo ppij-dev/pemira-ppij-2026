@@ -7,6 +7,7 @@ import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import {ABSTAIN_NOT_COUNTED_MESSAGE,canReturnToDraft,castTestVote,closeEarly,countAbstain,getAbstainCount,extendClosing,getLiveVoterRollMode,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setLiveVoterRollMode,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
 import {getPublicBoard} from "../src/server/voting/board";
 import {stage} from "../src/server/lib/stage";
@@ -16,7 +17,7 @@ import {sealSession} from "../src/server/auth/session";
 import {createServiceApiStub} from "./lib/serviceapi-fixture";
 declare module "*.sql?raw" { const sql: string; export default sql; }
 const NOW=new Date("2026-10-20T00:00:00Z");const cfg={issuer:"https://fixture.invalid",clientId:"client",clientSecret:"secret",serviceApiUrl:"https://fixture.invalid"};
-async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
+async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
 async function candidates(){for(let i=1;i<=2;i++){await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number) VALUES(?,?, '/u','ACTIVE','now',?)").bind(`member-${i}`,`Member ${i}`,`KARTU-00${i}`).run();await createCandidate(env.DB,NOW,{member_id:`KARTU-00${i}`,number:i,name:`Member ${i}`,nickname:`M${i}`,description:""});}}
 async function ready(){await candidates();for(let i=3;i<=8;i++)await env.DB.prepare("INSERT INTO voters(member_id,name,nickname,komsat_path,status,synced_at) VALUES(?,?,?,'/u','ACTIVE','now')").bind(`member-${i}`,`Member ${i}`,`M${i}`).run();await env.DB.prepare("INSERT INTO system_config(key,value) VALUES('pemilih_last_sync','2026-10-19T00:00:00Z')").run();await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z"});}
 // Satu kandidat saja (mode kandidat tunggal) plus jadwal dan roll siap kunci.
@@ -714,5 +715,42 @@ describe("Tidak Membekukan DPT",()=>{
   expect((await electionRow()).closing_hak_pilih).not.toBeNull();
   await returnToDraft(env.DB,CLOSED_NOW,PHRASE,ACTOR);
   expect(await electionRow()).toMatchObject({status_lock:"draft",closing_hak_pilih:null,closing_hak_pilih_at:null,live_voter_roll:1});
+ });
+});
+
+
+// Undangan Langsung di siklus pemilihan: tautan tidak pernah masuk angka beku,
+// dicatat terpisah di audit Kunci, dan bertahan melewati Kembali ke Draf.
+describe("Undangan Langsung dalam siklus pemilihan",()=>{
+ beforeEach(()=>setup());
+ async function invite(reference:string,extra:{used?:boolean;cancelled?:boolean}={}){
+  await env.DB.prepare("INSERT INTO direct_invitations(reference,token_hash,token_enc,created_at,created_by,created_by_name,used_at,cancelled_at) VALUES(?,?,?,?, 'member-8','Admin',?,?)")
+   .bind(reference,`hash-${reference}`,"v1:sealed:sealed",NOW.toISOString(),extra.used?NOW.toISOString():null,extra.cancelled?NOW.toISOString():null).run();
+ }
+ it("mencatat tautan aktif terpisah dari roll beku di audit Kunci",async()=>{
+  await ready();
+  await invite("INV001");
+  await invite("INV002");
+  const result=await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+  const roll=await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote=1").first<{n:number}>();
+  // Nilai beku tetap hanya suku roll; tautan tidak pernah dibekukan ke dalamnya.
+  expect(result.frozen_hak_pilih).toBe(roll!.n);
+  expect(await env.DB.prepare("SELECT frozen_hak_pilih FROM elections").first()).toEqual({frozen_hak_pilih:roll!.n});
+  const lockAudit=await env.DB.prepare("SELECT detail_json FROM audit_log WHERE action='Pemilihan dikunci'").first<{detail_json:string}>();
+  expect(JSON.parse(lockAudit!.detail_json)).toMatchObject({active_direct_links:2});
+ });
+ it("menjaga status tautan melewati Kembali ke Draf dan Kunci berikutnya",async()=>{
+  await ready();
+  await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+  await invite("INV001");
+  await invite("INV002",{used:true});
+  await invite("INV003",{cancelled:true});
+  await returnToDraft(env.DB,NOW,"KEMBALI KE DRAF",{member_id:"member-8",name:"Admin"});
+  const afterReturn=await env.DB.prepare("SELECT reference,used_at,cancelled_at FROM direct_invitations ORDER BY reference").all<{reference:string;used_at:string|null;cancelled_at:string|null}>();
+  expect(afterReturn.results.map(r=>[r.reference,Boolean(r.used_at),Boolean(r.cancelled_at)])).toEqual([["INV001",false,false],["INV002",true,false],["INV003",false,true]]);
+  expect(await env.DB.prepare("SELECT status_lock FROM elections").first()).toEqual({status_lock:"draft"});
+  await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
+  const afterLock=await env.DB.prepare("SELECT reference,used_at,cancelled_at FROM direct_invitations ORDER BY reference").all<{reference:string;used_at:string|null;cancelled_at:string|null}>();
+  expect(afterLock.results).toEqual(afterReturn.results);
  });
 });
