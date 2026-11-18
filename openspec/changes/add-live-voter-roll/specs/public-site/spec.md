@@ -2,7 +2,8 @@
 
 ## Purpose
 
-A two-figure public stat — Jumlah Pemilih and Suara Masuk — above the schedule panel of
+A two-figure public stat — Jumlah Pemilih and Suara Masuk (labels per owner decision
+Q202) — above the schedule panel of
 the landing page, shown in every election while voting is open and after close, updating
 live by short polling a counts-only endpoint. Counts only, never choices; every existing
 rule about what stays hidden before Diumumkan is unchanged.

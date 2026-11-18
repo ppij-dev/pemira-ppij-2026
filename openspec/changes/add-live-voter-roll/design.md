@@ -24,8 +24,9 @@ Owner decisions (2026-11-19) are fixed: the "Tidak Membekukan DPT" switch with t
 `single_candidate_mode` lifecycle (Draf-only, audited, frozen at Kunci); live two-way
 eligibility at vote time; Hak pilih live while open and saved at close with the saved
 number used everywhere afterwards; the public landing stat with a live update mechanism
-(polling vs WebSocket is explicitly asked); a clear hook so the direct-invite change can
-add +1 Hak pilih per active invite link; copy in Bahasa Indonesia, no emoji.
+(polling vs WebSocket is explicitly asked); the stat labels "Jumlah Pemilih" and "Suara
+Masuk" (Q202); a clear hook so the direct-invite change can add +1 Hak pilih per active
+invite link; copy in Bahasa Indonesia, no emoji.
 
 ## Goals / Non-goals
 
@@ -161,12 +162,10 @@ denominator, so published figures never show the artifact.
 
 ### D5: Public turnout stat on the landing page
 
-**Labels.** "Jumlah Pemilih" for Hak pilih and "Suara Masuk" for participation. The
-owner's suggested "Suara Dipakai" is replaced: "Suara Masuk" is the established Indonesian
-election term (as used by KPU), names exactly what the number counts (ballots received),
-and avoids implying a validity or "usage" judgement the system does not make; it also
-matches the participation figure the receipt board already shows after close. Jumlah
-Pemilih is the term the site already uses for the roll.
+**Labels.** "Jumlah Pemilih" for Hak pilih and "Suara Masuk" for participation (owner
+decision Q202, 2026-11-19). "Jumlah Pemilih" is the term the site already uses for the
+roll, and "Suara Masuk" matches the participation figure the receipt board already shows
+after close.
 
 **Placement and visibility.** A compact two-figure strip rendered above the schedule
 panel ("Jadwal pemungutan") on `index.astro`, shown in every election — both switch states

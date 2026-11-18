@@ -58,10 +58,8 @@ the update mechanism and records why.
   other closing data. With the switch off, nothing changes: Hak pilih keeps coming from
   `frozen_hak_pilih`.
 - **Public turnout stat on the landing page.** Above the schedule panel, a two-figure
-  strip shows **Jumlah Pemilih** (Hak pilih) and **Suara Masuk** (participation — the
-  owner's suggested "Suara Dipakai" is replaced: "Suara Masuk" is the standard Indonesian
-  election term, names exactly what is counted, and avoids implying anything about how
-  votes are used). It shows in every election — not only this mode — while voting is open
+  strip shows **Jumlah Pemilih** (Hak pilih) and **Suara Masuk** (participation; owner
+  decision Q202). It shows in every election — not only this mode — while voting is open
   and after close, and is hidden in Draf and Terjadwal. Counts only, never choices or
   candidate figures; the rule that candidate counts are hidden before Diumumkan is
   unchanged. The figures update live with a number-flip animation via short polling of a
