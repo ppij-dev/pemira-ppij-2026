@@ -18,7 +18,9 @@ import {
 } from "./create";
 
 export const INVITE_SESSION_COOKIE = "undangan_session";
-export const INVITE_SESSION_PATH = "/undangan";
+// Path "/" karena endpoint terkait ada di /api/undangan/* sedangkan halamannya di
+// /undangan/*; cookie berpath /undangan tidak akan ikut terkirim ke API.
+export const INVITE_SESSION_PATH = "/";
 export const INVITE_SESSION_MAX_AGE = 30 * 60;
 
 export interface InviteSessionData {

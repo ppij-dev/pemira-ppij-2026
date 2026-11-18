@@ -146,10 +146,10 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
       const tr = document.createElement("tr");
       tr.className = "border-b border-brand-border last:border-b-0 align-top";
       const linkCell = document.createElement("td");
-      linkCell.className = "p-2 align-middle";
+      linkCell.className = "p-2 align-middle min-w-[16rem]";
       if (row.link) {
         const code = document.createElement("code");
-        code.className = "block max-w-[22rem] font-mono text-xs break-all text-brand-ink";
+        code.className = "block min-w-[15rem] max-w-[20rem] font-mono text-xs break-all text-brand-ink";
         code.textContent = row.link;
         const copy = document.createElement("button");
         copy.type = "button";

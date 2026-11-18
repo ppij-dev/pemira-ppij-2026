@@ -381,7 +381,11 @@ describe("rute admin dan publik", () => {
       body: JSON.stringify({ kode: code, nama: "Budi", email: "budi@example.test", komsat_path: `${SCOPE}/komsat-okayama` }),
     }, bindings);
     expect(claimed.status).toBe(200);
-    expect(claimed.headers.get("set-cookie")).toContain(`${INVITE_SESSION_COOKIE}=`);
+    const setCookieHeader = claimed.headers.get("set-cookie") ?? "";
+    expect(setCookieHeader).toContain(`${INVITE_SESSION_COOKIE}=`);
+    // Path harus "/": endpoint vote ada di /api/undangan/*, halaman di /undangan/*.
+    expect(setCookieHeader).toContain("Path=/");
+    expect(setCookieHeader).not.toContain("Path=/undangan");
   });
 
   it("membatasi percobaan klaim per kode", async () => {
