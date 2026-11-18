@@ -59,12 +59,14 @@ the update mechanism and records why.
   `frozen_hak_pilih`.
 - **Public turnout stat on the landing page.** Above the schedule panel, a two-figure
   strip shows **Jumlah Pemilih** (Hak pilih) and **Suara Masuk** (participation; owner
-  decision Q202). It shows in every election — not only this mode — while voting is open
-  and after close, and is hidden in Draf and Terjadwal. Counts only, never choices or
+  decision Q202). It shows in every election — not only this mode — from Terjadwal
+  (Jumlah Pemilih from the synced view, Suara Masuk 0; owner decision Q205) through voting
+  open and after close, and is hidden only in Draf. Counts only, never choices or
   candidate figures; the rule that candidate counts are hidden before Diumumkan is
   unchanged. The figures update live with a number-flip animation via short polling of a
-  new public counts-only endpoint (GET `/api/turnout`), 15 s while Dibuka and 60 s after
-  close, paused while the tab is hidden. Short polling is chosen over WebSocket/Durable
+  new public counts-only endpoint (GET `/api/turnout`), 15 s while Dibuka and 60 s
+  otherwise, paused while the tab is hidden; the deployment runs on the Workers Paid plan
+  (owner decision Q204). Short polling is chosen over WebSocket/Durable
   Objects; the comparison and reasoning are in design.md. Dasbor keeps its manual
   refresh-by-button; polling is limited to this one public stat.
 - **Hook for invite links.** The direct-invite change will add +1 to Hak pilih per

@@ -46,3 +46,26 @@ is not frozen, and that Hak pilih is fixed when voting closes.
 
 - **WHEN** an Admin Voting opens Dasbor in a frozen-roll election
 - **THEN** no live-mode note appears and the page is as today
+
+### Requirement: Stale portal view warning while voting is open
+
+While the switch is on and voting is open, Dasbor SHALL show a warning banner once the
+portal view has not refreshed successfully for more than 5 minutes, naming the last
+refresh time in JST. The banner SHALL stop nothing on its own: voting continues against
+the last known view. The banner SHALL disappear after a successful refresh, and SHALL
+not appear in frozen-roll elections or outside the open stage.
+
+#### Scenario: Banner after a long outage
+
+- **WHEN** the portal has been unreachable for more than 5 minutes while voting is open in live mode and an Admin Voting opens Dasbor
+- **THEN** a warning banner names the last refresh time and the page otherwise works as usual
+
+#### Scenario: Banner clears after refresh
+
+- **WHEN** the view refreshes successfully and an Admin Voting reopens Dasbor
+- **THEN** the banner is gone
+
+#### Scenario: No banner in frozen mode or before opening
+
+- **WHEN** an Admin Voting opens Dasbor in a frozen-roll election, or in live mode while Terjadwal
+- **THEN** no stale-view banner appears

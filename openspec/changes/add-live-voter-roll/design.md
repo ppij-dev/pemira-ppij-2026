@@ -96,8 +96,8 @@ roll lookup in `authorizeVoter` (live mode, stage Dibuka only):
   refresh failure) makes a portal outage stop the whole election, recreating exactly the
   dependency the frozen roll exists to remove; the stale window is bounded by TTL + outage
   length, and the fail-closed rule for absence means an outage never widens who may vote —
-  it can only delay a removal by the outage's length. This is the recommended behaviour
-  (owner asked to pick: cache-with-fallback over hard timeout).
+  it can only delay a removal by the outage's length. This behaviour was accepted by the
+  owner (open question 2 answered as recommended, 2026-11-19).
 - **Newly registered member:** appears in the view on the next successful refresh —
   "immediately" therefore means within one refresh cycle, worst case about TTL + refresh
   duration (≈ 30–45 s). A sub-second guarantee is impossible without a per-member portal
@@ -121,8 +121,9 @@ left on.
 **Live figure.** While `live_voter_roll = 1` and the stage is Dibuka, Hak pilih is
 computed from the view: `COUNT(voters WHERE can_vote = 1)` minus Admin Voting rows when
 the participation setting excludes them — the same formula the Draf fallback and the Kunci
-freeze already use. One helper owns it so every consumer agrees (see D7 for the invite
-hook). Consumers resolve the denominator once, in one place in `results/queries.ts`:
+freeze already use. The live Hak pilih computation lives in exactly one helper
+(`liveHakPilih`) so every consumer agrees and the direct-invite change has a single place
+to add its term (see D7). Consumers resolve the denominator once, in one place in `results/queries.ts`:
 
 - switch off → `frozen_hak_pilih` (today's path, untouched);
 - switch on, Dibuka → the live count;
@@ -158,7 +159,8 @@ now)` in `board.ts`, beside `ensureClosingSnapshot`:
 **Edge: the live count can shrink below Suara Masuk mid-vote** (members removed while
 their votes remain). Display the numbers as-is, clamp `unused_count` at zero and cap
 percentages at 100 (the clamp already exists); the closing snapshot resolves the final
-denominator, so published figures never show the artifact.
+denominator, so published figures never show the artifact (accepted as recommended,
+2026-11-19).
 
 ### D5: Public turnout stat on the landing page
 
@@ -169,12 +171,13 @@ after close.
 
 **Placement and visibility.** A compact two-figure strip rendered above the schedule
 panel ("Jadwal pemungutan") on `index.astro`, shown in every election — both switch states
-— while the stage is Dibuka, Ditutup or Diumumkan; hidden in Draf and Terjadwal. In a
-Draf-stage preview election nothing shows (nothing is open yet). The strip shows counts
+— from Terjadwal onwards: Terjadwal, Dibuka, Ditutup and Diumumkan; hidden only in Draf
+(owner decision Q205). In Terjadwal, Jumlah Pemilih comes from the synced view and Suara
+Masuk shows 0. The strip shows counts
 only: no candidate figures, no choices, no korda breakdown, no per-person anything. The
 existing rule "before Diumumkan, candidate vote counts are visible only to Admin Voting"
 is unchanged — these two aggregates are the only new public numbers, and they are
-explicitly permitted by the owner's decision while open and after close.
+explicitly permitted by the owner's decision.
 
 **Endpoint.** `GET /api/turnout`, public (like `/api/votes/board`), returning
 `{ stage, eligible_count, votes_count, updated_at }` — `votes_count` is the non-test
@@ -184,16 +187,17 @@ nothing and exposes nothing else. Lightly rate-limited with the existing `rate_l
 pattern (per IP, generous enough for polling: 30/min, same as receipt checks).
 
 **Update mechanism: short polling over WebSocket/Durable Objects.** The client polls the
-endpoint every **15 s** while Dibuka and every **60 s** after close (the number can change
-once more when the snapshot lands), pauses on `visibilitychange` hidden tabs, and applies
+endpoint every **15 s** while Dibuka and every **60 s** otherwise (Terjadwal, Ditutup,
+Diumumkan — the number can change once more when the snapshot lands), pauses on
+`visibilitychange` hidden tabs, and applies
 a small jitter so viewers do not synchronize. Changes animate with a number-flip
-transition in the browser. Comparison for ~300 voters:
+transition in the browser. The deployment runs on the Workers Paid plan (owner decision
+Q204), which settles the polling budget. Comparison for ~300 voters:
 
-- **Short polling (recommended).** One tiny endpoint; two indexed COUNT queries per hit;
+- **Short polling (recommended, chosen).** One tiny endpoint; two indexed COUNT queries per hit;
 no new infrastructure; works unchanged on any plan; degrades to a stale number, never to a
 broken page. Load: worst case 300 viewers × 4 req/min ≈ 20 req/s while Dibuka — trivial
-for Workers (paid: 10 M req/month for $5/mo; free tier 100 k req/day can be exceeded by a
-large election-day audience, see open question 1). Latency: a new vote shows within one
+for the Workers Paid plan the owner is on (Q204). Latency: a new vote shows within one
 interval, which the flip animation makes feel deliberate rather than laggy.
 - **WebSocket / Durable Objects.** Push gives sub-second updates — unnecessary for a
 counter. Costs: DOs require a Workers paid plan and billed duration; hibernation and room
@@ -214,12 +218,20 @@ roll; the Pemilih page shows the view's last refresh time (the watermark time, J
 turnout strip renders from the endpoint data; after Diumumkan it keeps showing the same
 saved figures (polling can stop once the stage is Diumumkan and the numbers are final).
 
+**Stale-view banner on Dasbor (owner accepted, 2026-11-19).** While the switch is on and
+voting is open, Dasbor shows a warning banner once the portal view has not refreshed
+successfully for more than 5 minutes, naming the last refresh time — so a long portal
+outage is visible to the committee without the system stopping anything (stale-while-
+unavailable keeps working underneath). The banner disappears on the next successful
+refresh.
+
 ### D7: Hook for the direct-invite change
 
 Both Hak pilih producers — the live count in D4 and the closing snapshot — funnel through
-one aggregation helper (live) and one snapshot function (close). The direct-invite change
-adds its "+1 per active invite link" exactly there: live Hak pilih = portal-eligible
-members + active invite links, and the snapshot must include the links active at
+one aggregation helper (`liveHakPilih`, written once and used everywhere) and one snapshot
+function (close). The direct-invite change adds its "+ live non-cancelled links" term
+exactly there: live Hak pilih = portal-eligible members + live non-cancelled invite
+links, and the snapshot must include the links active at
 finalization time. To keep that addition single-point, the snapshot's audit detail is
 already shaped as a JSON object, so a future `{"hak_pilih": N, "portal": P, "invite": M}`
 part split needs no format change. Coordination notes, agreed across worktrees:
@@ -240,9 +252,8 @@ count function this design leaves as the documented extension point.
   chain would grow by hundreds of system entries per hour for bookkeeping, and each entry
   weakens the signal-to-noise of the audit view. The refresh watermark time is visible on
   the Pemilih page instead. Manual syncs (including any future manual refresh button)
-  keep their audited `pemilih_sync` entry. If the owner wants automatic refreshes audited
-  after all, a throttled "portal view refreshed" entry (at most one per 10 minutes with
-  counts) is the prepared fallback — see open question 4.
+  keep their audited `pemilih_sync` entry. (Silent refreshes accepted by the owner,
+  2026-11-19.)
 
 ### D9: Copy (Bahasa Indonesia, no emoji)
 
@@ -295,35 +306,12 @@ backfill is needed (no election has run in this mode before).
 
 ## Open questions
 
-Each with a recommended answer; the owner decides.
-
-1. **Polling budget on the free Workers plan.** 15 s polling for ~300 voters is ~20 req/s
-   at peak; a paid plan ($5/mo, 10 M requests) shrugs it off, but the free tier's 100 k
-   requests/day can be exceeded by a full-day open stage with many concurrent viewers.
-   *Recommendation:* keep 15 s and require the Workers paid plan for elections using this
-   mode (the deployment already assumes D1 + Workers; $5/mo is the cheapest safe answer);
-   drop to 30 s only if the owner wants to stay on the free tier.
-2. **Is ~30–45 s staleness acceptable for "can vote immediately"?** A just-registered
-   member can vote after the next refresh; instant voting would need a per-member lookup
-   endpoint in the Service API, which lives in the ppij-identity repo. *Recommendation:*
-   accept the refresh cycle; file the per-member endpoint as a ppij-identity wish, not a
-   blocker.
-3. **Long portal outage (hours) during an open live-mode election.** Votes keep being
-   accepted against the last view. *Recommendation:* add a Dasbor warning banner with the
-   last refresh time once the view is more than 5 minutes stale, so the committee notices
-   without the system stopping anything.
-4. **Silent automatic refreshes.** No audit entry per refresh avoids flooding the hash
-   chain; the trade-off is that roll changes during voting leave no per-change audit
-   trail. *Recommendation:* keep them silent (the watermark time is visible on the Pemilih
-   page; the closing snapshot entry fixes the final number in the chain); if the owner
-   prefers traceability, add the throttled "portal view refreshed" entry (max one per 10
-   minutes) described in D8.
-5. **Live denominator shrinking below Suara Masuk mid-vote.** The strip could briefly show
-   more votes than voters. *Recommendation:* show the true numbers (trustworthy beats
-   tidy), clamp `unused_count` at zero and percentages at 100, and let the closing
-   snapshot settle the official denominator; do not hide the strip.
-6. **Visibility in Terjadwal.** The brief says the stat shows while open and after close;
-   showing "Jumlah Pemilih" already in Terjadwal (from the synced view, Suara Masuk 0)
-   would preview the electorate before voting starts. *Recommendation:* follow the brief —
-   hidden in Draf and Terjadwal; revisit if the owner wants the electorate visible while
-   scheduled.
+_None._ The owner answered on 2026-11-19: the labels are "Jumlah Pemilih" and "Suara
+Masuk" (Q202); the deployment is on the Workers Paid plan and polls every 15 s, so the
+free-plan budget question is gone (Q204); the strip shows from Terjadwal with the synced
+view as Jumlah Pemilih and Suara Masuk 0, hidden only in Draf (Q205); the remaining
+questions were accepted as recommended — the ~30–45 s staleness window (no per-member
+portal endpoint exists; a per-member lookup stays a ppij-identity wish), the Dasbor
+stale-view banner after 5 minutes (D6), silent automatic refreshes (D8), true numbers
+with clamped `unused_count` and 100-capped percentages when the live denominator shrinks
+mid-vote (D4 edge), and hidden-in-Draf-only visibility.

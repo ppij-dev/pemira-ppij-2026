@@ -85,10 +85,10 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 
 ## 7. Server: public turnout endpoint (results)
 
-- [ ] 7.1 Failing tests first in a new `test/turnout-api.test.ts`: visible data while
-      Dibuka, Ditutup and Diumumkan (counts only: stage, eligible, votes, time), no
-      candidate/choice/korda fields in both switch states, rate limit per IP, hidden
-      (404/409-style refusal) in Draf and Terjadwal.
+- [ ] 7.1 Failing tests first in a new `test/turnout-api.test.ts`: visible data from
+      Terjadwal (Jumlah Pemilih from the synced view, Suara Masuk 0), Dibuka, Ditutup and
+      Diumumkan (counts only: stage, eligible, votes, time), no candidate/choice/korda
+      fields in both switch states, rate limit per IP, refusal in Draf.
 - [ ] 7.2 Implement `GET /api/turnout` in `src/server/results/routes.ts` +
       `src/server/results/queries.ts` with the `rate_limits` guard; run the group's tests
       green.
@@ -98,18 +98,21 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [ ] 8.1 `src/pages/admin/pemilihan.astro`: add the "Tidak Membekukan DPT" switch beside
       the single-candidate switch (Draf-only, read-only afterwards, helper text from
       design D9, posting to the toggle route with refresh-by-navigation only, no emoji).
-- [ ] 8.2 `src/pages/admin/dasbor.astro`: live-mode note and saved-number figures after
-      close; `src/pages/admin/pemilih.astro`: last portal refresh time in JST.
-- [ ] 8.3 Focused check: build passes and both pages render the switch state and the
-      note from the elections row in Draf, Dibuka and Ditutup.
+- [ ] 8.2 `src/pages/admin/dasbor.astro`: live-mode note, the stale-view warning banner
+      after 5 minutes without a successful refresh (design D6), and saved-number figures
+      after close; `src/pages/admin/pemilih.astro`: last portal refresh time in JST.
+- [ ] 8.3 Focused check: build passes and both pages render the switch state, the note
+      and the banner from the elections row and watermark in Draf, Terjadwal, Dibuka and
+      Ditutup.
 
 ## 9. UI: landing turnout strip
 
 - [ ] 9.1 `src/pages/index.astro`: render the strip above the schedule panel for stages
-      Dibuka/Ditutup/Diumumkan with labels "Jumlah Pemilih" and "Suara Masuk", server-
-      rendered initial numbers, and the polling script (15 s open / 60 s closed,
+      Terjadwal/Dibuka/Ditutup/Diumumkan with labels "Jumlah Pemilih" and "Suara Masuk",
+      server-
+      rendered initial numbers, and the polling script (15 s open / 60 s otherwise,
       `visibilitychange` pause, jitter) with the number-flip animation on change; hidden
-      in Draf and Terjadwal.
+      in Draf.
 - [ ] 9.2 Focused check: build passes and the strip renders the right figures in each
       stage and both switch states; manual smoke of the flip animation against the local
       dev server.
