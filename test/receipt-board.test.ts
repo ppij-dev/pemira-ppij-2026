@@ -10,6 +10,8 @@ import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
+import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
+import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import { boardRoutes, ensureClosingSnapshot } from "../src/server/voting/board";
 import { closeEarly } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -25,7 +27,7 @@ const future = new Date(Date.now() + 60_000).toISOString();
 
 beforeEach(async () => {
   await reset();
-  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
+  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(sql.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO elections (id,title,status_lock,opens_at,closes_at) VALUES (1,'Pemilihan','locked',?,?)").bind(open, future).run();
 });

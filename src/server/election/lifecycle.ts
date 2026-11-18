@@ -4,6 +4,8 @@ import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
+import { liveHakPilih } from "./hakPilih";
+import { ensureClosingHakPilih } from "../voting/board";
 import { isVoteChoice, type VoteChoice } from "../voting/choice";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null,actor?:AdminActor) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action,target,komsat_path:null,detail_json:detail}); }
@@ -67,6 +69,29 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
  ]);
  return {enabled};
 }
+/**
+ * Saklar "Tidak Membekukan DPT" (keputusan owner 2026-11-19): nilainya hanya
+ * dapat diubah saat Draf dan dibekukan saat Kunci & Jadwalkan, mirip mode
+ * kandidat tunggal. Saat menyala, roll mengikuti portal selama pemungutan
+ * suara dan Hak pilih ditetapkan saat penutupan; surat suara tak terpengaruh,
+ * jadi tidak ada syarat suara tersimpan di sini.
+ */
+export async function getLiveVoterRollMode(db:D1Database):Promise<{enabled:boolean;editable:boolean;reason:string|null}> {
+ const row=await db.prepare("SELECT status_lock,live_voter_roll FROM elections ORDER BY id LIMIT 1").first<{status_lock:string;live_voter_roll:number}>();
+ const draft=row?.status_lock==="draft";
+ return {enabled:row?.live_voter_roll===1,editable:draft,reason:draft?null:"Nilai ini dibekukan setelah Kunci & Jadwalkan."};
+}
+export async function setLiveVoterRollMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor) {
+ if(typeof enabled!=="boolean") throw new ElectionError("Nilai saklar Tidak Membekukan DPT tidak valid",400);
+ const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
+ if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
+ if(row.status_lock!=="draft") throw new ElectionError("Tidak Membekukan DPT hanya dapat diubah saat Draf",409);
+ await db.batch([
+  db.prepare("UPDATE elections SET live_voter_roll=? WHERE status_lock='draft'").bind(enabled?1:0),
+  await audit(db,now,enabled?"Tidak Membekukan DPT diaktifkan":"Tidak Membekukan DPT dinonaktifkan",null,JSON.stringify({live_voter_roll:enabled}),actor),
+ ]);
+ return {enabled};
+}
 /** Frasa konfirmasi "Kembali ke Draf"; dibandingkan seperti konfirmasi nickname. */
 export const RETURN_TO_DRAFT_PHRASE="KEMBALI KE DRAF";
 /** Tahap terkunci yang boleh ditinggalkan; Draf dan Diumumkan tidak pernah masuk sini. */
@@ -113,7 +138,7 @@ export async function returnToDraft(db:D1Database,now:Date,phrase:unknown,actor?
  const detail=JSON.stringify({stage_before:stageBefore,preview_mode:row.preview_mode===1,kept_ballots:keptBallots,kept_participation:keptParticipation});
  const auditEntry=await buildGuardedAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Pemilihan dikembalikan ke Draf",target:null,komsat_path:null,detail_json:detail});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
+  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL,closing_hak_pilih=NULL,closing_hak_pilih_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
   auditEntry,
  ]);
  if(!results[0]?.meta.changes) {
@@ -138,26 +163,37 @@ export async function lockElection(db:D1Database,cfg:ServiceApiConfig,now:Date,f
  try { return await lockElectionInternal(db,cfg,now,fetchImpl); } finally { activeLocks.delete(db); }
 }
 async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,fetchImpl:typeof fetch) {
- const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number;single_candidate_mode:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
+ const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;allow_admin_voting:number;preview_mode:number;single_candidate_mode:number;live_voter_roll:number}>(); if(!row||row.status_lock!=="draft") throw new ElectionError("Pemilihan bukan Draf");
  const checks=await getReadiness(db,now); if(checks.some(c=>!c.ok)) throw new ElectionError("Kesiapan pemilihan belum terpenuhi",409,checks);
  let finalSync: { excluded: number } | null = null;
  if(!row.preview_mode) { try { finalSync=await syncPemilih(db,cfg,now,fetchImpl,{full:true}); } catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); } }
- // Hak pilih beku hanya menghitung baris roll yang boleh memilih (can_vote = 1);
- // can_vote 0/NULL tidak pernah diterima saat memilih, jadi bukan bagian denominator.
- const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
- const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
- const frozen=count-(row.allow_admin_voting===0?admins:0);
+ // Mode "Tidak Membekukan DPT": sinkronisasi final tetap dijalankan supaya view
+ // portal mulai lengkap dan portal terbukti terjangkau saat Kunci, tetapi roll
+ // tidak dibekukan (frozen_at/frozen_hak_pilih tetap NULL). Hitungan view awal
+ // diaudit; rumusnya satu helper yang sama dengan pembekuan biasa.
+ const live=row.live_voter_roll===1;
+ let frozen:number; let portalViewCount:number|null=null;
+ if(live) { portalViewCount=await liveHakPilih(db); frozen=portalViewCount; }
+ else {
+  // Hak pilih beku hanya menghitung baris roll yang boleh memilih (can_vote = 1);
+  // can_vote 0/NULL tidak pernah diterima saat memilih, jadi bukan bagian denominator.
+  const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
+  const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
+  frozen=count-(row.allow_admin_voting===0?admins:0);
+ }
  const candidates=(await db.prepare("SELECT id FROM candidates ORDER BY id").all<{id:number}>()).results;
  const colors=[...palette];
  for(let i=colors.length-1;i>0;i--){const j=crypto.getRandomValues(new Uint32Array(1))[0]!%(i+1); [colors[i],colors[j]]=[colors[j]!,colors[i]!];}
  const deletions=await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=1").bind(row.id).first<{n:number}>();
  const votes=deletions?.n??0;
- const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,single_candidate_mode:row.single_candidate_mode===1,...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
- const statements=[db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
+ const lockAudit=await audit(db,now,"Pemilihan dikunci",String(row.id),JSON.stringify({frozen_hak_pilih:live?undefined:frozen,detail:`Data uji coba dihapus: ${votes} suara`,deleted_test_votes:votes,single_candidate_mode:row.single_candidate_mode===1,live_voter_roll:live,...(live&&portalViewCount!=null?{portal_view_count:portalViewCount}:{}),...(finalSync?.excluded?{tanpa_hak_pilih:finalSync.excluded}:{})}));
+ const statements=[live
+  ?db.prepare("UPDATE elections SET status_lock='locked' WHERE id=? AND status_lock='draft'").bind(row.id)
+  :db.prepare("UPDATE elections SET status_lock='locked',frozen_hak_pilih=?,frozen_at=? WHERE id=? AND status_lock='draft'").bind(frozen,now.toISOString(),row.id),db.prepare("DELETE FROM participation WHERE election_id=? AND is_test=1").bind(row.id),db.prepare("DELETE FROM ballots WHERE election_id=? AND is_test=1").bind(row.id),...candidates.map((c,i)=>db.prepare("UPDATE candidates SET color=? WHERE id=?").bind(colors[i]!,c.id)),lockAudit];
  let result;
  try { result=await db.batch(statements); } catch(error) { const current=await db.prepare("SELECT status_lock FROM elections WHERE id=?").bind(row.id).first<{status_lock:string}>(); if(current?.status_lock!=="draft") throw new ElectionError("Pemilihan telah dikunci oleh permintaan lain"); throw error; }
  if(!result[0]?.meta.changes) throw new ElectionError("Pemilihan telah dikunci oleh permintaan lain");
- return {frozen_hak_pilih:frozen,deleted_test_votes:votes};
+ return live?{deleted_test_votes:votes}:{frozen_hak_pilih:frozen,deleted_test_votes:votes};
 }
 async function requireStage(db:D1Database,now:Date,desired:"open"|"closed") {
  const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}>(); if(!row||stage(row,now.toISOString())!==desired) throw new ElectionError("Tahap pemilihan tidak mengizinkan tindakan ini"); return row;
@@ -171,10 +207,20 @@ export async function closeEarly(db:D1Database,now:Date,reason:string) {
  const prevHash=last?.hash??AUDIT_GENESIS_HASH;
  const auditEntry={at,actor_type:"admin" as const,actor_member_id:null,actor_name:"",action:"Pemilihan ditutup lebih awal",target:null,komsat_path:null,detail_json:detail};
  const hash=await sha256Hex(prevHash+canonicalRow({...auditEntry,prev_hash:prevHash}));
- const results=await db.batch([
-  db.prepare("UPDATE elections SET closed_early_at=?, closing_snapshot_hash=?, closing_snapshot_at=? WHERE id=? AND status_lock='locked' AND closed_early_at IS NULL AND closing_snapshot_hash IS NULL").bind(at,hash,at,row.id),
+ // Mode Tidak Membekukan DPT: Hak pilih akhir ditetapkan di batch penutupan ini
+ // juga, dengan entri audit sistem berantai setelah entri penutupan.
+ const live=(await db.prepare("SELECT live_voter_roll FROM elections WHERE id=?").bind(row.id).first<{live_voter_roll:number}>())?.live_voter_roll===1;
+ const closingHakPilih=live?await liveHakPilih(db):null;
+ const statements=[
+  db.prepare("UPDATE elections SET closed_early_at=?, closing_snapshot_hash=?, closing_snapshot_at=?, closing_hak_pilih=COALESCE(?, closing_hak_pilih), closing_hak_pilih_at=COALESCE(?, closing_hak_pilih_at) WHERE id=? AND status_lock='locked' AND closed_early_at IS NULL AND closing_snapshot_hash IS NULL").bind(at,hash,at,closingHakPilih,live?at:null,row.id),
   db.prepare("INSERT INTO audit_log (at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash) SELECT ?,?,?,?,?,?,?,?,?,? FROM elections WHERE id=? AND closed_early_at=? AND closing_snapshot_hash=?").bind(at,"admin",null,"","Pemilihan ditutup lebih awal",null,null,detail,prevHash,hash,row.id,at,hash),
- ]);
+ ];
+ if(live&&closingHakPilih!=null) {
+  const savedEntry={at,actor_type:"system" as const,actor_member_id:null,actor_name:"",action:"Hak pilih akhir disimpan",target:String(row.id),komsat_path:null,detail_json:JSON.stringify({hak_pilih:closingHakPilih})};
+  const savedHash=await sha256Hex(hash+canonicalRow({...savedEntry,prev_hash:hash}));
+  statements.push(db.prepare("INSERT INTO audit_log (at,actor_type,actor_member_id,actor_name,action,target,komsat_path,detail_json,prev_hash,hash) SELECT ?,?,?,?,?,?,?,?,?,? FROM elections WHERE id=? AND closed_early_at=? AND closing_snapshot_hash=? AND closing_hak_pilih=?").bind(at,"system",null,"","Hak pilih akhir disimpan",String(row.id),null,savedEntry.detail_json,hash,savedHash,row.id,at,hash,closingHakPilih));
+ }
+ const results=await db.batch(statements);
  if(!results[0]?.meta?.changes) throw new ElectionError("Pemilihan sudah ditutup");
 }
 /** Pesan penolakan Umumkan selama Hitung Abstain belum dijalankan (mode kandidat tunggal). */
@@ -187,14 +233,19 @@ export interface AbstainCountState {
  pending_count:number;
  can_run:boolean; reason:string|null;
 }
-interface AbstainRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;abstain_counted_at:string|null;abstain_counted_count:number|null}
+interface AbstainRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;abstain_counted_at:string|null;abstain_counted_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
 /** Keadaan tombol Hitung Abstain: alasan penolakan (atau null) dan angka yang akan ditambahkan. */
 export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCountState> {
- const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,abstain_counted_at,abstain_counted_count FROM elections ORDER BY id LIMIT 1").first<AbstainRow>();
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,abstain_counted_at,abstain_counted_count,live_voter_roll,closing_hak_pilih FROM elections ORDER BY id LIMIT 1").first<AbstainRow>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
  const st=stage({status_lock:row.status_lock,opens_at:row.opens_at??"",closes_at:row.closes_at??"",closed_early_at:row.closed_early_at},now.toISOString());
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
- const pending=Math.max(0,(row.frozen_hak_pilih??0)-participation);
+ // Mode Tidak Membekukan DPT: angka dasarnya Hak pilih akhir yang tersimpan
+ // (penetapan dijalankan di pembacaan ini bila belum ada), bukan hitungan live.
+ const eligible=row.live_voter_roll===1
+  ?((await ensureClosingHakPilih(db,now))??await liveHakPilih(db))
+  :(row.frozen_hak_pilih??0);
+ const pending=Math.max(0,eligible-participation);
  const counted=row.abstain_counted_at!==null;
  const reason=row.single_candidate_mode!==1?"Hitung Abstain hanya berlaku pada mode kandidat tunggal."
   :counted?"Hitung Abstain sudah dijalankan dan tidak dapat diulang."
