@@ -12,6 +12,8 @@ import { REGULAR_MEMBER_CATEGORY } from "../../lib/memberCategory";
 import { usableName } from "../lib/displayName";
 import { generateReceipt } from "./receipt";
 import { isVoteChoice, type VoteChoice } from "./choice";
+import { ensurePortalViewFresh } from "../serviceapi/sync";
+import type { ServiceApiConfig } from "../serviceapi/client";
 
 export { VOTE_CHOICES, isVoteChoice } from "./choice";
 export type { VoteChoice } from "./choice";
@@ -52,6 +54,7 @@ export interface ElectionRow {
   allow_admin_voting: number;
   preview_mode: number;
   single_candidate_mode: number;
+  live_voter_roll: number;
 }
 
 export interface VoterRow {
@@ -66,7 +69,7 @@ export interface VoterRow {
 }
 
 const ELECTION_SQL =
-  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode,single_candidate_mode FROM elections ORDER BY id LIMIT 1";
+  "SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_at,allow_admin_voting,preview_mode,single_candidate_mode,live_voter_roll FROM elections ORDER BY id LIMIT 1";
 
 /** Usia auth_time dalam detik; negatif berarti dari masa depan. */
 function sessionAgeSec(session: VoteSession): number {
@@ -134,6 +137,7 @@ async function autoRegisterPreviewVoter(db: D1Database, session: VoteSession, sc
 export async function authorizeVoter(
   db: D1Database,
   session: VoteSession,
+  portal?: ServiceApiConfig,
 ): Promise<{ election: ElectionRow; voter: VoterRow }> {
   // Tahap harus tersedia dan afiliasi sesi di dalam cakupan situs
   const election = await db.prepare(ELECTION_SQL).first<ElectionRow>();
@@ -151,7 +155,9 @@ export async function authorizeVoter(
     throw new VoteError("Sesi masuk tidak valid. Silakan masuk kembali.", 401, "stale_session");
   }
 
-  if (!election.frozen_at) throw new VoteError("Daftar pemilih belum dibekukan.", 409, "not_locked");
+  // Roll beku tetap syarat pada pemilihan biasa; mode "Tidak Membekukan DPT"
+  // mengganti syarat itu dengan view portal yang hidup (dicek di bawah).
+  if (!election.frozen_at && election.live_voter_roll !== 1) throw new VoteError("Daftar pemilih belum dibekukan.", 409, "not_locked");
   const currentStage = stage(election, new Date().toISOString());
   if (currentStage !== "open") {
     // Kata yang sama dengan Pilih Suara (keputusan owner Q191): Terjadwal belum dimulai,
@@ -167,12 +173,19 @@ export async function authorizeVoter(
     throw new VoteError("Admin Voting tidak ikut memilih di pemilihan ini.", 403, "admin_voting_not_allowed");
   }
 
-  // Pemilih harus ada di roll beku dan berstatus ACTIVE. Pada Mode Pratinjau
-  // keanggotaan aktif dalam cakupan sudah terbukti dari klaim sesi, sehingga
-  // pemilih terdaftar otomatis tanpa menunggu sinkronisasi daftar beku; baris
-  // pratinjau lama yang belum punya keputusan portal (can_vote null) juga
-  // disembuhkan di sini karena Mode Pratinjau tidak bisa menyegarkan dari
-  // Service API.
+  // Pemilih diperiksa ke roll (beku, atau view portal yang hidup) dan harus
+  // berstatus ACTIVE. Pada Mode Pratinjau keanggotaan aktif dalam cakupan sudah
+  // terbukti dari klaim sesi, sehingga pemilih terdaftar otomatis tanpa
+  // menunggu sinkronisasi daftar beku; baris pratinjau lama yang belum punya
+  // keputusan portal (can_vote null) juga disembuhkan di sini karena Mode
+  // Pratinjau tidak bisa menyegarkan dari Service API. Saat saklar "Tidak
+  // Membekukan DPT" menyala (dan pratinjau mati), view portal disegarkan dulu
+  // bila perlu (TTL + cooldown, stale-while-unavailable), lalu anggota diperiksa
+  // ke view terakhir, bukan ke roll beku.
+  const liveRoll = election.live_voter_roll === 1 && election.preview_mode !== 1;
+  if (liveRoll && portal) {
+    await ensurePortalViewFresh(db, portal, new Date());
+  }
   let voter = await db
     .prepare("SELECT member_id,name,komsat_path,status,category,can_vote FROM voters WHERE member_id = ?")
     .bind(session.member_id)
@@ -213,8 +226,9 @@ export async function castVote(
   session: VoteSession,
   body: unknown,
   hooks?: { beforeBatch?: () => Promise<void> },
+  portal?: ServiceApiConfig,
 ): Promise<VoteResult> {
-  const { voter } = await authorizeVoter(db, session);
+  const { voter } = await authorizeVoter(db, session, portal);
 
   // Rate limit: 5 percobaan per 60 detik per sesi, dihitung setelah otorisasi
   await consumeVoteAttempt(db, session.member_id);
@@ -268,7 +282,7 @@ export async function castVote(
   };
   const openGuard = `
     status_lock = 'locked'
-    AND frozen_at IS NOT NULL
+    AND (frozen_at IS NOT NULL OR live_voter_roll = 1)
     AND closed_early_at IS NULL
     AND julianday(opens_at) <= julianday('now')
     AND julianday(closes_at) > julianday('now')
@@ -277,7 +291,7 @@ export async function castVote(
   // All batch statements compare the audit tip observed before the batch.
   // A concurrent append makes all three inserts no-op; retry with a fresh tip.
   for (let attempt = 0; attempt < 3; attempt++) {
-    const current = await authorizeVoter(db, session);
+    const current = await authorizeVoter(db, session, portal);
     const tip = await db.prepare("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1").first<{ hash: string }>();
     const previousHash = tip?.hash ?? AUDIT_GENESIS_HASH;
     const hash = await sha256Hex(previousHash + canonicalRow({ ...auditEntry, prev_hash: previousHash }));
@@ -321,7 +335,7 @@ export async function castVote(
     }
 
     const latest = await db.prepare(ELECTION_SQL).first<ElectionRow>();
-    if (!latest || !latest.frozen_at || stage(latest, new Date().toISOString()) !== "open") {
+    if (!latest || (latest.frozen_at == null && latest.live_voter_roll !== 1) || stage(latest, new Date().toISOString()) !== "open") {
       throw new VoteError("Batas waktu pemungutan suara telah lewat.", 409, "not_open");
     }
     if (attempt === 2) throw new VoteError("Pemilihan sedang menerima suara lain. Coba lagi.", 409, "audit_tip_changed");
@@ -348,12 +362,12 @@ export interface EligibilityResult {
 }
 
 /** GET /api/votes/eligibility: allowed/reason/fresh_login_needed + stage, tanpa kandidat. */
-export async function getEligibility(db: D1Database, session: VoteSession | null): Promise<EligibilityResult> {
+export async function getEligibility(db: D1Database, session: VoteSession | null, portal?: ServiceApiConfig): Promise<EligibilityResult> {
   const election = await db.prepare(ELECTION_SQL).first<ElectionRow>();
   const currentStage = election ? stage(election, new Date().toISOString()) : null;
   if (!session) return { allowed: false, reason: "not_logged_in", fresh_login_needed: true, stage: currentStage };
   try {
-    await authorizeVoter(db, session);
+    await authorizeVoter(db, session, portal);
   } catch (error) {
     if (error instanceof VoteError) {
       return {
