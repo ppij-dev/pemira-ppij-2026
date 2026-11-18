@@ -8,6 +8,8 @@ import singleCandidateModeMigrationSql from "../migrations/0011_single_candidate
 import ballotChoiceMigrationSql from "../migrations/0012_ballot_choice.sql?raw";
 import ballotAbstainMigrationSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
+import liveVoterRollSql from "../migrations/0015_live_voter_roll.sql?raw";
+import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -40,6 +42,8 @@ beforeEach(async () => {
     ballotChoiceMigrationSql,
     ballotAbstainMigrationSql,
     abstainCountedSql,
+    liveVoterRollSql,
+    closingHakPilihSql,
   ].join(";")
     .split(";")
     .map((statement) => statement.trim())
@@ -134,6 +138,33 @@ describe("migrations/0001_init.sql", () => {
       .toEqual({ single_candidate_mode: 1 });
     await expect(env.DB.prepare("UPDATE elections SET single_candidate_mode = 2 WHERE id = 1").run())
       .rejects.toThrow(/CHECK constraint failed/);
+  });
+
+  it("saklar Tidak Membekukan DPT mati secara bawaan dan hanya menerima 0/1", async () => {
+    await insertElection(1);
+    expect(await env.DB.prepare("SELECT live_voter_roll FROM elections WHERE id = 1").first())
+      .toEqual({ live_voter_roll: 0 });
+    await env.DB.prepare("UPDATE elections SET live_voter_roll = 1 WHERE id = 1").run();
+    expect(await env.DB.prepare("SELECT live_voter_roll FROM elections WHERE id = 1").first())
+      .toEqual({ live_voter_roll: 1 });
+    await expect(env.DB.prepare("UPDATE elections SET live_voter_roll = 2 WHERE id = 1").run())
+      .rejects.toThrow(/CHECK constraint failed/);
+  });
+
+  it("kolom Hak pilih akhir menerima NULL lalu angka dan waktu", async () => {
+    await insertElection(1);
+    expect(await env.DB.prepare("SELECT closing_hak_pilih, closing_hak_pilih_at FROM elections WHERE id = 1").first())
+      .toEqual({ closing_hak_pilih: null, closing_hak_pilih_at: null });
+    await env.DB
+      .prepare("UPDATE elections SET closing_hak_pilih = ?, closing_hak_pilih_at = ? WHERE id = 1")
+      .bind(118, "2026-12-02T12:00:00Z")
+      .run();
+    expect(await env.DB.prepare("SELECT closing_hak_pilih, closing_hak_pilih_at FROM elections WHERE id = 1").first())
+      .toEqual({ closing_hak_pilih: 118, closing_hak_pilih_at: "2026-12-02T12:00:00Z" });
+    // Angka negatif tidak masuk akal; kolom bebas tapi tulisan kembali NULL boleh.
+    await env.DB.prepare("UPDATE elections SET closing_hak_pilih = NULL, closing_hak_pilih_at = NULL WHERE id = 1").run();
+    expect(await env.DB.prepare("SELECT closing_hak_pilih FROM elections WHERE id = 1").first())
+      .toEqual({ closing_hak_pilih: null });
   });
 
   it("menerima hanya setuju/tidak_setuju/abstain dan NULL pada ballots.choice", async () => {
