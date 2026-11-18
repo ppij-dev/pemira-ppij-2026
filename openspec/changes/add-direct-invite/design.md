@@ -384,11 +384,27 @@ D13) is added; it is browser-only and does not touch the Worker runtime.
 
 The two changes touch `src/server/results/queries.ts` and
 `src/server/election/lifecycle.ts`. This change keeps every link count in
-`src/server/lib/hakPilih.ts` and adds exactly one statement to the query batch plus one
-helper call in Hitung Abstain; `add-live-voter-roll` replaces the base term in the same two
-places. Whichever lands second resolves the base (frozen / live / closing snapshot) and
-keeps `withDirectInvites(...)` around it, so the invite term is added once, after the base
-is resolved, and cannot be counted twice.
+`src/server/lib/hakPilih.ts`; `add-live-voter-roll` (already on `main`) replaces the base
+term in the same two places. Concretely, after the merge:
+
+- `results/queries.ts`: `const eligibleCount = withDirectInvites(resolution.hakPilih,
+  await directInviteTerm(db));` — the live-roll `resolveHakPilih(db, now)` keeps owning the
+  base (frozen / live view / `closing_hak_pilih`) and the invite term is added after it. If
+  the merger prefers one batch, the invite count may instead come from
+  `directInviteStatement(db)` placed in the batch; the helper is the single owner either
+  way, and nothing else may count links.
+- `election/lifecycle.ts` `getAbstainCount`: `const eligible =
+  withDirectInvites(row.live_voter_roll === 1 ? ((await ensureClosingHakPilih(db, now)) ??
+  await liveHakPilih(db)) : (row.frozen_hak_pilih ?? 0), await directInviteTerm(db));`.
+- `ensureClosingHakPilih` (the closing snapshot) must include the invite term, so the
+  frozen closing denominator counts the links that were active at close; that is the same
+  `directInviteTerm(db)` call inside the snapshot batch.
+- `lockElection`'s audit detail keeps both parts: the live-roll fields and
+  `active_direct_links`.
+- Migration numbers do not collide: `main` has `0015`/`0016`, this change adds `0017`.
+
+Whichever side resolves the base, the invite term is added exactly once, after the base,
+so it cannot be counted twice.
 
 ## Open questions
 
