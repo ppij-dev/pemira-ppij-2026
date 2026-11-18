@@ -7,6 +7,7 @@ import { ElectionError, type ReadinessCheck } from "./candidates";
 import { directInviteTerm, liveHakPilih } from "./hakPilih";
 import { resolveHakPilih } from "../voting/board";
 import { isVoteChoice, type VoteChoice } from "../voting/choice";
+import { fromJstInputValue } from "../../lib/scheduleInput";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null,actor?:AdminActor) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action,target,komsat_path:null,detail_json:detail}); }
 /** Admin Voting yang memicu tindakan; dipakai entri audit yang mencatat pelakunya. */
@@ -149,9 +150,10 @@ export async function returnToDraft(db:D1Database,now:Date,phrase:unknown,actor?
 }
 export async function setSchedule(db:D1Database,now:Date,input:{title:string;description:string;opens_at:string;closes_at:string;preview_mode?:boolean}) {
  const e=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>(); if(e?.status_lock!=="draft") throw new ElectionError("Jadwal hanya dapat diubah saat Draf");
- if(!Number.isFinite(Date.parse(input.opens_at))||!Number.isFinite(Date.parse(input.closes_at))||Date.parse(input.closes_at)<=Date.parse(input.opens_at)) throw new ElectionError("Jadwal tidak valid",400);
- // Simpan sebagai UTC-Z agar perbandingan waktu konsisten di seluruh guard.
- const opensAt=new Date(input.opens_at).toISOString(); const closesAt=new Date(input.closes_at).toISOString();
+ // Formulir mengirim waktu dinding (datetime-local): nilai tanpa zona dibaca sebagai JST,
+ // nilai ber-zona tetap dipakai apa adanya. Simpan sebagai UTC-Z agar guard konsisten.
+ const opensAt=fromJstInputValue(input.opens_at); const closesAt=fromJstInputValue(input.closes_at);
+ if(!opensAt||!closesAt||Date.parse(closesAt)<=Date.parse(opensAt)) throw new ElectionError("Jadwal tidak valid",400);
  const previewMode=input.preview_mode===true?1:0;
  await db.batch([db.prepare("UPDATE elections SET title=?,description=?,opens_at=?,closes_at=?,preview_mode=? WHERE status_lock='draft'").bind(input.title,input.description,opensAt,closesAt,previewMode),await audit(db,now,"Jadwal pemilihan diperbarui",null,previewMode?JSON.stringify({preview_mode:true}):null)]);
 }
@@ -201,7 +203,7 @@ async function lockElectionInternal(db:D1Database,cfg:ServiceApiConfig,now:Date,
 async function requireStage(db:D1Database,now:Date,desired:"open"|"closed") {
  const row=await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:"draft"|"locked"|"published";opens_at:string;closes_at:string;closed_early_at:string|null}>(); if(!row||stage(row,now.toISOString())!==desired) throw new ElectionError("Tahap pemilihan tidak mengizinkan tindakan ini"); return row;
 }
-export async function extendClosing(db:D1Database,now:Date,newClosesAt:string,reason:string) { const row=await requireStage(db,now,"open"); if(!Number.isFinite(Date.parse(newClosesAt))||Date.parse(newClosesAt)<=Date.parse(row.closes_at)) throw new ElectionError("Waktu penutupan baru harus lebih akhir"); const normalizedClosesAt=new Date(newClosesAt).toISOString(); await db.batch([db.prepare("UPDATE elections SET closes_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(normalizedClosesAt),await audit(db,now,"Waktu penutupan diperpanjang",null,JSON.stringify({closes_at:normalizedClosesAt,reason}))]); }
+export async function extendClosing(db:D1Database,now:Date,newClosesAt:string,reason:string) { const row=await requireStage(db,now,"open"); const normalizedClosesAt=fromJstInputValue(newClosesAt); if(!normalizedClosesAt||Date.parse(normalizedClosesAt)<=Date.parse(row.closes_at)) throw new ElectionError("Waktu penutupan baru harus lebih akhir"); await db.batch([db.prepare("UPDATE elections SET closes_at=? WHERE status_lock='locked' AND closed_early_at IS NULL").bind(normalizedClosesAt),await audit(db,now,"Waktu penutupan diperpanjang",null,JSON.stringify({closes_at:normalizedClosesAt,reason}))]); }
 export async function closeEarly(db:D1Database,now:Date,reason:string) {
  const row=await requireStage(db,now,"open");
  const at=now.toISOString();

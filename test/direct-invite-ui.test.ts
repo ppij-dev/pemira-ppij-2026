@@ -67,6 +67,24 @@ describe("Undangan Pemilih: tabel, filter dan unduhan", () => {
     expect(adminPage).toContain("generateButton.disabled = closed;");
     expect(adminPage).toContain("Tautan tidak dapat dibuat atau dibatalkan setelah pemungutan suara ditutup.");
   });
+
+  it("menampilkan catatan hasil, filter kosong dan jendela tutup lewat atribut hidden", () => {
+    // Catatan ini dulu membawa kelas utilitas `hidden` di markup, sehingga menghapus
+    // atribut hidden di skrip tidak pernah memunculkannya (selalu display: none).
+    const ids = ["generate-result", "window-note", "undangan-filtered"];
+    for (const id of ids) {
+      const tag = adminPage.match(new RegExp(`<p id="${id}"[^>]*>`))?.[0];
+      expect(tag, `tag ${id} harus ada`).toBeTruthy();
+      const classes = (tag!.match(/class="([^"]*)"/)?.[1] ?? "").split(/\s+/).filter(Boolean);
+      expect(classes, `kelas ${id} tidak boleh memakai utilitas hidden`).not.toContain("hidden");
+      expect(/(^|\s)hidden(?=\s|>)/.test(tag!), `atribut hidden pada ${id}`).toBe(true);
+    }
+    // Skrip tetap menggerakkan atribut hidden (bukan kelas) untuk ketiganya.
+    expect(adminPage).toContain("result.hidden = false;");
+    expect(adminPage).toContain("result.hidden = true;");
+    expect(adminPage).toContain("filtered.hidden = rows.length === 0 || shown.length !== 0;");
+    expect(adminPage).toContain("windowNote.hidden = !closed;");
+  });
 });
 
 describe("Halaman undangan publik", () => {

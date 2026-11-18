@@ -37,8 +37,8 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
         </div>
         <Button id="generate" type="button"><IconPlus size={18} stroke={1.8} aria-hidden="true" />Buat undangan</Button>
       </div>
-      <p id="generate-result" class="mt-3 mb-0 hidden rounded-lg bg-[#f1f5f3] px-3.5 py-3 text-[13px] font-semibold leading-5 text-[#35604a]"></p>
-      <p id="window-note" class="mt-3 mb-0 hidden rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]">Tautan tidak dapat dibuat atau dibatalkan setelah pemungutan suara ditutup.</p>
+      <p id="generate-result" hidden class="mt-3 mb-0 rounded-lg bg-[#f1f5f3] px-3.5 py-3 text-[13px] font-semibold leading-5 text-[#35604a]"></p>
+      <p id="window-note" hidden class="mt-3 mb-0 rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]">Tautan tidak dapat dibuat atau dibatalkan setelah pemungutan suara ditutup.</p>
     </section>
 
     <section class={panel + " mt-5"} aria-label="Daftar undangan">
@@ -79,7 +79,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
       <div id="undangan-empty" hidden>
         <Empty icon={IconTicket} title="Belum ada undangan" description="Buat tautan undangan untuk dibagikan ke korda dan komsat." />
       </div>
-      <p id="undangan-filtered" class="mt-3 mb-0 hidden text-[13px] text-brand-muted">Tidak ada undangan yang cocok dengan filter ini.</p>
+      <p id="undangan-filtered" hidden class="mt-3 mb-0 text-[13px] text-brand-muted">Tidak ada undangan yang cocok dengan filter ini.</p>
     </section>
   </>}
 </AdminLayout>

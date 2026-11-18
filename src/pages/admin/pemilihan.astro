@@ -9,6 +9,7 @@ import Badge from "../../components/ui/Badge.astro";
 import Button from "../../components/ui/Button.astro";
 import FormField from "../../components/ui/FormField.astro";
 import { canReturnToDraft, getLiveVoterRollMode, getSingleCandidateMode } from "../../server/election/lifecycle";
+import { toJstInputValue } from "../../lib/scheduleInput";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
@@ -55,10 +56,10 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
           <textarea id="election-description" name="description" placeholder="Ringkasan pemilihan" class="min-h-28 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]">{e?.description ?? ''}</textarea>
         </FormField>
         <FormField label="Mulai · JST" for="opens-at">
-          <input id="opens-at" name="opens_at" type="datetime-local" required value={e?.opens_at?.slice(0, 16) ?? ''} class={control} />
+          <input id="opens-at" name="opens_at" type="datetime-local" required value={toJstInputValue(e?.opens_at)} class={control} />
         </FormField>
         <FormField label="Selesai · JST" for="closes-at">
-          <input id="closes-at" name="closes_at" type="datetime-local" required value={e?.closes_at?.slice(0, 16) ?? ''} class={control} />
+          <input id="closes-at" name="closes_at" type="datetime-local" required value={toJstInputValue(e?.closes_at)} class={control} />
         </FormField>
         <div class="col-span-full">
           <label for="preview-mode" class="flex items-start gap-3 rounded-lg bg-[#fff5e6] px-3.5 py-3 text-[13px] leading-5 text-[#7c5014]">
