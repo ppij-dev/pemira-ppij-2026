@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
+import { resolveHakPilih } from "../voting/board";
 import { formatUnitPath } from "../../lib/formatKomsat";
 
 /** Candidate counts of a korda are hidden below this many ballots (admin-dashboard spec). */
@@ -69,6 +70,8 @@ export interface ResultsPayload {
   korda: KordaResult[];
   /** True saat pemilihan memakai mode kandidat tunggal (dibekukan di Kunci). */
   single_candidate_mode: boolean;
+  /** True saat mode "Tidak Membekukan DPT" menyala (dibekukan di Kunci). */
+  live_voter_roll: boolean;
   /**
    * Hanya angka, tanpa keputusan: sistem tidak pernah menyatakan terpilih,
    * tidak terpilih, atau seri (keputusan owner 2026-11-16). Null saat mode mati.
@@ -113,6 +116,8 @@ interface ElectionRow {
   single_candidate_mode: number;
   abstain_counted_at: string | null;
   abstain_counted_count: number | null;
+  live_voter_roll: number;
+  closing_hak_pilih: number | null;
 }
 
 /** Canonical region prefix "/ppij/<korda>"; malformed paths fall back to a named bucket. */
@@ -125,7 +130,7 @@ export function regionKey(komsatPath: string): string {
 
 async function getElection(db: D1Database): Promise<ElectionRow> {
   const row = await db
-    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode, abstain_counted_at, abstain_counted_count FROM elections ORDER BY id LIMIT 1")
+    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode, abstain_counted_at, abstain_counted_count, live_voter_roll, closing_hak_pilih FROM elections ORDER BY id LIMIT 1")
     .first<ElectionRow>();
   if (!row) throw new ResultsError("pemilihan_belum_dibuat", 503);
   return row;
@@ -228,7 +233,12 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
 
   // D1 batch executes these SELECTs as one transaction, so totals and breakdowns
   // observe one consistent database snapshot even if a vote arrives concurrently.
-  const eligibleCount = election.frozen_hak_pilih ?? eligibleFallbackRow?.n ?? 0;
+  // Hak pilih: satu penyelesai untuk semua konsumen (keputusan owner 2026-11-19).
+  // Saklar mati memakai frozen_hak_pilih dengan fallback hitungan view saat Draf;
+  // saklar menyala memakai hitungan view selama Dibuka dan snapshot penutupan
+  // (ditetapkan di pembacaan pertama setelah Ditutup) sesudahnya.
+  const resolution = await resolveHakPilih(db, new Date(nowIso));
+  const eligibleCount = resolution.hakPilih;
   const participationCount = participationCountRow?.n ?? 0;
   const ballotCount = ballotCountRow?.n ?? 0;
   const names = new Map(unitRows.map((unit) => [unit.path, unit.name]));
@@ -318,6 +328,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     candidates: candidateRows,
     korda,
     single_candidate_mode: single,
+    live_voter_roll: election.live_voter_roll === 1,
     setuju_count: single ? setuju : null,
     tidak_setuju_count: single ? tidakSetuju : null,
     abstain_cast_count: single ? abstainCast : null,
@@ -359,4 +370,30 @@ export async function getPublicResults(db: D1Database, now: Date): Promise<Resul
   if (currentStage !== "published") return null;
   const { base } = await computeResults(db, election, currentStage, now.toISOString());
   return base;
+}
+
+export interface TurnoutPayload {
+  stage: Stage;
+  /** Hak pilih: frozen, live view, atau snapshot penutupan sesuai tahap dan saklar. */
+  eligible_count: number;
+  /** Partisipasi nyata (bukan Uji Coba); tanpa rincian kandidat/korda/pilihan. */
+  votes_count: number;
+  updated_at: string;
+}
+
+/**
+ * Dua angka publik untuk strip beranda (keputusan owner 2026-11-19): Jumlah
+ * Pemilih dan Suara Masuk. Hitungan saja, tanpa kandidat/pilihan/korda, dari
+ * Terjadwal sampai Diumumkan; Draf ditolak. Tidak pernah diaudit.
+ */
+export async function getTurnout(db: D1Database, now: Date): Promise<TurnoutPayload> {
+  const election = await getElection(db);
+  const currentStage = stage(
+    { status_lock: election.status_lock, opens_at: election.opens_at ?? "", closes_at: election.closes_at ?? "", closed_early_at: election.closed_early_at },
+    now.toISOString(),
+  );
+  if (currentStage === "draft") throw new ResultsError("statistik_belum_tersedia", 409);
+  const { hakPilih } = await resolveHakPilih(db, now);
+  const votes = (await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id = ? AND is_test = 0").bind(election.id).first<{ n: number }>())?.n ?? 0;
+  return { stage: currentStage, eligible_count: hakPilih, votes_count: votes, updated_at: now.toISOString() };
 }

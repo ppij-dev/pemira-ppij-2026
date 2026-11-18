@@ -715,3 +715,74 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(lockedData.test).toBeNull();
   });
 });
+
+describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
+  async function seedLive(opts: { status?: "locked" | "published"; single?: boolean } = {}) {
+    await seedElection({ status: opts.status ?? "locked" });
+    await env.DB.prepare("UPDATE elections SET live_voter_roll=1, frozen_hak_pilih=NULL, frozen_at=NULL").run();
+    if (opts.single) await env.DB.prepare("UPDATE elections SET single_candidate_mode=1").run();
+    // Tiga anggota berhak (satu Admin Voting; pengaturan default mengizinkan).
+    for (const member of ["anggota-1", "anggota-2", "anggota-3"]) {
+      await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, 1)").bind(member, member, `${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    }
+  }
+  it("Hak pilih live saat Dibuka: eligible dari view portal", async () => {
+    await seedLive();
+    await recordParticipation("anggota-1", `${SCOPE}/komsat-a`);
+    // View: admin-1 (dari seedBase, diizinkan ikut) + tiga anggota.
+    const res = await requestDashboard("admin-1");
+    expect(res.status).toBe(200);
+    const data = await res.json() as DashboardPayload;
+    expect(data.live_voter_roll).toBe(true);
+    expect(data.eligible_count).toBe(4);
+    expect(data.participation_count).toBe(1);
+    // View bertambah: angka Hak pilih ikut naik saat refresh berikutnya.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES ('anggota-4','anggota-4',?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    const again = await requestDashboard("admin-1");
+    expect(((await again.json()) as DashboardPayload).eligible_count).toBe(5);
+  });
+  it("setelah Ditutup: eligible dari snapshot tersimpan, tidak berubah walau view bergeser", async () => {
+    await seedLive();
+    await recordParticipation("anggota-1", `${SCOPE}/komsat-a`);
+    await env.DB.prepare("UPDATE elections SET closes_at=?").bind(new Date(Date.now() - 3_600e3).toISOString()).run();
+    const res = await requestDashboard("admin-1");
+    const data = await res.json() as DashboardPayload;
+    expect(data.stage).toBe("closed");
+    expect(data.eligible_count).toBe(4);
+    const saved = await env.DB.prepare("SELECT closing_hak_pilih,closing_hak_pilih_at FROM elections").first<{ closing_hak_pilih: number; closing_hak_pilih_at: string }>();
+    expect(saved!.closing_hak_pilih).toBe(4);
+    expect(saved!.closing_hak_pilih_at).not.toBeNull();
+    // View bergeser setelah penutupan tidak menggerakkan angka.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES ('anggota-4','anggota-4',?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    const again = await requestDashboard("admin-1");
+    expect(((await again.json()) as DashboardPayload).eligible_count).toBe(4);
+  });
+  it("saklar mati: eligible tetap dari Hak pilih beku", async () => {
+    await seedElection({ frozen: 7 });
+    const res = await requestDashboard("admin-1");
+    const data = await res.json() as DashboardPayload;
+    expect(data.live_voter_roll).toBe(false);
+    expect(data.eligible_count).toBe(7);
+    expect(await env.DB.prepare("SELECT closing_hak_pilih FROM elections").first()).toEqual({ closing_hak_pilih: null });
+  });
+  it("Hitung Abstain dan hasil memakai angka tersimpan pada live single mode", async () => {
+    await seedLive({ single: true });
+    // Satu kandidat (mode kandidat tunggal) plus roll dari seedBase dan seedLive.
+    await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES ('cand-1','Kandidat Satu',?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path,color) VALUES (1,'cand-1',1,'Kandidat Satu','Satu',?, '#ff0000')").bind(`${SCOPE}/komsat-a`).run();
+    await recordParticipation("anggota-1", `${SCOPE}/komsat-a`);
+    await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES ('b1',1,1,?, 'h-b1',0,'setuju')").bind(`${SCOPE}/komsat-a`).run();
+    await env.DB.prepare("UPDATE elections SET closes_at=?").bind(new Date(Date.now() - 3_600e3).toISOString()).run();
+    const { countAbstain } = await import("../src/server/election/lifecycle");
+    const result = await countAbstain(env.DB, new Date(), { member_id: "admin-1", name: "Admin 1" });
+    expect(result.counted_count).toBe(4); // 5 tersimpan (admin+3 anggota+kandidat) - 1 partisipasi
+    const res = await requestDashboard("admin-1");
+    const data = await res.json() as DashboardPayload;
+    expect(data.eligible_count).toBe(5);
+    expect(data.setuju_count).toBe(1);
+    expect(data.tidak_memilih_count).toBe(4);
+    expect(data.abstain_count).toBe(4);
+    expect(data.setuju_percentage).toBeCloseTo(20, 1);
+    expect(data.abstain_percentage).toBeCloseTo(80, 1);
+  });
+});
