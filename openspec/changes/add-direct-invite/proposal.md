@@ -23,7 +23,11 @@ every cancellation is audit-logged, and the link code is stored only as a hash.
   at once (1–50 per action) while the election is Draf, Terjadwal or Dibuka, and lists
   them in a table of **Link | Dibuat Pada | Oleh | Status** with a copy button per row.
   Statuses are exactly **Belum Dipakai**, **Sudah Dipakai** and **Dibatalkan**. Any Admin
-  Voting may generate and cancel; all rights are equal.
+  Voting may generate and cancel; all rights are equal. The table has a status filter
+  (Belum Dipakai / Sudah Dipakai / Dibatalkan) and a text search on the reference, and an
+  **Unduh Excel** button that builds an `.xlsx` in the browser from the loaded JSON list
+  (local processing, no upload) with the columns Link, Referensi, Dibuat Pada, Oleh,
+  Status and — for used links — Dipakai Pada, Nama, Email and Korda/Komsat.
 - **The link is the credential.** Opening `/undangan/<kode>` shows a welcome page
   ("Selamat datang di Pemilihan Umum") with "Lihat profil kandidat" and "Pilih". "Pilih"
   asks for **Nama, Email and Korda/Komsat**, the Komsat chosen from the same `units` list
@@ -41,11 +45,13 @@ every cancellation is audit-logged, and the link code is stored only as a hash.
   The frozen column itself is never rewritten; the next Kunci rebuilds only the roll term,
   so nothing is counted twice.
 - **Storage.** A new table `direct_invitations` (migration
-  `0015_direct_invitations.sql`), deliberately named so it can never be confused with the
-  existing `invitations` table, which stays the Admin Voting invitation table. Only the
-  SHA-256 of the link code is stored, plus a short non-secret `reference` (6 Crockford
-  characters) that names the row in the table and in the audit log. The link code itself
-  is shown once, at generation, and can never be read back from the server.
+  `0017_direct_invitations.sql`; `0015` and `0016` belong to the live-roll change),
+  deliberately named so it can never be confused with the existing `invitations` table,
+  which stays the Admin Voting invitation table. The row stores the link token twice: the
+  SHA-256 hash for lookup, and the token sealed with `APP_MASTER_KEY` so Admin Voting can
+  copy the link again. A short non-secret `reference` (6 Crockford characters) names the
+  row in the table and in the audit log. The decrypted link is never written to the audit
+  log, and it is no longer offered once the link is used or cancelled.
 - **The guest identity lives on the invitation row, never on the ballot.** Nama, Email and
   the chosen Komsat are stored on `direct_invitations`. The ballot keeps only the chosen
   `komsat_path` (as today), so the per-korda results include invitees and the ballot stays
@@ -84,88 +90,93 @@ every cancellation is audit-logged, and the link code is stored only as a hash.
 
 ## Impact
 
-- **DB:** `migrations/0015_direct_invitations.sql` — new table `direct_invitations`
-  (`id`, `reference UNIQUE`, `token_hash UNIQUE`, `created_at`, `created_by`,
-  `created_by_name`, `claimed_at`, `claim_id`, `guest_name`, `guest_email`,
-  `komsat_path`, `used_at`, `cancelled_at`, `cancelled_by`, `cancelled_by_name`) plus an
-  index on (`used_at`, `cancelled_at`). No column is added to `voters`, `participation`,
-  `ballots` or `elections`.
+- **DB:** `migrations/0017_direct_invitations.sql` (the live-roll change owns `0015`
+  and `0016`) — new table `direct_invitations` (`id`, `reference UNIQUE`,
+  `token_hash UNIQUE`, `token_enc`, `created_at`, `created_by`, `created_by_name`,
+  `claimed_at`, `claim_id`, `guest_name`, `guest_email`, `komsat_path`, `used_at`,
+  `cancelled_at`, `cancelled_by`, `cancelled_by_name`) plus an index on (`used_at`,
+  `cancelled_at`). No column is added to `voters`, `participation`, `ballots` or
+  `elections`.
 - **Server:** new `src/server/direct/` (the module name is "direct", never
   "invitations", so nobody confuses it with the Admin Voting `invitations` table) —
-  `code.ts` (Crockford link code, hash, normalize, short `reference`), `create.ts` (batch
-  generation, listing, status), `cancel.ts`, `claim.ts` (guest details, sealed invite
-  session, reservation), `open.ts` (link resolution and stage view), `vote.ts` (invite
-  vote batch) and `routes.ts` (public `/api/undangan/*`); the admin endpoints
-  `/api/admin/undangan*` are added to `src/server/admin/routes.ts` so they inherit its
-  `requireAdmin` guard. Reuse of `src/server/voting/{receipt,choice}.ts` (the same
-  Crockford code and SHA-256 hashing) and the audit helpers; `src/server/results/
-  queries.ts` (Hak pilih and per-korda denominators); `src/server/election/lifecycle.ts`
-  (Hitung Abstain pending count, lock audit detail); `src/server/audit/labels.ts`
-  (`undangan:<reference>` targets).
-- **UI:** new `src/pages/admin/undangan.astro` (generation form, show-once result panel,
-  table, copy buttons, cancel, statuses) and `src/pages/undangan/[kode].astro` plus
-  `src/pages/undangan/[kode]/surat-suara.astro` (welcome, claim form, invitee ballot);
-  navigation entry in `src/layouts/AdminLayout.astro`; `src/pages/admin/dasbor.astro`,
-  `src/pages/hasil.astro` and `src/pages/index.astro` for the invite voters in the
-  statistics.
+  `code.ts` (Crockford link code, seal, hash, normalize, short `reference`), `create.ts`
+  (batch generation, listing with links, status), `cancel.ts`, `claim.ts` (guest details,
+  sealed invite session, reservation), `open.ts` (link resolution and stage view),
+  `vote.ts` (invite vote batch) and `routes.ts` (public `/api/undangan/*`); the admin
+  endpoints `/api/admin/undangan*` are added to `src/server/admin/routes.ts` so they
+  inherit its `requireAdmin` guard. `src/server/lib/hakPilih.ts` holds the single
+  `+ non-cancelled links` Hak pilih term both consumers use — the same place the pending
+  live-roll change will add its live term, so the two merge in one helper. Reuse of
+  `src/server/voting/{receipt,choice}.ts` (the same Crockford code and hashing),
+  `src/server/lib/secrets.ts` (the sealed token), and the audit helpers;
+  `src/server/results/queries.ts` (Hak pilih and per-korda denominators);
+  `src/server/election/lifecycle.ts` (Hitung Abstain pending count, lock audit detail);
+  `src/server/audit/labels.ts` (`undangan:<reference>` targets).
+- **Dependency:** one small, well-known browser Excel writer bundled by Vite (no CDN),
+  loaded only by the Undangan Pemilih page for the local `.xlsx` export.
+- **UI:** new `src/pages/admin/undangan.astro` (generation form, table with copy buttons,
+  status filter, reference search, Excel download, cancel, statuses) and
+  `src/pages/undangan/[kode].astro` plus `src/pages/undangan/[kode]/surat-suara.astro`
+  (welcome, claim form, invitee ballot); navigation entry in `src/layouts/AdminLayout.astro`;
+  `src/pages/admin/dasbor.astro`, `src/pages/hasil.astro` and `src/pages/index.astro` for
+  the invite voters in the statistics.
 - **Tests:** `test/schema.test.ts` (migration, CHECKs, uniqueness),
-  `test/direct-invitations.test.ts` (generation, statuses, cancel, Hak pilih arithmetic,
-  claim reservation, stage matrix, rate limits), `test/invite-vote.test.ts` (same ballot
-  and receipt, single candidate mode, one use under concurrency, secrecy, audit),
-  `test/results-api.test.ts` (invite voters in Hak pilih, participation and per-korda
-  rows, unused links as non-voters, Hitung Abstain), `test/election-lifecycle.test.ts`
-  (refusal after close, Kembali ke Draf keeps links, lock detail), `test/audit-api.test.ts`
-  (entries and hash chain), plus an admin page render test.
-- **Risk:** an over-issued batch inflates Hak pilih, and a lost link wastes one. Mitigated
-  by the 1–50 batch limit, the show-once warning with copy buttons before leaving the
-  page, cancellation that returns the +1, and refusal of generation and cancellation once
-  voting closes. A panitia that hands out a duplicate is not caught by the system (by the
-  owner's decision); the invitation table is the roster it checks against.
+  `test/direct-invitations.test.ts` (generation, statuses, cancel, retrievable links,
+  filtering, Hak pilih arithmetic, claim reservation, stage matrix, rate limits),
+  `test/invite-vote.test.ts` (same ballot and receipt, single candidate mode, one use
+  under concurrency, secrecy, audit), `test/results-api.test.ts` (invite voters in Hak
+  pilih, participation and per-korda rows, unused links as non-voters, Hitung Abstain),
+  `test/election-lifecycle.test.ts` (refusal after close, Kembali ke Draf keeps links,
+  lock detail), `test/audit-api.test.ts` (entries, hash chain, no link ever logged), plus
+  admin page render tests for the table, the filter and the export.
+- **Risk:** an over-issued batch inflates Hak pilih. Mitigated by the 1–50 batch limit,
+  the copy-again column so a link can be re-handed without regenerating it, cancellation
+  that returns the +1, and refusal of generation and cancellation once voting closes. The
+  sealed token is a second route to a live credential: it is protected by the same
+  `APP_MASTER_KEY` as session cookies, is only ever returned to an Admin Voting session,
+  and stops being readable the moment the link is used or cancelled. A panitia that hands
+  out a duplicate is not caught by the system (by the owner's decision); the invitation
+  table is the roster it checks against.
 - **No change** to ballot secrecy mechanics, receipt codes and the receipt board for
   Pemilih, the frozen roll and its sync, the Admin Voting `invitations` table, readiness
   checks or the polling-free behaviour.
 
 ## Open questions
 
-Each carries my recommendation; the owner can simply accept them.
+All nine were put to the owner and **accepted as recommended on 2026-11-19**, except the
+first, which the owner replaced with a decision of their own. They are recorded here as
+decisions.
 
-1. **Is the full link shown once at creation or retrievable for ever?** Storing only a
-   hash means it cannot be shown again, so a copy button can only exist where the code is
-   still in the browser. **Recommend: show once.** The generation response renders the
-   batch with a copy button per row, a "Salin semua" button and a warning to copy before
-   leaving; while the same tab still holds the codes (browser sessionStorage, never sent
-   to the server) the table row keeps its copy button; afterwards the row shows the short
-   reference and a "Buat ulang" path (cancel, then generate). A retrievable link would
-   need the token encrypted at rest and a second route into the credential, which is worse
-   than the "store only a hash" rule the owner asked for.
-2. **What is the Email used for?** **Recommend: contact and duplicate-check data for
-   panitia only.** No email is sent in 1.0 (no outgoing email), the field is never logged
-   and never written to a ballot, and it is stored on the invitation row only.
-3. **Do unused links belong to a korda in the per-korda table?** The komsat is only known
-   after the person fills the form. **Recommend: no.** An unused link counts in the
-   national Hak pilih only; a used link counts in the komsat the person chose. The korda
-   rows therefore sum to slightly less than Hak pilih while unused links exist, and the
-   page says so.
-4. **Does a claim reserve the link?** Two people can open the same forwarded link and both
-   fill in the form. **Recommend: yes, for 30 minutes.** The first claim holds the link,
-   the second sees "Tautan sedang diisi orang lain", the reservation lapses on its own if
-   the person abandons it, and the vote still enforces one use. The table keeps the three
-   statuses and adds a muted "sedang diisi <Nama>, sejak <jam>" line while a claim is live.
-5. **May a link be cancelled after voting closes?** **Recommend: no.** Generation and
+1. **Retrievable or show-once links?** Owner decision (2026-11-19): links stay
+   **retrievable**. Each token is stored sealed with `APP_MASTER_KEY` beside its SHA-256
+   lookup hash, and Admin Voting can copy any link from the table at any time until it is
+   used or cancelled. The show-once design and the sessionStorage copy are dropped; the
+   decrypted link is never written to the audit log.
+2. **What is the Email used for?** Accepted: contact and duplicate-check data for panitia
+   only. No email is sent in 1.0 (no outgoing email), the field is never logged and never
+   written to a ballot, and it is stored on the invitation row only.
+3. **Do unused links belong to a korda in the per-korda table?** Accepted: no. An unused
+   link counts in the national Hak pilih only; a used link counts in the komsat the person
+   chose. The korda rows therefore sum to slightly less than Hak pilih while unused links
+   exist, and the page says so.
+4. **Does a claim reserve the link?** Accepted: yes, for 30 minutes. The first claim holds
+   the link, the second sees "Tautan sedang diisi orang lain", the reservation lapses on
+   its own if the person abandons it, and the vote still enforces one use. The table keeps
+   the three statuses and adds a muted "sedang diisi <Nama>, sejak <jam>" line while a
+   claim is live.
+5. **May a link be cancelled after voting closes?** Accepted: no. Generation and
    cancellation stop when voting closes (Ditutup) so Hak pilih and the Hitung Abstain
    count stay consistent with what was counted.
-6. **Batch size and ceiling?** **Recommend: 1–50 links per action and at most 500 links
-   per election** (cancelled ones included), which bounds accidental inflation and keeps
-   the table usable.
-7. **Page and wording.** Admin Voting already has an "Undangan" panel for Admin Voting
-   invitations on the Panitia page. **Recommend: name the new page "Undangan Pemilih"
-   with the helper wording "undangan langsung"**, so the two can never be mistaken for
-   each other.
-8. **Should invite voters appear on the Daftar Pemilih page?** **Recommend: no.** They are
-   not roll members; the Undangan Pemilih table is their roster, and Dasbor's statistics
-   and the per-korda rows include them. A merge into the roll would blur the frozen-roll
+6. **Batch size and ceiling?** Accepted: 1–50 links per action and at most 500 links per
+   election (cancelled ones included), which bounds accidental inflation and keeps the
+   table usable.
+7. **Page and wording.** Accepted: name the new page "Undangan Pemilih" with the helper
+   wording "undangan langsung", so it can never be mistaken for the Admin Voting
+   invitation panel on the Panitia page.
+8. **Should invite voters appear on the Daftar Pemilih page?** Accepted: no. They are not
+   roll members; the Undangan Pemilih table is their roster, and Dasbor's statistics and
+   the per-korda rows include them. A merge into the roll would blur the frozen-roll
    guarantee that a Pemilih needs a fresh One Login sign-in.
-9. **What if one person receives two links?** The owner's decision is that panitia checks
-   duplicates, and this change adds no automatic block. **Recommend: keep it that way**,
-   and treat a read-only "same Nama/Email on two invitation rows" hint on the Undangan
-   Pemilih page as a later, separate change if panitia asks for it.
+9. **What if one person receives two links?** Accepted: keep panitia's hand check and add
+   no automatic block; a read-only "same Nama/Email on two invitation rows" hint on the
+   Undangan Pemilih page is a later, separate change if panitia asks for it.

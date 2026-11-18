@@ -42,6 +42,24 @@ the action "Undangan langsung dibatalkan" and the row reference.
 - **WHEN** a cancellation is refused (used link, after close or non-admin session)
 - **THEN** no audit entry is appended and the chain tip is unchanged
 
+### Requirement: Audit entry for a list view
+
+Opening the Undangan Pemilih list SHALL append exactly one hash-chained entry recording
+the actor, the action "Daftar undangan dilihat", the stage and the number of rows. It
+SHALL never contain a link, a token or an email, and it SHALL be the only entry the read
+produces (no entry per row or per filter change made in the browser).
+
+#### Scenario: List view recorded once
+
+- **WHEN** an Admin Voting opens the list with 12 invitations
+- **THEN** one audit entry records the actor, the stage and the count 12, chained onto the
+  current tip hash
+
+#### Scenario: Export is local and unlogged on the server
+
+- **WHEN** an Admin Voting filters the list and downloads the Excel file
+- **THEN** no additional server request or audit entry is produced by the export
+
 ### Requirement: Audit entry for an invite vote
 
 Each accepted invite vote SHALL append exactly one hash-chained entry with an actor type of

@@ -56,13 +56,15 @@ without emoji.
 
 ### D1: A new `direct_invitations` table, named so it cannot be confused
 
-Migration `0015_direct_invitations.sql` adds:
+Migration `0017_direct_invitations.sql` (the live-roll change owns `0015` and `0016`)
+adds:
 
 ```sql
 CREATE TABLE direct_invitations (
   id INTEGER PRIMARY KEY,
   reference TEXT NOT NULL UNIQUE,      -- short non-secret display code (6 Crockford chars)
-  token_hash TEXT NOT NULL UNIQUE,     -- SHA-256 of the canonical link code
+  token_hash TEXT NOT NULL UNIQUE,     -- SHA-256 of the canonical link code (lookup)
+  token_enc TEXT NOT NULL,             -- token sealed with APP_MASTER_KEY (copy again later)
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL,            -- Admin Voting member_id
   created_by_name TEXT NOT NULL,
@@ -85,25 +87,30 @@ code review or SQL. The Admin Voting table is not touched. The status shown in t
 derived, never stored: `Dibatalkan` when `cancelled_at IS NOT NULL`, else `Sudah Dipakai`
 when `used_at IS NOT NULL`, else `Belum Dipakai`.
 
-### D2: The link code is shown once; only its hash is stored
+### D2: The token is stored sealed for retrieval, with a hash for lookup
 
 The code is 128 random bits (16 bytes) encoded as 26 Crockford Base32 characters, grouped
-for display — the same alphabet, normalization and SHA-256 storage as legacy receipt codes,
+for display — the same alphabet, normalization and hashing as legacy receipt codes,
 reusing `encodeReceipt`/`normalizeReceiptCode`/`hashReceipt` from
-`src/server/voting/receipt.ts`. The URL is `/undangan/<26 chars>`. The table stores
-`token_hash = SHA-256(normalized code)` and a separate 6-character `reference` drawn from
-the same alphabet, which is **not** the credential and only names the row.
+`src/server/voting/receipt.ts`. The URL is `/undangan/<26 chars>`. The row stores two
+things: `token_hash = SHA-256(normalized code)` for lookup, and `token_enc =
+encryptSecret(APP_MASTER_KEY, code)` for retrieval. A separate 6-character `reference`
+drawn from the same alphabet is **not** the credential and only names the row in the table
+and in the audit log.
 
-**Decided: show once.** Generation returns the full links in the HTTP response; the admin
-page renders them in a result panel with a "Salin semua" button and a copy button per row
-and warns that they cannot be shown again. While the same browser tab still holds the
-codes (sessionStorage, never sent to the server) the table row keeps its copy button; once
-that is gone the row shows the reference and a "Buat ulang" action (cancel, then generate).
-**Alternative rejected:** keep the token retrievable, sealed with `APP_MASTER_KEY`, so the
-table can always show the link. That is a second, always-on route to a live credential: an
-attacker with the database *and* the key (the same key that protects session cookies) could
-harvest every unused link. The owner's copy button is satisfied by the show-once panel plus
-the tab-scoped convenience copy, so the stricter rule wins.
+**Owner decision (2026-11-19): links stay retrievable.** Admin Voting can copy any link
+from the table at any time until it is used or cancelled. The list endpoint decrypts
+`token_enc` and returns the full URL while `used_at IS NULL AND cancelled_at IS NULL`, and
+returns no link for a used or cancelled row; generation returns the fresh links in its
+response so a whole batch can be copied at once.
+
+Secrecy at rest is therefore "encrypted, not hash-only": a database leak alone gives
+nothing, and the sealed token uses the same `APP_MASTER_KEY` that protects session cookies,
+so it adds no new key to protect. The trade-off the owner accepted is that a key compromise
+or a live Admin Voting session can read every active link; the mitigations are that the link
+stops being readable the moment it is used or cancelled, that only an Admin Voting session
+can read the list, and that the decrypted link is never written to the audit log, to logs,
+or to the server side of the Excel export (the `.xlsx` is built in the browser, D13).
 
 ### D3: Hak pilih = frozen roll + live active links
 
@@ -128,6 +135,17 @@ hak_pilih_efektif = (frozen_hak_pilih ?? roll_count_in_draf) + COUNT(direct_invi
 Every consumer of the denominator (results payload, Dasbor statistics, Hitung Abstain
 pending count, participant shares) reads the same effective number from one helper, so the
 pages cannot drift apart.
+
+**One helper, one merge point.** `src/server/lib/hakPilih.ts` owns the invite term:
+`DIRECT_INVITE_HAK_PILIH_SQL` (the count query), `directInviteStatement(db)` (the same
+query as a `D1PreparedStatement`, so `results/queries.ts` can put it in its existing single
+batch and keep one consistent snapshot) and `directInviteTerm(db)` for callers that read it
+separately, plus `withDirectInvites(base, invite)`. `results/queries.ts` adds the statement
+to its batch and adds the value; `election/lifecycle.ts`'s Hitung Abstain uses the same
+helper. Nowhere else counts links. The pending live-roll change
+(`add-live-voter-roll`) replaces the base term with its live/closing resolution in exactly
+these two consumers and leaves the invite term in this helper, so the two changes meet in
+one place and neither can double-count.
 
 ### D4: An invite participation row with a reserved member id
 
@@ -251,13 +269,16 @@ All read from the one effective Hak pilih helper (D3):
 
 ### D10: Audit entries
 
-Through the normal hash-chained path (`buildGuardedAuditInsert`/`buildAuditInsert`), three
-actions, all with `target =` the row's short `reference` and never a token, an email or a
-ballot choice:
+Through the normal hash-chained path (`buildGuardedAuditInsert`/`buildAuditInsert`), four
+entries; the link actions carry `target =` the row's short `reference`, and none of them
+ever carries a token, a link, an email or a ballot choice:
 
 - **"Undangan langsung dibuat"** — actor the Admin Voting, `detail_json` with
   `{"count": N, "references": ["A7K3M9", ...]}` (references only, never codes).
 - **"Undangan langsung dibatalkan"** — actor, `detail_json` `{"reference": "..."}`.
+- **"Daftar undangan dilihat"** — actor the Admin Voting, `detail_json` `{"stage": ...,
+  "count": N}`; one entry per list view (a tally view of the invitation ledger), never a
+  code or a link.
 - **"Pemungutan suara undangan"** — `actor_type: "voter"`, `actor_member_id:
   "undangan:<reference>"`, `actor_name` = guest Nama, `komsat_path` = chosen path, no
   candidate and no choice in the detail (the existing vote entry never carries them; this
@@ -286,10 +307,14 @@ or hostile client, not the primary protection.
   "Undangan". The existing Admin Voting invitation panel (on `admin/index.astro`) keeps
   its own wording and is never called "Undangan Pemilih".
 - Table columns exactly **Link | Dibuat Pada | Oleh | Status**; statuses exactly **Belum
-  Dipakai**, **Sudah Dipakai**, **Dibatalkan**; a copy button per row while the code is
-  still in the tab.
-- Generation: "Buat undangan" with a count field, and the show-once result panel with
-  "Tautan hanya ditampilkan sekali. Salin sekarang." plus "Salin semua".
+  Dipakai**, **Sudah Dipakai**, **Dibatalkan**; a copy button per row that works for every
+  row that is not used or cancelled.
+- Generation: "Buat undangan" with a count field; the fresh batch is copied straight from
+  the table ("Salin" per row, no show-once warning needed because the link stays
+  retrievable).
+- Filter and export: "Status" select with "Semua status", "Belum Dipakai", "Sudah
+  Dipakai", "Dibatalkan"; search placeholder "Cari referensi"; button "Unduh Excel".
+  Empty filter result: "Tidak ada undangan yang cocok dengan filter ini.".
 - Public pages: "Selamat datang di Pemilihan Umum", "Lihat profil kandidat", "Pilih",
   form labels "Nama", "Email", "Korda/Komsat", "Lanjutkan ke surat suara".
 - Refusals: used link "Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu
@@ -301,6 +326,24 @@ or hostile client, not the primary protection.
   cancel "Tautan ini sudah dipakai dan tidak dapat dibatalkan."
 - Stage names stay Draf, Terjadwal, Dibuka, Ditutup, Diumumkan; roles Admin Voting,
   Admin Portal, Pemilih; no emoji; Tabler icons only.
+
+### D13: Status filter, reference search and browser-side Excel export
+
+The Undangan Pemilih page loads the whole list once (one audit-logged read) and filters in
+the browser: a status filter (Belum Dipakai / Sudah Dipakai / Dibatalkan, plus "Semua
+status") and a case-insensitive text search on the reference. The **Unduh Excel** button
+serializes only the rows matching the current filter to an `.xlsx` **in the browser**; the
+server never builds, streams or stores a file and never sees which rows were exported.
+Columns: **Link**, **Referensi**, **Dibuat Pada**, **Oleh**, **Status**, and for used rows
+**Dipakai Pada**, **Nama**, **Email**, **Korda/Komsat** (blank for rows that are not used).
+The workbook is a Blob downloaded through an object URL; nothing is uploaded. Links for
+used and cancelled rows are not in the payload at all, so the export cannot reveal one.
+
+**Library.** `write-excel-file` — small, MIT, browser-first, bundled by Vite and imported
+only by this page. SheetJS was rejected: its maintained distribution is CDN-only, which the
+owner forbade, and the npm `xlsx` package is stale (0.18.5) with known advisories even
+though this use only writes. The dependency is committed in `package.json` and
+`package-lock.json` so a self-hosted fork installs it from the lockfile.
 
 ## Risks / Trade-offs
 
@@ -326,19 +369,30 @@ or hostile client, not the primary protection.
 
 ## Migration plan
 
-`0015_direct_invitations.sql` is additive: one new table and one index, no column on
+`0017_direct_invitations.sql` is additive: one new table and one index, no column on
 `elections`, `voters`, `participation`, `ballots` or the Admin Voting `invitations`, and no
-backfill (no link has ever existed). Existing elections start with zero links, so effective
+backfill (no link has ever existed). `0015` and `0016` stay with the live-roll change; the
+migration numbers do not overlap. Existing elections start with zero links, so effective
 Hak pilih equals today's frozen number and every result is byte-for-byte unchanged until the
 first link is generated. Rollback is the usual one: dropping the table returns the site to
 today's behaviour; rows would be lost with it, which is acceptable because a link only
-matters while the election is open.
+matters while the election is open. One `package.json` dependency (the browser Excel writer,
+D13) is added; it is browser-only and does not touch the Worker runtime.
+
+## Merging with the live-roll change
+
+The two changes touch `src/server/results/queries.ts` and
+`src/server/election/lifecycle.ts`. This change keeps every link count in
+`src/server/lib/hakPilih.ts` and adds exactly one statement to the query batch plus one
+helper call in Hitung Abstain; `add-live-voter-roll` replaces the base term in the same two
+places. Whichever lands second resolves the base (frozen / live / closing snapshot) and
+keeps `withDirectInvites(...)` around it, so the invite term is added once, after the base
+is resolved, and cannot be counted twice.
 
 ## Open questions
 
-The real open questions and their recommendations live at the end of `proposal.md`. They
-are: show-once versus retrievable links (D2 chooses show once), what the Email is for, unused
-links in the per-korda table, whether a claim reserves the link (D7 recommends a 30-minute
-lapse), cancelling after close (D6 refuses), batch size and ceiling, the page/wording
-(Undangan Pemilih versus the Admin Voting invitation panel), invite voters on Daftar
-Pemilih (no), and duplicate links (panitia checks, no system block).
+_None._ The nine questions were answered by the owner on 2026-11-19 (all recommendations
+accepted, except links-retrievable which the owner chose over show-once). They are recorded
+as decisions at the end of `proposal.md`; the design follows them (D2 retrievable sealed
+tokens, D7 claim reservation, D6 no cancel after close, D13 filter and browser Excel export,
+unused links national-only, no Daftar Pemilih rows, panitia's hand duplicate check).

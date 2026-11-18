@@ -52,8 +52,8 @@ action and at most 500 rows per election including cancelled ones.
 The Undangan Pemilih page SHALL list every invitation with the columns Link, Dibuat Pada,
 Oleh and Status. Status SHALL be exactly Belum Dipakai, Sudah Dipakai or Dibatalkan,
 derived from the row (`cancelled_at`, else `used_at`). The Link column SHALL offer a
-copy-link button per row while the link code is still held by the browser that created it,
-and the table SHALL always name the row by its short reference.
+copy-link button for every row that is not used or cancelled, and the table SHALL always
+name the row by its short reference.
 
 #### Scenario: Statuses shown
 
@@ -62,37 +62,74 @@ and the table SHALL always name the row by its short reference.
 - **THEN** the three rows show Belum Dipakai, Sudah Dipakai and Dibatalkan with their
   creation time and the Admin Voting who created them
 
-#### Scenario: Copy button for a link created in this browser tab
+#### Scenario: Any active link can be copied again
 
-- **WHEN** an Admin Voting generates links and stays on the page
-- **THEN** each new row offers a copy button that copies that row's full link, and the page
-  warns that the links cannot be shown again after leaving
+- **WHEN** an Admin Voting opens the page in any later session and copies a row that is
+  Belum Dipakai
+- **THEN** the row's full link is returned to the Admin Voting session and copied
 
-#### Scenario: Link no longer available is named by reference
+#### Scenario: Used and cancelled rows have no link
 
-- **WHEN** an Admin Voting opens the page in a new session and no link code is held by the
-  browser
-- **THEN** each row shows its short reference and a "Buat ulang" action instead of a
-  usable copy button, and no link code is fetched from the server
+- **WHEN** an Admin Voting looks at a Sudah Dipakai or Dibatalkan row
+- **THEN** the row shows its short reference and no link, and no endpoint returns that
+  link
 
-### Requirement: Link code shown once, stored only as a hash
+#### Scenario: List view is audit-logged
 
-The full link SHALL be returned to Admin Voting exactly once, at generation. Only the
-SHA-256 of the canonical link code SHALL be stored, alongside a short non-secret reference
-that names the row. No endpoint SHALL return a link code that was not just generated, and
-no link code SHALL be written to the audit log.
+- **WHEN** an Admin Voting opens the list
+- **THEN** one audit entry records the action with the stage and the row count, and no
+  link or code appears in it
 
-#### Scenario: Code returned at generation only
+### Requirement: Status filter, reference search and Excel export
 
-- **WHEN** a batch is generated
-- **THEN** the response contains the full links, and every later read of the invitation
-  list contains only the reference, the creation data and the status
+The page SHALL filter the loaded list by status (Semua status, Belum Dipakai, Sudah
+Dipakai, Dibatalkan) and by a case-insensitive text search on the reference, and SHALL
+build an `.xlsx` download in the browser from the rows matching the current filter. The
+server SHALL only return the JSON list; it SHALL never build, stream or store the file.
+The columns SHALL be Link, Referensi, Dibuat Pada, Oleh, Status, and for used rows Dipakai
+Pada, Nama, Email and Korda/Komsat.
 
-#### Scenario: Stored data cannot be replayed
+#### Scenario: Filter narrows the table
+
+- **WHEN** an Admin Voting selects Belum Dipakai and types part of a reference
+- **THEN** only the rows matching both the status and the reference search are shown
+
+#### Scenario: Export follows the filter
+
+- **WHEN** an Admin Voting clicks "Unduh Excel" with a filter active
+- **THEN** the browser builds an `.xlsx` containing only the matching rows, with the
+  listed columns, and no file is requested from the server
+
+#### Scenario: Export never includes a hidden link
+
+- **WHEN** a used or cancelled row is exported
+- **THEN** its Link cell is empty because the server never returned a link for it
+
+### Requirement: Token stored encrypted, with the hash kept for lookup
+
+Each invitation SHALL store the SHA-256 of the canonical token for lookup and the token
+sealed with `APP_MASTER_KEY` for retrieval, plus a short non-secret reference that names
+the row. Admin Voting SHALL be able to read the full link again at any time before the link
+is used or cancelled. The decrypted link SHALL never be written to the audit log, to logs,
+or to any server-side file, and it SHALL not be returned once the row is used or cancelled.
+
+#### Scenario: Link readable again before use
+
+- **WHEN** an Admin Voting requests the list while a link is Belum Dipakai
+- **THEN** the response contains that link's full URL and the row is named by its
+  reference
+
+#### Scenario: Lookup still goes through the hash
 
 - **WHEN** a link URL is opened
 - **THEN** the server resolves it by hashing the normalized code and comparing the hash,
-  and the raw code is never read from storage
+  and the sealed token is only decrypted to re-show the link to an Admin Voting session
+
+#### Scenario: No link in the log
+
+- **WHEN** links are generated, listed, copied, exported or cancelled
+- **THEN** no audit entry, server log or response outside an Admin Voting session contains
+  a link or its code
 
 ### Requirement: Cancelling an unused link
 
