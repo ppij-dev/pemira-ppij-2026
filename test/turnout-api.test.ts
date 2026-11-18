@@ -19,6 +19,7 @@ import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import { app } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
@@ -29,7 +30,7 @@ const bindings = { DB: env.DB, APP_MASTER_KEY: MASTER_KEY };
 const now = Date.now();
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, limitsSql, snapshotSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql]) {
+  for (const file of [initSql, unitsSql, lockSql, limitsSql, snapshotSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }

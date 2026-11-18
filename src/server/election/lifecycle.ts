@@ -4,8 +4,8 @@ import { stage, type ElectionStatusLock, type Stage } from "../lib/stage";
 import { syncPemilih } from "../serviceapi/sync";
 import type { ServiceApiConfig } from "../serviceapi/client";
 import { ElectionError, type ReadinessCheck } from "./candidates";
-import { directInviteTerm, liveHakPilih, withDirectInvites } from "./hakPilih";
-import { ensureClosingHakPilih } from "../voting/board";
+import { directInviteTerm, liveHakPilih } from "./hakPilih";
+import { resolveHakPilih } from "../voting/board";
 import { isVoteChoice, type VoteChoice } from "../voting/choice";
 const palette=['#B91C1C','#1D4ED8','#15803D','#C2410C','#7E22CE','#BE185D','#0F766E','#4338CA','#92400E','#155E75'];
 async function audit(db:D1Database,now:Date,action:string,target:string|null,detail:string|null=null,actor?:AdminActor) { return buildAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action,target,komsat_path:null,detail_json:detail}); }
@@ -245,11 +245,9 @@ export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCou
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
  // Mode Tidak Membekukan DPT: angka dasarnya Hak pilih akhir yang tersimpan
  // (penetapan dijalankan di pembacaan ini bila belum ada), bukan hitungan live.
- // Istilah tautan undangan sudah termasuk di liveHakPilih/snapshot; pada roll
- // beku (saklar mati) ditambahkan di sini lewat helper yang sama.
- const eligible=row.live_voter_roll===1
-  ?((await ensureClosingHakPilih(db,now))??await liveHakPilih(db))
-  :withDirectInvites(row.frozen_hak_pilih??0,await directInviteTerm(db));
+ // Satu penyelesai yang sama dengan hasil/Dasbor, termasuk tautan Undangan
+ // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live.
+ const eligible=(await resolveHakPilih(db,now)).hakPilih;
  const pending=Math.max(0,eligible-participation);
  const counted=row.abstain_counted_at!==null;
  const reason=row.single_candidate_mode!==1?"Hitung Abstain hanya berlaku pada mode kandidat tunggal."

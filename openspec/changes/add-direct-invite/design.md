@@ -127,25 +127,25 @@ hak_pilih_efektif = (frozen_hak_pilih ?? roll_count_in_draf) + COUNT(direct_invi
   recomputes only the roll term) cannot count it twice.
 - A used link keeps its +1: its voter exists (there is a participation row and a ballot).
 - Cancelling an unused link removes its +1; a used link cannot be cancelled (D6).
-- The Draf fallback (`eligibleFallbackRow`) also gains the link term.
+- The Draf fallback (the live view count) also gains the link term.
 - `allow_admin_voting = 0` removes Admin Voting roll members from the roll term only; a
   link is issued by panitia for a person who by construction can vote, so links are never
   subtracted there.
 
-Every consumer of the denominator (results payload, Dasbor statistics, Hitung Abstain
-pending count, participant shares) reads the same effective number from one helper, so the
-pages cannot drift apart.
+Every consumer of the denominator (results payload, Dasbor statistics, public turnout,
+Hitung Abstain pending count, participant shares) reads the same effective number from
+`resolveHakPilih` (`src/server/voting/board.ts`), so the pages cannot drift apart.
 
-**One helper, one merge point.** `src/server/lib/hakPilih.ts` owns the invite term:
-`DIRECT_INVITE_HAK_PILIH_SQL` (the count query), `directInviteStatement(db)` (the same
-query as a `D1PreparedStatement`, so `results/queries.ts` can put it in its existing single
-batch and keep one consistent snapshot) and `directInviteTerm(db)` for callers that read it
-separately, plus `withDirectInvites(base, invite)`. `results/queries.ts` adds the statement
-to its batch and adds the value; `election/lifecycle.ts`'s Hitung Abstain uses the same
-helper. Nowhere else counts links. The pending live-roll change
-(`add-live-voter-roll`) replaces the base term with its live/closing resolution in exactly
-these two consumers and leaves the invite term in this helper, so the two changes meet in
-one place and neither can double-count.
+**One helper, one merge point (merged branch).** `src/server/election/hakPilih.ts` — the
+live-roll helper that already owns the denominator — now owns the invite term too:
+`DIRECT_INVITE_HAK_PILIH_SQL` (the count query), `directInviteTerm(db)` (its only reader),
+`withDirectInvites(base, invite)` and `liveHakPilih(db)`, which returns the roll term plus
+the link term. Because every live path goes through `liveHakPilih`, the live count, the
+Draf fallback, the closing snapshot (`ensureClosingHakPilih`) and Tutup Sekarang all
+include links without touching them again. The only other place that adds the term is
+`resolveHakPilih`'s frozen branch (the stored `frozen_hak_pilih` is a number, so it needs
+the same `withDirectInvites` call); `results/queries.ts` and `getAbstainCount` then read
+`resolveHakPilih` unchanged, and nowhere else counts links.
 
 ### D4: An invite participation row with a reserved member id
 
@@ -380,31 +380,33 @@ today's behaviour; rows would be lost with it, which is acceptable because a lin
 matters while the election is open. One `package.json` dependency (the browser Excel writer,
 D13) is added; it is browser-only and does not touch the Worker runtime.
 
-## Merging with the live-roll change
+## Merged with the live-roll change (rebase on `df6d413`)
 
-The two changes touch `src/server/results/queries.ts` and
-`src/server/election/lifecycle.ts`. This change keeps every link count in
-`src/server/lib/hakPilih.ts`; `add-live-voter-roll` (already on `main`) replaces the base
-term in the same two places. Concretely, after the merge:
+`task/direct-invite` is rebased onto `main` after `add-live-voter-roll` merged. The
+integration the live-roll design asked for (its D7) is now in place:
 
-- `results/queries.ts`: `const eligibleCount = withDirectInvites(resolution.hakPilih,
-  await directInviteTerm(db));` — the live-roll `resolveHakPilih(db, now)` keeps owning the
-  base (frozen / live view / `closing_hak_pilih`) and the invite term is added after it. If
-  the merger prefers one batch, the invite count may instead come from
-  `directInviteStatement(db)` placed in the batch; the helper is the single owner either
-  way, and nothing else may count links.
-- `election/lifecycle.ts` `getAbstainCount`: `const eligible =
-  withDirectInvites(row.live_voter_roll === 1 ? ((await ensureClosingHakPilih(db, now)) ??
-  await liveHakPilih(db)) : (row.frozen_hak_pilih ?? 0), await directInviteTerm(db));`.
-- `ensureClosingHakPilih` (the closing snapshot) must include the invite term, so the
-  frozen closing denominator counts the links that were active at close; that is the same
-  `directInviteTerm(db)` call inside the snapshot batch.
-- `lockElection`'s audit detail keeps both parts: the live-roll fields and
+- `src/server/election/hakPilih.ts` keeps the single Hak pilih helper; `liveHakPilih(db)`
+  returns the roll term (portal `can_vote = 1`, minus Admin Voting when the setting
+  excludes them) plus `directInviteTerm(db)`.
+- `resolveHakPilih` (`src/server/voting/board.ts`) adds the same `withDirectInvites` term
+to the stored `frozen_hak_pilih` in its frozen branch, so the switch-off path counts links
+  as well; the live and closing branches already get them through `liveHakPilih`.
+- `results/queries.ts` reads `resolveHakPilih` untouched for `eligible_count` and only adds
+  `active_invite_count` for display plus the per-korda bucket of used links (which the
+  resolver does not cover).
+- `election/lifecycle.ts` `getAbstainCount` now resolves its base with `resolveHakPilih`
+  instead of duplicating the live/closing choice, so Hitung Abstain uses the same number as
+  Dasbor and results; `lockElection`'s audit detail keeps the live-roll fields and adds
   `active_direct_links`.
-- Migration numbers do not collide: `main` has `0015`/`0016`, this change adds `0017`.
+- The closing snapshot (`ensureClosingHakPilih`) and Tutup Sekarang include the links active
+  at close for free, because both call `liveHakPilih`.
+- Migration numbers do not collide: `main` has `0015`/`0016`, this change adds `0017`. The
+  tests of every file that touches the resolver (results, turnout, lifecycle, preview,
+  vote, schema) apply `0017` so the invite table always exists.
 
-Whichever side resolves the base, the invite term is added exactly once, after the base,
-so it cannot be counted twice.
+The invite term is added exactly once per base: `liveHakPilih` for the live/closing/fallback
+paths and `resolveHakPilih`'s frozen branch for the stored roll, so it can never be counted
+twice.
 
 ## Open questions
 

@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { AUDIT_GENESIS_HASH, canonicalRow, sha256Hex, type AuditEntry } from "../lib/audit";
 import { stage } from "../lib/stage";
-import { liveHakPilih } from "../election/hakPilih";
+import { directInviteTerm, liveHakPilih, withDirectInvites } from "../election/hakPilih";
 
 type Env = { Bindings: Bindings };
 
@@ -158,7 +158,10 @@ export async function resolveHakPilih(db: D1Database, now: Date): Promise<HakPil
     .first<ResolveRow>();
   if (!row) return { hakPilih: 0, source: "frozen" };
   if (row.live_voter_roll !== 1) {
-    if (row.frozen_hak_pilih != null) return { hakPilih: row.frozen_hak_pilih, source: "frozen" };
+    // Roll beku: `frozen_hak_pilih` tetap hanya suku roll, jadi tautan Undangan
+    // Langsung ditambahkan di sini lewat helper yang sama (satu tempat).
+    if (row.frozen_hak_pilih != null)
+      return { hakPilih: withDirectInvites(row.frozen_hak_pilih, await directInviteTerm(db)), source: "frozen" };
     return { hakPilih: await liveHakPilih(db), source: "live" };
   }
   const currentStage = stage(row, now.toISOString());

@@ -104,9 +104,10 @@ every cancellation is audit-logged, and the link code is stored only as a hash.
   sealed invite session, reservation), `open.ts` (link resolution and stage view),
   `vote.ts` (invite vote batch) and `routes.ts` (public `/api/undangan/*`); the admin
   endpoints `/api/admin/undangan*` are added to `src/server/admin/routes.ts` so they
-  inherit its `requireAdmin` guard. `src/server/lib/hakPilih.ts` holds the single
-  `+ non-cancelled links` Hak pilih term both consumers use — the same place the pending
-  live-roll change will add its live term, so the two merge in one helper. Reuse of
+  inherit its `requireAdmin` guard. `src/server/election/hakPilih.ts` — the live-roll
+  helper — holds the single `+ non-cancelled links` term: `liveHakPilih` adds it to the
+  live count (and therefore the Draf fallback and the closing snapshot), and
+  `resolveHakPilih` adds it to the stored frozen roll, so every consumer agrees. Reuse of
   `src/server/voting/{receipt,choice}.ts` (the same Crockford code and hashing),
   `src/server/lib/secrets.ts` (the sealed token), and the audit helpers;
   `src/server/results/queries.ts` (Hak pilih and per-korda denominators);

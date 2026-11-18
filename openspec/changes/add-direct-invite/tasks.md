@@ -55,13 +55,14 @@ Indonesia, no emoji; manual refresh only, no polling. Migrations start at `0017`
 - [x] 3.3 Failing tests for Hitung Abstain: `pending_count` includes unused links; after
       running, the stored count matches; generation and cancellation are refused afterwards
       (group 2 guards) so the stored count cannot be invalidated.
-- [x] 3.4 Implement `src/server/lib/hakPilih.ts` (the one place that counts links:
-      `DIRECT_INVITE_HAK_PILIH_SQL`, `directInviteStatement`, `directInviteTerm`,
-      `withDirectInvites`) and call it from `src/server/results/queries.ts` (statement in
-      the existing batch) and the lifecycle Hitung Abstain path; extend the per-korda
-      aggregates through the invitation row's `komsat_path`, add the active-link count to
-      the payload, and surface the numbers on `src/pages/admin/dasbor.astro` (and
-      `hasil.astro` / `index.astro` where they already read the payload); run the group's
+- [x] 3.4 Implement the invite term inside `src/server/election/hakPilih.ts` (the live-roll
+      helper: `DIRECT_INVITE_HAK_PILIH_SQL`, `directInviteTerm`, `withDirectInvites`, and
+      the term added in `liveHakPilih`) plus the frozen branch of `resolveHakPilih` in
+      `src/server/voting/board.ts`; keep `results/queries.ts` reading `resolveHakPilih`,
+      extend the per-korda aggregates through the invitation row's `komsat_path`, add the
+      active-link count to the payload, and surface the numbers on
+      `src/pages/admin/dasbor.astro` (and `hasil.astro` / `index.astro` where they already
+      read the payload); run the group's
       tests green.
 
 ## 4. Backend: opening and claiming a link (direct-invitations, public-site)
