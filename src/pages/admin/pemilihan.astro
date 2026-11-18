@@ -8,12 +8,12 @@ import Callout from "../../components/ui/Callout.astro";
 import Badge from "../../components/ui/Badge.astro";
 import Button from "../../components/ui/Button.astro";
 import FormField from "../../components/ui/FormField.astro";
-import { canReturnToDraft, getSingleCandidateMode } from "../../server/election/lifecycle";
+import { canReturnToDraft, getLiveVoterRollMode, getSingleCandidateMode } from "../../server/election/lifecycle";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
 const db = authorized ? bindings.DB : undefined;
-const e = await db?.prepare('SELECT title,description,opens_at,closes_at,preview_mode,status_lock,single_candidate_mode FROM elections ORDER BY id LIMIT 1').first<any>();
+const e = await db?.prepare('SELECT title,description,opens_at,closes_at,preview_mode,status_lock,single_candidate_mode,live_voter_roll FROM elections ORDER BY id LIMIT 1').first<any>();
 // Matriks tampil-tombol Kembali ke Draf dipakai bersama server (design.md D2); server
 // tetap memeriksa ulang saat tombol dikirim.
 const canReturn = Boolean(e && canReturnToDraft({ status_lock: String(e.status_lock), preview_mode: Number(e.preview_mode) || 0, opens_at: e.opens_at ?? null }, new Date()));
@@ -32,6 +32,12 @@ const singleCandidate = db ? await getSingleCandidateMode(db) : { enabled: false
 const singleCandidateMode = singleCandidate.enabled;
 const singleCandidateEditable = singleCandidate.editable;
 const singleCandidateReason = singleCandidate.reason;
+// Saklar "Tidak Membekukan DPT": sumber dan bentuk sama dengan GET
+// /api/election/live-voter-roll; halaman hanya menampilkan hasilnya.
+const liveRoll = db ? await getLiveVoterRollMode(db) : { enabled: false, editable: false, reason: null as string | null };
+const liveRollEnabled = liveRoll.enabled;
+const liveRollEditable = liveRoll.editable;
+const liveRollReason = liveRoll.reason;
 // Pesan hasil kembali ke Draf tampil setelah muat ulang lewat navigasi (tanpa polling).
 const returnedToDraft = Astro.url.searchParams.get('kembali') === '1';
 const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
@@ -84,6 +90,24 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
         <p id="single-candidate-reason" class="mt-2 text-xs leading-5 text-brand-muted" hidden={!singleCandidateReason}>{singleCandidateReason ?? ''}</p>
         <Callout id="single-candidate-error" tone="danger" class="mt-3" hidden></Callout>
         <p id="single-candidate-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
+      </div>
+      <div data-slot="live-voter-roll" class="mt-5 border-t border-brand-border pt-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Tidak Membekukan DPT</h3>
+              <span id="live-voter-roll-badge"><Badge tone={liveRollEnabled ? 'brand' : 'neutral'} size="sm">{liveRollEnabled ? 'Aktif' : 'Tidak aktif'}</Badge></span>
+            </div>
+            <p class="mt-1 text-xs leading-5 text-brand-muted">Hanya dapat diubah saat Draf. Saat aktif, daftar Pemilih mengikuti portal selama pemungutan suara: anggota baru yang berhak dapat langsung memilih dan yang kehilangan hak pilih tidak lagi bisa. Hak pilih ditetapkan saat pemungutan suara ditutup.</p>
+          </div>
+          <label for="live-voter-roll" class="mt-1 inline-flex shrink-0 cursor-pointer items-center">
+            <input id="live-voter-roll" type="checkbox" role="switch" aria-label="Tidak Membekukan DPT" class="peer sr-only" checked={liveRollEnabled} disabled={!liveRollEditable} data-editable={liveRollEditable ? '1' : '0'} />
+            <span aria-hidden="true" class="relative h-6 w-11 shrink-0 rounded-full bg-brand-border transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-primary peer-checked:after:translate-x-5 peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></span>
+          </label>
+        </div>
+        <p id="live-voter-roll-reason" class="mt-2 text-xs leading-5 text-brand-muted" hidden={!liveRollReason}>{liveRollReason ?? ''}</p>
+        <Callout id="live-voter-roll-error" tone="danger" class="mt-3" hidden></Callout>
+        <p id="live-voter-roll-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
       </div>
       {canReturn && <div data-slot="return-to-draft" class="mt-5 border-t border-brand-border pt-4">
         <h3 class="m-0 text-sm leading-snug font-bold text-brand-ink">Kembali ke Draf</h3>
@@ -183,7 +207,7 @@ const say=(text)=>{if(msg)msg.textContent=text};
 const on=(selector,event,handler)=>{const el=document.querySelector(selector);if(el)el.addEventListener(event,handler)};
 async function readiness(){const r=await fetch('/api/election/readiness'),d=await r.json();if(!list)return;list.replaceChildren();for(const c of d.checks||[]){const li=document.createElement('li');li.className='flex items-start gap-2 '+(c.ok?'text-brand-ink':'text-destructive');const icon=document.createElement('span');icon.className='mt-0.5 shrink-0';icon.append((c.ok?okTemplate:failTemplate).content.cloneNode(true));const text=document.createElement('span');text.className='min-w-0 text-[13px]';text.textContent=(c.ok?'':'Belum siap: ')+(labels[c.key]||c.message||c.key);li.append(icon,text);list.append(li)}if(!d.checks?.length)list.textContent=d.error||'Tidak ada pemeriksaan tersedia'}
 function values(form){const v=Object.fromEntries(new FormData(form));for(const k of ['opens_at','closes_at'])if(v[k]&&/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(v[k]))v[k]+=':00+09:00';return v}
-async function action(path,body={},confirmText){if(confirmText&&!confirm(confirmText))return;say('Memproses...');const r=await fetch('/api/election/'+path,{method:path==='schedule'?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),d=await r.json().catch(()=>({}));say(r.ok?'Perubahan berhasil disimpan.':(d.error||'Tindakan gagal')+(d.checks?' — '+d.checks.filter(c=>!c.ok).map(c=>c.message).join('; '):''));await readiness();await loadSingleCandidateMode()}
+async function action(path,body={},confirmText){if(confirmText&&!confirm(confirmText))return;say('Memproses...');const r=await fetch('/api/election/'+path,{method:path==='schedule'?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),d=await r.json().catch(()=>({}));say(r.ok?'Perubahan berhasil disimpan.':(d.error||'Tindakan gagal')+(d.checks?' — '+d.checks.filter(c=>!c.ok).map(c=>c.message).join('; '):''));await readiness();await loadSingleCandidateMode();await loadLiveVoterRoll()}
 on('#refresh','click',readiness);
 // Saklar mode kandidat tunggal: nilai, ketereditan dan alasannya dibaca dari GET
 // supaya pembekuan karena suara tersimpan (design.md D5) sama dengan server.
@@ -193,6 +217,12 @@ const scBadgeTone=(active)=>active?'bg-brand-50 text-brand-800':'bg-muted text-m
 const applySingleCandidateMode=(d)=>{if(!scToggle||!d)return;scToggle.checked=Boolean(d.enabled);scToggle.dataset.editable=d.editable?'1':'0';scToggle.disabled=!d.editable;if(scBadge){scBadge.textContent=d.enabled?'Aktif':'Tidak aktif';for(const c of ['bg-brand-50','text-brand-800','bg-muted','text-muted-foreground'])scBadge.classList.remove(c);for(const c of scBadgeTone(Boolean(d.enabled)).split(' '))scBadge.classList.add(c)}if(scReason){scReason.textContent=d.reason||'';scReason.hidden=!d.reason}};
 async function loadSingleCandidateMode(){if(!scToggle)return;try{const r=await fetch('/api/election/single-candidate-mode',{credentials:'same-origin'});if(!r.ok)return;applySingleCandidateMode(await r.json())}catch{}}
 if(scToggle)scToggle.addEventListener('change',async()=>{const enabled=scToggle.checked;scClear();if(scStatus)scStatus.textContent='Menyimpan...';scToggle.disabled=true;try{const r=await fetch('/api/election/single-candidate-mode',{method:'PUT',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})}),d=await r.json().catch(()=>({}));if(!r.ok){scToggle.checked=!enabled;if(scError){scError.textContent=d.error||'Mode kandidat tunggal gagal disimpan.';scError.removeAttribute('hidden')}if(scStatus)scStatus.textContent='';return}if(scStatus)scStatus.textContent=enabled?'Mode kandidat tunggal diaktifkan.':'Mode kandidat tunggal dinonaktifkan.';await readiness();await loadSingleCandidateMode()}catch{scToggle.checked=!enabled;if(scError){scError.textContent='Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.';scError.removeAttribute('hidden')}}finally{scToggle.disabled=scToggle.dataset.editable!=='1'}});
+// Saklar Tidak Membekukan DPT: pola yang sama dengan saklar mode kandidat tunggal.
+const lvToggle=document.querySelector('#live-voter-roll'),lvError=document.querySelector('#live-voter-roll-error'),lvStatus=document.querySelector('#live-voter-roll-status'),lvBadge=document.querySelector('#live-voter-roll-badge > span'),lvReason=document.querySelector('#live-voter-roll-reason');
+const lvClear=()=>{if(lvError){lvError.textContent='';lvError.setAttribute('hidden','')}};
+const applyLiveVoterRoll=(d)=>{if(!lvToggle||!d)return;lvToggle.checked=Boolean(d.enabled);lvToggle.dataset.editable=d.editable?'1':'0';lvToggle.disabled=!d.editable;if(lvBadge){lvBadge.textContent=d.enabled?'Aktif':'Tidak aktif';for(const c of ['bg-brand-50','text-brand-800','bg-muted','text-muted-foreground'])lvBadge.classList.remove(c);for(const c of (d.enabled?'bg-brand-50 text-brand-800':'bg-muted text-muted-foreground').split(' '))lvBadge.classList.add(c)}if(lvReason){lvReason.textContent=d.reason||'';lvReason.hidden=!d.reason}};
+async function loadLiveVoterRoll(){if(!lvToggle)return;try{const r=await fetch('/api/election/live-voter-roll',{credentials:'same-origin'});if(!r.ok)return;applyLiveVoterRoll(await r.json())}catch{}}
+if(lvToggle)lvToggle.addEventListener('change',async()=>{const enabled=lvToggle.checked;lvClear();if(lvStatus)lvStatus.textContent='Menyimpan...';lvToggle.disabled=true;try{const r=await fetch('/api/election/live-voter-roll',{method:'PUT',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})}),d=await r.json().catch(()=>({}));if(!r.ok){lvToggle.checked=!enabled;if(lvError){lvError.textContent=d.error||'Tidak Membekukan DPT gagal disimpan.';lvError.removeAttribute('hidden')}if(lvStatus)lvStatus.textContent='';return}if(lvStatus)lvStatus.textContent=enabled?'Tidak Membekukan DPT diaktifkan.':'Tidak Membekukan DPT dinonaktifkan.';await readiness();await loadLiveVoterRoll()}catch{lvToggle.checked=!enabled;if(lvError){lvError.textContent='Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.';lvError.removeAttribute('hidden')}}finally{lvToggle.disabled=lvToggle.dataset.editable!=='1'}});
 // Kembali ke Draf: dialog menuntut frasa yang sama dengan pemeriksaan server
 // (tanpa beda huruf besar/kecil dan spasi ganda), lalu memuat ulang lewat navigasi.
 const RETURN_PHRASE='KEMBALI KE DRAF';
@@ -225,6 +255,7 @@ if(abstainDialog)abstainDialog.addEventListener('keydown',e=>{if(e.key==='Escape
 if(abstainConfirm)abstainConfirm.addEventListener('click',async()=>{if(abstainBusy)return;abstainBusy=true;abstainConfirm.disabled=true;abstainClear();if(abstainStatus)abstainStatus.textContent='Menghitung Abstain...';try{const r=await fetch('/api/election/abstain-count',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}'}),d=await r.json().catch(()=>({}));if(r.ok){closeAbstainDialog();say('Hitung Abstain dijalankan: '+abstainNum(d.counted_count)+' Pemilih yang tidak memilih dihitung Abstain.');await loadAbstain();return}if(abstainError){abstainError.textContent=d.error||'Hitung Abstain belum dapat dijalankan.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false;await loadAbstain()}catch{if(abstainError){abstainError.textContent='Koneksi bermasalah. Periksa jaringan lalu coba kembali.';abstainError.removeAttribute('hidden')}if(abstainStatus)abstainStatus.textContent='';abstainBusy=false;abstainConfirm.disabled=false}});
 loadAbstain();
 loadSingleCandidateMode();
+loadLiveVoterRoll();
 on('#schedule','submit',e=>{e.preventDefault();const form=e.currentTarget;const v=values(form);v.preview_mode=document.querySelector('#preview-mode').checked;action('schedule',v)});
 on('#lock','click',()=>action('lock',{},'Kunci pemilihan dan jadwalkan sekarang?'));
 on('#extend','submit',e=>{e.preventDefault();action('extend',values(e.currentTarget))});

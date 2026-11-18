@@ -9,7 +9,7 @@ export const KORDA_MIN_BALLOTS = 10;
 export const UNKNOWN_REGION_KEY = "/tidak-diketahui";
 
 export class ResultsError extends Error {
-  constructor(message: string, public status: 503) {
+  constructor(message: string, public status: 409 | 503) {
     super(message);
   }
 }
@@ -185,7 +185,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     ).bind(election.id, election.id),
     db.prepare("SELECT path, name FROM units WHERE type = 'korda'"),
     db.prepare("SELECT COUNT(*) AS n FROM admin_voting"),
-    db.prepare(`SELECT COUNT(*) AS n FROM voters ${eligibleVoterFilter}`),
   ];
   if (single) {
     // Jawaban per seluruh pemilihan dan jawaban per korda, hanya agregat
@@ -198,7 +197,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     );
   }
   const batchResults = await db.batch(statements);
-  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult, choiceTotalResult, choiceByRegionResult] = batchResults;
+  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, choiceTotalResult, choiceByRegionResult] = batchResults;
   const candidates = candidatesResult as { results: CandidateTally[] };
   const votesByRegion = votesByRegionResult as { results: { candidate_id: number; path: string; n: number }[] };
   const participationByPath = participationByPathResult as { results: { path: string; n: number }[] };
@@ -209,7 +208,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const testCounts = testCountsResult as { results: { participation_count: number; ballot_count: number }[] };
   const units = unitsResult as { results: { path: string; name: string }[] };
   const adminCount = adminCountResult as { results: { n: number }[] };
-  const eligibleFallback = eligibleFallbackResult as { results: { n: number }[] };
   const choiceTotal = choiceTotalResult as { results: { choice: string; n: number }[] } | undefined;
   const choiceByRegion = choiceByRegionResult as { results: { choice: string; path: string; n: number }[] } | undefined;
 
@@ -224,7 +222,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const testCountRow = testCounts.results[0];
   const unitRows = units.results;
   const adminCountRow = adminCount.results[0];
-  const eligibleFallbackRow = eligibleFallback.results[0];
 
   const testSummary = realOnly ? null : {
     participation_count: testCountRow?.participation_count ?? 0,

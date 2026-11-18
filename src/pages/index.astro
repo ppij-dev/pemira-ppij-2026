@@ -17,7 +17,7 @@ import type { SessionData } from "../server/auth/session";
 import type { Bindings } from "../server/app";
 import { stage as getStage } from "../server/lib/stage";
 import { isSingleCandidateMode } from "../server/election/mode";
-import { getPublicResults } from "../server/results/queries";
+import { getPublicResults, getTurnout } from "../server/results/queries";
 import { getSiteLogo } from "../server/lib/logo";
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -57,6 +57,12 @@ const singleResultFacts = publicResults ? [
     : [{ label: "Tidak memilih", value: `${notVotingCount} orang (belum dihitung)` }]),
 ] : [];
 const boardReady = currentStage === "closed" || currentStage === "published";
+// Strip statistik publik (Jumlah Pemilih dan Suara Masuk, keputusan owner
+// 2026-11-19): dua angka agregat saja, dari Terjadwal sampai Diumumkan,
+// disembunyikan saat Draf. Angka awal dirender server; pembaruan lewat
+// polling endpoint publik /api/turnout (lihat skrip di bawah).
+const turnout = currentStage !== "draft" && db ? await getTurnout(db, new Date()).catch(() => null) : null;
+const turnoutNumber = new Intl.NumberFormat("id-ID");
 let voted = false;
 if (session && currentStage === "open") {
   try { const response = await fetch(new URL("/api/votes/me", Astro.url), { headers: { cookie: Astro.request.headers.get("cookie") ?? "" } }); voted = response.ok && Boolean((await response.json() as {voted_at:string|null}).voted_at); } catch { voted = false; }
@@ -124,6 +130,22 @@ const scheduleFacts = [
 
   {election?.preview_mode === 1 && <div class="mt-4"><Callout tone="warning" title="Mode uji coba aktif">Semua pilihan hanya untuk tes dan akan dihapus saat pemilihan dikunci.</Callout></div>}
 
+  {turnout && <section aria-labelledby="turnout-heading" class="mt-6">
+    <PanelCard title="Statistik pemilihan" description={currentStage === "open" ? "Diperbarui otomatis setiap 15 detik." : "Diperbarui otomatis."} icon={IconUsers} density="compact">
+      <h2 id="turnout-heading" class="sr-only">Statistik pemilihan</h2>
+      <div id="turnout-strip" data-stage={turnout.stage} class="grid grid-cols-2 gap-4">
+        <div class="min-w-0">
+          <p class="m-0 text-xs font-medium text-brand-muted">Jumlah Pemilih</p>
+          <p id="turnout-eligible" class="m-0 mt-1 font-mono text-2xl font-bold text-brand-ink tabular-nums sm:text-3xl" aria-live="off">{turnoutNumber.format(turnout.eligible_count)}</p>
+        </div>
+        <div class="min-w-0">
+          <p class="m-0 text-xs font-medium text-brand-muted">Suara Masuk</p>
+          <p id="turnout-votes" class="m-0 mt-1 font-mono text-2xl font-bold text-brand-ink tabular-nums sm:text-3xl" aria-live="off">{turnoutNumber.format(turnout.votes_count)}</p>
+        </div>
+      </div>
+    </PanelCard>
+  </section>}
+
   <div class="mt-6 grid gap-4 sm:grid-cols-2">
     <PanelCard title="Jadwal pemungutan" description="Waktu dalam zona Jepang (JST)." icon={IconListCheck} density="compact" class="self-start">
       <FactList items={scheduleFacts} variant="inline" />
@@ -166,4 +188,23 @@ const scheduleFacts = [
   <p class="mt-8 flex items-center justify-center gap-2 text-xs text-brand-muted"><Badge tone="outline" size="sm">Rahasia</Badge><span>Partisipasi dan surat suara tercatat terpisah agar pilihan Anda tidak dapat ditelusuri.</span></p>
 
   <script is:inline>document.querySelectorAll('[data-countdown]').forEach((el)=>{const tick=()=>{const seconds=Math.max(0,Math.floor((Date.parse(el.dataset.target)-Date.now())/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;const clock=[h,m,s].map((v)=>String(v).padStart(2,'0')).join(':');el.textContent=d>0?`${d} hari ${clock}`:clock};tick();setInterval(tick,1000)});</script>
+  {turnout && <script is:inline>
+// Statistik pemilihan: short polling endpoint publik /api/turnout (satu-satunya
+// polling di situs, keputusan owner 2026-11-19/204). 15 detik saat Dibuka, 60
+// detik di tahap lain; berhenti saat tab tersembunyi; jeda acak kecil agar
+// pengunjung tidak sinkron. Perubahan angka dianimasikan flip sederhana.
+(function(){
+  const strip=document.querySelector('#turnout-strip');
+  if(!strip) return;
+  const eligible=document.querySelector('#turnout-eligible'),votes=document.querySelector('#turnout-votes');
+  const fmt=new Intl.NumberFormat('id-ID');
+  const set=(node,value)=>{if(!node||node.textContent===value)return;node.classList.remove('flip');void node.offsetWidth;node.classList.add('flip');node.textContent=value};
+  let timer=null;
+  const poll=async()=>{try{const r=await fetch('/api/turnout');if(!r.ok)return;const d=await r.json();strip.dataset.stage=d.stage;set(eligible,fmt.format(d.eligible_count));set(votes,fmt.format(d.votes_count))}catch{}};
+  const schedule=()=>{if(timer)clearTimeout(timer);timer=null;if(document.hidden)return;const base=strip.dataset.stage==='open'?15000:60000;timer=setTimeout(async()=>{await poll();schedule()},base+Math.floor(Math.random()*2000))};
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){if(timer)clearTimeout(timer);timer=null}else schedule()});
+  schedule();
+})();
+  </script>}
+  <style>@keyframes turnout-flip{0%{transform:rotateX(0deg)}45%{transform:rotateX(90deg);opacity:.35}100%{transform:rotateX(0deg)}}#turnout-strip .flip{animation:turnout-flip .4s ease}</style>
 </Base>

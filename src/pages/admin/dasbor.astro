@@ -1,9 +1,35 @@
 ---
+import { env } from "cloudflare:workers";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import Button from "../../components/ui/Button.astro";
 import Callout from "../../components/ui/Callout.astro";
 import { IconAlertCircle, IconAlertTriangle, IconRefresh } from "@tabler/icons-astro";
+import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
+const bindings = env as unknown as AdminBindings;
+const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
+const db = authorized ? bindings.DB : undefined;
+// Catatan dan peringatan view portal (mode "Tidak Membekukan DPT", keputusan
+// owner 2026-11-19): tahap dihitung dari jam pada saat halaman dirender; tanpa
+// polling. View dianggap usang bila watermark portal lebih tua dari 5 menit.
+const election = await db?.prepare('SELECT status_lock,opens_at,closes_at,closed_early_at,live_voter_roll FROM elections ORDER BY id LIMIT 1').first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number }>();
+const liveRoll = election?.live_voter_roll === 1;
+const stageOf = (): string => {
+  if (!election) return 'draft';
+  if (election.status_lock === 'draft') return 'draft';
+  if (election.status_lock === 'published') return 'published';
+  const nowMs = Date.now();
+  if (election.opens_at && nowMs < Date.parse(election.opens_at)) return 'scheduled';
+  if (election.closed_early_at != null || (election.closes_at && nowMs >= Date.parse(election.closes_at))) return 'closed';
+  return 'open';
+};
+const currentStage = stageOf();
+const STALE_VIEW_MS = 5 * 60 * 1000;
+const watermark = await db?.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first<{ value: string }>();
+const watermarkAt = watermark?.value ? Date.parse(watermark.value) : NaN;
+const viewStale = liveRoll && currentStage === 'open' && (!Number.isFinite(watermarkAt) || Date.now() - watermarkAt > STALE_VIEW_MS);
+const formatJst = (value: string) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Tokyo', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value)) + ' JST';
+const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value!) : 'belum pernah';
 ---
 <AdminLayout title="Dasbor">
   <PageHeader title="Dasbor" eyebrow="Admin Voting" description="Ringkasan pemungutan suara dan perolehan suara. Data hanya diperbarui lewat aksi manual.">
@@ -13,6 +39,8 @@ import { IconAlertCircle, IconAlertTriangle, IconRefresh } from "@tabler/icons-a
   <Callout id="access" tone="warning" icon={IconAlertTriangle} title="Akses khusus Admin Voting" class="mt-5" hidden>
     Anda tidak memiliki akses ke data dasbor.
   </Callout>
+  {liveRoll && <Callout tone="neutral" title="Roll mengikuti portal (tidak dibekukan)" class="mt-5">Hak pilih dihitung dari daftar Pemilih terkini selama pemungutan suara dibuka dan ditetapkan saat pemungutan ditutup. Terakhir diperbarui dari portal: {lastRefreshText}.</Callout>}
+  {viewStale && <Callout tone="warning" icon={IconAlertTriangle} title="Daftar Pemilih sudah lama tidak diperbarui dari portal" class="mt-5">Portal belum berhasil dihubungi kembali sejak {lastRefreshText}. Pemilih tetap dapat memilih berdasarkan daftar terakhir ini; periksa koneksi portal bila keadaan ini berlarut.</Callout>}
   <div id="dashboard" class="mt-5 grid gap-[17px] [&>*]:min-w-0" aria-live="polite">
     <section class="rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]">
       <p class="text-[13px] text-brand-muted">Memuat data dasbor...</p>
