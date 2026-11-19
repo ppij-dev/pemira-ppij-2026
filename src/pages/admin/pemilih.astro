@@ -30,6 +30,10 @@ const unitNames = (await db?.prepare('SELECT path,name FROM units').all<{ path: 
 // memilih; panitia perlu meminta portal menetapkannya lalu menyegarkan roll.
 const undetermined = (await db?.prepare('SELECT COUNT(*) AS n FROM voters WHERE can_vote IS NULL').first<{ n: number }>())?.n ?? 0;
 const sync = await db?.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first<{ value: string }>();
+// Mode "Tidak Membekukan DPT": roll mengikuti portal, jadi halaman tidak
+// mengaku beku dan waktu segarkan terakhir (watermark portal) ditegaskan.
+const liveRollPage = (await db?.prepare('SELECT live_voter_roll FROM elections ORDER BY id LIMIT 1').first<{ live_voter_roll: number }>())?.live_voter_roll === 1;
+const rollDescription = liveRollPage ? `Roll mengikuti portal (tidak dibekukan). Terakhir diperbarui dari portal: ${sync?.value ? formatJst(sync.value) : "belum pernah"}` : `Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}`;
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)) + " JST";
 const pageQuery = (target: number) => `?q=${encodeURIComponent(q)}&komsat=${encodeURIComponent(komsat)}&status=${filter}&page=${Math.max(1, target)}`;
 const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
@@ -40,7 +44,7 @@ const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3
     <Button id="sync-names" type="button" variant="secondary" size="sm" aria-controls="sync-status">Perbarui Nama &amp; Kategori dari Portal</Button>
   </PageHeader>
   <Callout id="sync-status" tone="info" role="status" aria-live="polite" hidden class="mt-4"><span id="sync-status-text"></span></Callout>
-  <PanelCard title="Pencarian anggota" description={`Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}`} icon={IconSearch} class="mt-5">
+  <PanelCard title="Pencarian anggota" description={rollDescription} icon={IconSearch} class="mt-5">
     {undetermined > 0 && <Callout tone="warning" icon={IconAlertTriangle} title="Hak pilih belum ditentukan" class="mb-4">{undetermined} anggota belum ditentukan hak pilihnya oleh portal dan belum bisa memilih. Minta Admin Portal menetapkan kategori anggota, lalu tekan "Perbarui Nama &amp; Kategori dari Portal".</Callout>}
     <form class="grid items-start gap-x-3.5 gap-y-4 min-[601px]:grid-cols-2 min-[1101px]:grid-cols-[minmax(12rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_auto] min-[1101px]:items-end [&_input]:min-[600px]:h-8 [&_input]:max-[600px]:min-h-11 [&_select]:min-[600px]:h-8 [&_select]:max-[600px]:min-h-11">
       <FormField label="Nama anggota" for="voter-query">

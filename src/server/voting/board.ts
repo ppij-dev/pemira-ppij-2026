@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { AUDIT_GENESIS_HASH, canonicalRow, sha256Hex, type AuditEntry } from "../lib/audit";
 import { stage } from "../lib/stage";
+import { directInviteTerm, liveHakPilih, withDirectInvites } from "../election/hakPilih";
 
 type Env = { Bindings: Bindings };
 
@@ -21,6 +22,154 @@ async function readSnapshot(db: D1Database, id: number) {
     .prepare("SELECT closing_snapshot_hash, closing_snapshot_at FROM elections WHERE id=?")
     .bind(id)
     .first<{ closing_snapshot_hash: string | null; closing_snapshot_at: string | null }>();
+}
+
+interface ClosingHakPilihRow {
+  id: number;
+  status_lock: "draft" | "locked" | "published";
+  opens_at: string;
+  closes_at: string;
+  closed_early_at: string | null;
+  closing_hak_pilih: number | null;
+  live_voter_roll: number;
+}
+
+/**
+ * Menetapkan Hak pilih akhir mode "Tidak Membekukan DPT" (keputusan owner
+ * 2026-11-19): tidak ada cron, tahap dihitung dari jam, jadi angka live Hak
+ * pilih ditetapkan sekali oleh pembacaan pertama yang melihat pemilihan sudah
+ * Ditutup, atau langsung di batch Tutup Sekarang. Pola sama dengan
+ * ensureClosingSnapshot: UPDATE bergerbang + entri audit bergerbang ujung
+ * rantai dalam satu D1 batch, dan pembaca yang kalah membaca nilai pemenang.
+ * Hanya pernah menulis saat saklar menyala; saat mati kolom tetap NULL dan
+ * Hak pilih tetap dari frozen_hak_pilih.
+ */
+export async function ensureClosingHakPilih(db: D1Database, now: Date): Promise<number | null> {
+  const election = await db
+    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, closing_hak_pilih, live_voter_roll FROM elections ORDER BY id LIMIT 1")
+    .first<ClosingHakPilihRow>();
+  if (!election) return null;
+  if (election.closing_hak_pilih != null) return election.closing_hak_pilih;
+  // Saklar mati: snapshot tidak pernah ditulis, Hak pilih dari frozen_hak_pilih.
+  if (election.live_voter_roll !== 1) return null;
+  const currentStage = stage(election, now.toISOString());
+  if (currentStage !== "closed" && election.status_lock !== "published") return null;
+  // Tutup lebih awal sudah menetapkan angkanya di batch Tutup Sekarang.
+  if (election.closed_early_at !== null) return election.closing_hak_pilih;
+
+  const hakPilih = await liveHakPilih(db);
+  const at = now.toISOString();
+  const auditEntry: AuditEntry = {
+    at,
+    actor_type: "system",
+    actor_member_id: null,
+    actor_name: "",
+    action: "Hak pilih akhir disimpan",
+    target: String(election.id),
+    komsat_path: null,
+    detail_json: JSON.stringify({ hak_pilih: hakPilih }),
+  };
+
+  const tipGuard = "COALESCE((SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1), ?) = ?";
+  const closeGuard = "(closed_early_at IS NOT NULL OR julianday(closes_at) <= julianday('now'))";
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await db
+      .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, closing_hak_pilih, live_voter_roll FROM elections WHERE id=?")
+      .bind(election.id)
+      .first<ClosingHakPilihRow>();
+    if (!current) return null;
+    if (current.closing_hak_pilih != null) return current.closing_hak_pilih;
+    if (current.live_voter_roll !== 1) return null;
+    if (stage(current, now.toISOString()) !== "closed" && current.status_lock !== "published") return null;
+    if (current.closed_early_at !== null) return current.closing_hak_pilih;
+
+    const tip = await db.prepare("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1").first<{ hash: string }>();
+    const previousHash = tip?.hash ?? AUDIT_GENESIS_HASH;
+    const hash = await sha256Hex(previousHash + canonicalRow({ ...auditEntry, prev_hash: previousHash }));
+
+    try {
+      const results = await db.batch([
+        db.prepare(
+          `UPDATE elections
+           SET closing_hak_pilih = ?, closing_hak_pilih_at = ?
+           WHERE id = ?
+             AND closing_hak_pilih IS NULL
+             AND status_lock = 'locked'
+             AND live_voter_roll = 1
+             AND ${closeGuard}
+             AND ${tipGuard}`,
+        ).bind(hakPilih, at, current.id, previousHash, previousHash),
+        db.prepare(
+          `INSERT INTO audit_log
+             (at, actor_type, actor_member_id, actor_name, action, target, komsat_path, detail_json, prev_hash, hash)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           FROM elections
+           WHERE id = ?
+             AND closing_hak_pilih = ?
+             AND ${tipGuard}`,
+        ).bind(
+          auditEntry.at, auditEntry.actor_type, auditEntry.actor_member_id, auditEntry.actor_name,
+          auditEntry.action, auditEntry.target, auditEntry.komsat_path, auditEntry.detail_json,
+          previousHash, hash, current.id, hakPilih, previousHash, previousHash,
+        ),
+      ]);
+      if ((results[0]?.meta?.changes ?? 0) === 1 && (results[1]?.meta?.changes ?? 0) === 1) {
+        return hakPilih;
+      }
+    } catch {
+      // Batch gagal atau penulis lain menang; cek pemenang di bawah.
+    }
+
+    const winner = await db
+      .prepare("SELECT closing_hak_pilih FROM elections WHERE id=?")
+      .bind(election.id)
+      .first<{ closing_hak_pilih: number | null }>();
+    if (winner?.closing_hak_pilih != null) return winner.closing_hak_pilih;
+  }
+
+  const fallback = await db
+    .prepare("SELECT closing_hak_pilih FROM elections WHERE id=?")
+    .bind(election.id)
+    .first<{ closing_hak_pilih: number | null }>();
+  return fallback?.closing_hak_pilih ?? null;
+}
+
+export interface HakPilihResolution {
+  hakPilih: number;
+  /** frozen = frozen_hak_pilih (saklar mati), live = hitungan view, closing = snapshot penutupan. */
+  source: "frozen" | "live" | "closing";
+}
+
+interface ResolveRow extends ClosingHakPilihRow {
+  frozen_hak_pilih: number | null;
+}
+
+/**
+ * Penyelesai Hak pilih untuk semua konsumen (hasil, Dasbor, turnout, Hitung
+ * Abstain): saklar mati memakai frozen_hak_pilih dengan fallback hitungan view
+ * saat Draf; saklar menyala memakai snapshot penutupan setelah Ditutup dan
+ * hitungan live sebelumnya. Titik penetapan snapshot dijalankan di sini, jadi
+ * tidak ada konsumen yang melihat "Ditutup tapi belum disimpan".
+ */
+export async function resolveHakPilih(db: D1Database, now: Date): Promise<HakPilihResolution> {
+  const row = await db
+    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, closing_hak_pilih, live_voter_roll, frozen_hak_pilih FROM elections ORDER BY id LIMIT 1")
+    .first<ResolveRow>();
+  if (!row) return { hakPilih: 0, source: "frozen" };
+  if (row.live_voter_roll !== 1) {
+    // Roll beku: `frozen_hak_pilih` tetap hanya suku roll, jadi tautan Undangan
+    // Langsung ditambahkan di sini lewat helper yang sama (satu tempat).
+    if (row.frozen_hak_pilih != null)
+      return { hakPilih: withDirectInvites(row.frozen_hak_pilih, await directInviteTerm(db)), source: "frozen" };
+    return { hakPilih: await liveHakPilih(db), source: "live" };
+  }
+  const currentStage = stage(row, now.toISOString());
+  if (currentStage === "closed" || row.status_lock === "published") {
+    const saved = await ensureClosingHakPilih(db, now);
+    if (saved != null) return { hakPilih: saved, source: "closing" };
+  }
+  return { hakPilih: await liveHakPilih(db), source: "live" };
 }
 
 /**
@@ -160,6 +309,9 @@ export async function getPublicBoard(db: D1Database, now: Date) {
   const election = await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<ElectionRow>();
   if (!election || (stage(election, now.toISOString()) !== "closed" && election.status_lock !== "published")) return null;
   const snapshotHash = await ensureClosingSnapshot(db, now);
+  // Mode Tidak Membekukan DPT: penetapan Hak pilih akhir ikut dibaca di sini
+  // supaya tidak ada pembaca yang melihat "Ditutup tapi belum disimpan".
+  await ensureClosingHakPilih(db, now);
   const ballots = await db.prepare("SELECT receipt_hash FROM ballots WHERE election_id=? ORDER BY id").bind(election.id).all<{ receipt_hash: string }>();
   const participation = await db.prepare("SELECT COUNT(*) AS count FROM participation WHERE election_id=? AND is_test=0").bind(election.id).first<{ count: number }>();
   const updatedElection = await db.prepare("SELECT closing_snapshot_at FROM elections WHERE id=?").bind(election.id).first<{ closing_snapshot_at: string | null }>();

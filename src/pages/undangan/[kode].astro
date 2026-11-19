@@ -1,0 +1,170 @@
+---
+/**
+ * Halaman undangan langsung: sapaan, jadwal, formulir klaim (Nama, Email,
+ * Korda/Komsat) dan tautan ke surat suara. Tahap ditentukan jam; sebelum dibuka
+ * tidak ada surat suara, sesudah ditutup hanya pesan. Kode tidak pernah
+ * dikembalikan ke halaman ini.
+ */
+import { env } from "cloudflare:workers";
+import { IconAlertTriangle, IconCalendarEvent, IconInfoCircle, IconShieldLock, IconUsers } from "@tabler/icons-astro";
+import Base from "../../layouts/Base.astro";
+import Button from "../../components/ui/Button.astro";
+import Callout from "../../components/ui/Callout.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
+import PanelCard from "../../components/ui/PanelCard.astro";
+import type { Bindings } from "../../server/app";
+import { consumeOpenLimit, resolveDirectLink } from "../../server/direct/open";
+import { INVITE_SESSION_COOKIE, loadInviteUnits, openInviteSession } from "../../server/direct/claim";
+import { unitPathLabel } from "../../lib/formatKomsat";
+import { loadUnitNames } from "../../server/lib/units";
+
+const bindings = env as unknown as Bindings;
+const kode = Astro.params.kode ?? "";
+const now = new Date();
+
+let allowed = false;
+try {
+  allowed = await consumeOpenLimit(bindings.DB, kode);
+} catch {
+  allowed = true;
+}
+const view = allowed
+  ? await resolveDirectLink(bindings.DB, now, kode)
+  : { outcome: "unknown" as const, stage: null, opens_at: null, closes_at: null, closed_early_at: null, invitation: null };
+
+const cookie = Astro.cookies.get(INVITE_SESSION_COOKIE)?.value;
+const session = cookie && bindings.APP_MASTER_KEY ? await openInviteSession(cookie, bindings.APP_MASTER_KEY) : null;
+const resumed = Boolean(session && view.invitation && session.invitation_id === view.invitation.id);
+
+const scopeRow = await bindings.DB.prepare("SELECT value FROM system_config WHERE key = 'site_scope'").first<{ value: string }>().catch(() => null);
+const units = view.outcome === "ok" && view.stage === "open"
+  ? await loadInviteUnits(bindings.DB, scopeRow?.value ?? "").catch(() => [])
+  : [];
+const names = await loadUnitNames(bindings.DB);
+
+const jst = (value: string | null) =>
+  value && Number.isFinite(Date.parse(value))
+    ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)) + " JST"
+    : null;
+
+const schedule = view.opens_at
+  ? `Pemungutan suara ${jst(view.opens_at)} sampai ${jst(view.closes_at)}.`
+  : "Jadwal pemungutan suara belum ditetapkan panitia.";
+
+if (view.outcome === "unknown") Astro.response.status = 404;
+---
+<Base title="Undangan Pemilih · PPIJ Pemilu" description="Undangan langsung untuk memilih pada pemilihan PPI Jepang.">
+  <PageHeader eyebrow="Undangan" title="Selamat datang di Pemilihan Umum" description="Tautan ini adalah undangan langsung dari panitia pemilihan PPI Jepang." />
+
+  {view.outcome === "unknown" && <div class="mt-5">
+    <Callout tone="warning" icon={IconAlertTriangle} title="Tautan tidak ditemukan">Periksa kembali tautan dari panitia, atau minta tautan baru. Tautan hanya berlaku untuk satu orang.</Callout>
+  </div>}
+
+  {view.outcome === "used" && <div class="mt-5">
+    <Callout tone="warning" icon={IconInfoCircle} title="Tautan ini sudah dipakai">Satu tautan hanya berlaku untuk satu orang. Bila Anda belum memilih, minta panitia mengirim tautan baru.</Callout>
+  </div>}
+
+  {view.outcome === "cancelled" && <div class="mt-5">
+    <Callout tone="warning" icon={IconInfoCircle} title="Tautan ini dibatalkan">Panitia pemilihan membatalkan tautan ini. Hubungi panitia untuk tautan baru.</Callout>
+  </div>}
+
+  {view.outcome === "unavailable" && <div class="mt-5">
+    <Callout tone="neutral" icon={IconInfoCircle} title="Informasi pemilihan belum tersedia">Data pemilihan belum dapat dibaca saat ini. Coba muat ulang beberapa saat lagi.</Callout>
+  </div>}
+
+  {view.outcome === "ok" && <>
+    {(view.stage === "draft" || view.stage === "scheduled") && <div class="mt-5">
+      <Callout tone="info" icon={IconCalendarEvent} title="Pemungutan suara belum dibuka">Simpan tautan ini dan kembali sesuai jadwal. {schedule} Surat suara belum dapat diisi.</Callout>
+    </div>}
+
+    {(view.stage === "closed" || view.stage === "published") && <div class="mt-5">
+      <Callout tone="warning" icon={IconInfoCircle} title={view.stage === "closed" ? "Pemungutan suara telah ditutup" : "Hasil sudah diumumkan"}>
+        {view.stage === "closed" ? "Batas waktu pemungutan suara telah lewat. Surat suara tidak dapat diisi lagi." : "Pemungutan suara selesai dan hasilnya sudah diumumkan."}
+      </Callout>
+    </div>}
+
+    <div class="mt-5 grid gap-4">
+      <PanelCard title="Lihat profil kandidat" description="Kenali kandidat sebelum menentukan pilihan." icon={IconUsers}>
+        <p class="text-sm leading-6 text-brand-muted">Daftar kandidat dan profil masing-masing terbuka untuk umum.</p>
+        <Button href="/kandidat" variant="secondary" class="mt-4">Lihat profil kandidat</Button>
+      </PanelCard>
+
+      {view.stage === "open" && <>
+        {resumed
+          ? <PanelCard title="Lanjutkan ke surat suara" description="Data Anda sudah tersimpan pada tautan ini." icon={IconShieldLock}>
+              <p class="text-sm leading-6 text-brand-muted">Lanjutkan mengisi surat suara. Suara hanya tercatat setelah Anda menekan Kirim suara dan mengonfirmasi.</p>
+              <Button href={`/undangan/${encodeURIComponent(kode)}/surat-suara`} class="mt-4">Lanjutkan ke surat suara</Button>
+            </PanelCard>
+          : <PanelCard title="Pilih" description="Isi data Anda, lalu lanjutkan ke surat suara." icon={IconShieldLock}>
+              <Callout id="claim-error" tone="danger" class="mb-4" hidden></Callout>
+              {units.length === 0
+                ? <Callout tone="warning" icon={IconAlertTriangle} title="Daftar korda/komsat belum tersedia">Panitia belum menyinkronkan daftar unit dari portal. Hubungi panitia pemilihan.</Callout>
+                : <form id="claim-form" class="grid gap-4" novalidate>
+                    <div>
+                      <label for="claim-name" class="block text-xs font-semibold text-brand-muted">Nama</label>
+                      <input id="claim-name" name="nama" type="text" required autocomplete="name" class="mt-1.5 min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm" />
+                    </div>
+                    <div>
+                      <label for="claim-email" class="block text-xs font-semibold text-brand-muted">Email</label>
+                      <input id="claim-email" name="email" type="email" required autocomplete="email" inputmode="email" class="mt-1.5 min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm" />
+                      <p class="mt-1.5 text-xs leading-5 text-brand-muted">Dipakai panitia untuk menghubungi Anda bila ada pemeriksaan. Tidak pernah ditulis pada surat suara.</p>
+                    </div>
+                    <div>
+                      <label for="claim-unit" class="block text-xs font-semibold text-brand-muted">Korda/Komsat</label>
+                      <select id="claim-unit" name="komsat_path" required class="mt-1.5 min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm">
+                        <option value="">Pilih korda/komsat</option>
+                        {units.map((unit) => <option value={unit.path}>{unitPathLabel(unit.path, names)}</option>)}
+                      </select>
+                    </div>
+                    <Button id="claim-submit" type="button" class="w-full">Lanjutkan ke surat suara</Button>
+                  </form>}
+            </PanelCard>}
+      </>}
+    </div>
+  </>}
+
+  {view.outcome === "ok" && view.stage === "open" && units.length > 0 && <script is:inline define:vars={{ kode }}>
+    const form = document.querySelector("#claim-form");
+    const submit = document.querySelector("#claim-submit");
+    const errorBox = document.querySelector("#claim-error");
+    const errors = {
+      invalid_name: "Nama harus diisi 2 sampai 80 karakter.",
+      invalid_email: "Alamat email tidak valid.",
+      invalid_unit: "Pilihan Korda/Komsat tidak dikenal.",
+      invite_used: "Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu orang.",
+      invite_cancelled: "Tautan ini dibatalkan oleh panitia.",
+      invite_not_open: "Pemungutan suara belum dibuka atau telah ditutup.",
+      invite_reserved: "Tautan sedang diisi orang lain. Minta panitia mengirim tautan baru bila perlu.",
+      rate_limited: "Terlalu banyak percobaan. Coba lagi nanti.",
+      invite_not_found: "Tautan tidak ditemukan.",
+      origin_tidak_diizinkan: "Permintaan tidak dapat diverifikasi. Muat ulang halaman.",
+    };
+    if (form && submit) {
+      submit.addEventListener("click", async () => {
+        errorBox.setAttribute("hidden", "");
+        const nama = form.querySelector("#claim-name").value.trim();
+        const email = form.querySelector("#claim-email").value.trim();
+        const komsat_path = form.querySelector("#claim-unit").value;
+        if (nama.length < 2) { errorBox.textContent = errors.invalid_name; errorBox.removeAttribute("hidden"); return; }
+        if (!komsat_path) { errorBox.textContent = "Pilih Korda/Komsat Anda."; errorBox.removeAttribute("hidden"); return; }
+        submit.disabled = true;
+        try {
+          const response = await fetch("/api/undangan/klaim", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kode, nama, email, komsat_path }),
+          });
+          const data = await response.json();
+          if (response.ok && typeof data.redirect === "string") { location.assign(data.redirect); return; }
+          errorBox.textContent = errors[data.error] || "Data belum dapat disimpan. Coba lagi.";
+          errorBox.removeAttribute("hidden");
+        } catch {
+          errorBox.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba lagi.";
+          errorBox.removeAttribute("hidden");
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    }
+  </script>}
+</Base>

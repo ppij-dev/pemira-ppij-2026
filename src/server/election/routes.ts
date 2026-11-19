@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { createCandidate, deleteCandidate, ElectionError, listCandidates, updateCandidate } from "./candidates";
-import { castTestVote, clearSchedule, closeEarly, countAbstain, getAbstainCount, extendClosing, getReadiness, getSingleCandidateMode, lockElection, publishResults, returnToDraft, setSchedule, setSingleCandidateMode } from "./lifecycle";
+import { castTestVote, clearSchedule, closeEarly, countAbstain, getAbstainCount, extendClosing, getLiveVoterRollMode, getReadiness, getSingleCandidateMode, lockElection, publishResults, returnToDraft, setLiveVoterRollMode, setSchedule, setSingleCandidateMode } from "./lifecycle";
 import type { ServiceApiConfig } from "../serviceapi/client";
 
 type Env={Bindings:Bindings & { ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string };Variables:{adminAuth?:{session:{member_id:string;name:string};admin:{member_id:string};displayName:string}}};
@@ -17,6 +17,8 @@ electionRoutes.delete("/election/candidates/:id",async c=>{try{await deleteCandi
 electionRoutes.get("/election/readiness",async c=>c.json({checks:await getReadiness(c.env.DB,now(c))}));
 electionRoutes.get("/election/single-candidate-mode",async c=>c.json(await getSingleCandidateMode(c.env.DB)));
 electionRoutes.put("/election/single-candidate-mode",async c=>{try{const body=await c.req.json();const auth=c.get("adminAuth");return c.json(await setSingleCandidateMode(c.env.DB,now(c),body?.enabled,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined));}catch(e){return fail(c,e);}});
+electionRoutes.get("/election/live-voter-roll",async c=>c.json(await getLiveVoterRollMode(c.env.DB)));
+electionRoutes.put("/election/live-voter-roll",async c=>{try{const body=await c.req.json();const auth=c.get("adminAuth");return c.json(await setLiveVoterRollMode(c.env.DB,now(c),body?.enabled,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined));}catch(e){return fail(c,e);}});
 electionRoutes.put("/election/schedule",async c=>{try{await setSchedule(c.env.DB,now(c),await c.req.json());return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.delete("/election/schedule",async c=>{try{await clearSchedule(c.env.DB,now(c));return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/lock",async c=>{try{return c.json(await lockElection(c.env.DB,serviceConfig(c.env),now(c)));}catch(e){return fail(c,e);}});

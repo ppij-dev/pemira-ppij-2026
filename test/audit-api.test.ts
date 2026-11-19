@@ -93,4 +93,29 @@ describe("audit API", () => {
     await env.DB.prepare("UPDATE elections SET closing_snapshot_hash='abc',closing_snapshot_at='2026-01-01T00:00:00Z'").run();
     expect(await (await request("/api/audit/snapshot")).json()).toMatchObject({closing_snapshot_hash:"abc",closing_snapshot_at:expect.stringContaining("+09:00")});
   });
+  it("renders direct invite targets as labels and never exposes a link code", async () => {
+    await append("Undangan langsung dibuat", { count: 2, references: ["A7K3M9", "B8Q4XZ"] });
+    await append("Daftar undangan dilihat", { stage: "open", count: 2 });
+    await append("Pemungutan suara undangan", null, {
+      actor_type: "voter",
+      actor_member_id: "undangan:A7K3M9",
+      actor_name: "Budi",
+      target: "undangan:A7K3M9",
+      komsat_path: "/ppij/test/komsat",
+    });
+    const body = (await (await request("/api/audit")).json()) as {
+      results: Array<{ action: string; target: string | null; target_label: string | null; detail_json: object | null }>;
+    };
+    expect(body.results.map((row) => row.action)).toEqual([
+      "Pemungutan suara undangan",
+      "Daftar undangan dilihat",
+      "Undangan langsung dibuat",
+    ]);
+    const vote = body.results.find((row) => row.action === "Pemungutan suara undangan")!;
+    expect(vote.target).toBe("undangan:A7K3M9");
+    expect(vote.target_label).toBe("Undangan A7K3M9");
+    // Tidak ada kode tautan 26 karakter pada label atau detail mana pun.
+    const surface = JSON.stringify(body.results.map((row) => [row.target_label, row.detail_json]));
+    expect(surface).not.toMatch(/[0-9A-HJKMNP-TV-Z]{26}/);
+  });
 });

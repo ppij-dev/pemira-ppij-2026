@@ -12,12 +12,16 @@ import lockSql from "../migrations/0003_election_lock.sql?raw";
 import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
 import previewSql from "../migrations/0006_preview_mode.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
 import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
+import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
+import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -26,6 +30,7 @@ import { lockElection, returnToDraft } from "../src/server/election/lifecycle";
 import { checkReceipt, getPublicBoard } from "../src/server/voting/board";
 import { getDashboard } from "../src/server/results/queries";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
+import { createServiceApiStub } from "./lib/serviceapi-fixture";
 import type { Bindings } from "../src/server/app";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
@@ -94,7 +99,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...memberNumberSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";"), ...liveRollSql.split(";"), ...closingHakPilihSql.split(";"), ...directInvitationsSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -546,5 +551,86 @@ describe("suara tersimpan melewati Kembali ke Draf", () => {
     const board = await getPublicBoard(env.DB, new Date());
     expect(board!.receipt_hashes).toContain(receiptHash);
     expect(board!.ballot_count).toBe(2);
+  });
+});
+
+describe("Tidak Membekukan DPT (eligibility live)", () => {
+  const stub = createServiceApiStub();
+  const portal = { issuer: stub.issuer, clientId: "c", clientSecret: "s", serviceApiUrl: stub.serviceUrl, fetchImpl: stub.fetchImpl };
+  async function seedLiveElection(opts: { preview?: boolean; allowAdmin?: number } = {}) {
+    await env.DB.prepare("DELETE FROM elections").run();
+    await env.DB.prepare(
+      "INSERT INTO elections (id,title,status_lock,opens_at,closes_at,allow_admin_voting,preview_mode,live_voter_roll) VALUES (1,'Pemilihan','locked',?,?,?, ?,1)",
+    ).bind(OPENS_AT, CLOSES_AT, opts.allowAdmin ?? 1, opts.preview ? 1 : 0).run();
+  }
+  it("anggota pada view dapat memilih meski roll tidak dibekukan", async () => {
+    await seedLiveElection();
+    // Watermark segar: tidak ada segarkan, view hasil seed dipakai apa adanya.
+    await env.DB.prepare("INSERT OR REPLACE INTO system_config (key,value) VALUES ('pemilih_last_sync',?)").bind(new Date(Date.now() - 10_000).toISOString()).run();
+    const session: VoteSession = { member_id: "voter-1", name: "Andi Wijaya", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    const result = await castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal);
+    expect(result.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    expect(await env.DB.prepare("SELECT frozen_at,frozen_hak_pilih FROM elections").first()).toEqual({ frozen_at: null, frozen_hak_pilih: null });
+  });
+  it("anggota baru dari segarkan portal dapat memilih dan segarkan tetap sunyi", async () => {
+    await seedLiveElection();
+    // Watermark lama: percobaan memilih memicu segarkan changed_since.
+    await env.DB.prepare("INSERT OR REPLACE INTO system_config (key,value) VALUES ('pemilih_last_sync','2025-12-31T00:00:00Z')").run();
+    const session: VoteSession = { member_id: "member-9", name: "Member 9", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    const result = await castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal);
+    expect(result.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id='member-9'").first<{n:number}>()).toEqual({ n: 1 });
+    // Segarkan otomatis sunyi: hanya entri audit vote.
+    const actions = await env.DB.prepare("SELECT action FROM audit_log").all<{ action: string }>();
+    expect(actions.results.map((row) => row.action)).toEqual(["voted"]);
+  });
+  it("anggota yang tidak ada di view ditolak tanpa mencatat apa pun", async () => {
+    await seedLiveElection();
+    const session: VoteSession = { member_id: "voter-hantu", name: "Hantu", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await expect(castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ status: 403, reason: "not_in_roll" });
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+  it("aturan hak pilih dan keanggotaan tetap sama saat saklar menyala", async () => {
+    await seedLiveElection();
+    await env.DB.prepare("INSERT OR REPLACE INTO system_config (key,value) VALUES ('pemilih_last_sync',?)").bind(new Date(Date.now() - 10_000).toISOString()).run();
+    await seedVoter("voter-luar-live", { name: "Luar Biasa", category: "LUAR_BIASA", canVote: 0 });
+    await seedVoter("voter-suspended-live", { status: "SUSPENDED" });
+    const luarsei: VoteSession = { member_id: "voter-luar-live", name: "Luar Biasa", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await expect(castVote(env.DB, luarsei, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ reason: "not_regular_member" });
+    const suspended: VoteSession = { member_id: "voter-suspended-live", name: "Suspended", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await expect(castVote(env.DB, suspended, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ reason: "not_active" });
+    await seedLiveElection({ allowAdmin: 0 });
+    const admin: VoteSession = { member_id: "admin-1", name: "Admin", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await env.DB.prepare("INSERT INTO admin_voting (member_id,name,created_at) VALUES ('admin-1','Admin','now')").run();
+    await expect(castVote(env.DB, admin, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ reason: "admin_voting_not_allowed" });
+  });
+  it("suara yang sudah masuk tetap ada saat anggota kehilangan hak pilih di view", async () => {
+    await seedLiveElection();
+    await env.DB.prepare("INSERT OR REPLACE INTO system_config (key,value) VALUES ('pemilih_last_sync',?)").bind(new Date(Date.now() - 10_000).toISOString()).run();
+    const session: VoteSession = { member_id: "voter-1", name: "Andi Wijaya", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal);
+    await env.DB.prepare("UPDATE voters SET can_vote=0 WHERE member_id='voter-1'").run();
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+    await expect(castVote(env.DB, session, { candidate_id: 2, confirmation_text: "Sari" }, undefined, portal)).rejects.toMatchObject({ reason: "not_regular_member" });
+    expect(await rowCounts()).toEqual({ participation: 1, ballots: 1 });
+  });
+  it("saklar mati: perilaku hari ini, tanpa segarkan portal", async () => {
+    await env.DB.prepare("UPDATE elections SET live_voter_roll=0, frozen_at=NULL, frozen_hak_pilih=NULL").run();
+    await env.DB.prepare("INSERT OR REPLACE INTO system_config (key,value) VALUES ('pemilih_last_sync','2025-12-31T00:00:00Z')").run();
+    const session: VoteSession = { member_id: "voter-1", name: "Andi Wijaya", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await expect(castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ reason: "not_locked" });
+    await env.DB.prepare("UPDATE elections SET frozen_at=?, frozen_hak_pilih=10").bind(new Date(Date.now() - 3_600_000).toISOString()).run();
+    const ghost: VoteSession = { member_id: "member-9", name: "Member 9", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    await expect(castVote(env.DB, ghost, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal)).rejects.toMatchObject({ reason: "not_in_roll" });
+    // Saklar mati tidak pernah menambah anggota dari portal.
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id='member-9'").first<{n:number}>()).toEqual({ n: 0 });
+  });
+  it("Mode Pratinjau tetap mengatur alur cobainya meski saklar menyala", async () => {
+    await seedLiveElection({ preview: true });
+    const session: VoteSession = { member_id: "voter-baru", name: "Anggota Baru", affiliation: SCOPE, auth_time: Math.floor(Date.now() / 1000) };
+    const result = await castVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" }, undefined, portal);
+    expect(result.receipt_code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id='voter-baru'").first<{n:number}>()).toEqual({ n: 1 });
   });
 });

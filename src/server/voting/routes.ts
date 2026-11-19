@@ -10,11 +10,16 @@ import type { Context } from "hono";
 import type { Bindings } from "../app";
 import { openSession, SESSION_COOKIE, type SessionData } from "../auth/session";
 import { castVote, getEligibility, getVoteMe, VoteError } from "./vote";
+import type { ServiceApiConfig } from "../serviceapi/client";
 
 type Env = {
-  Bindings: Bindings;
+  Bindings: Bindings & { ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string };
   Variables: { authRuntime?: { masterKey?: string } };
 };
+
+function serviceConfig(env: Env["Bindings"]): ServiceApiConfig {
+  return { issuer: env.ONELOGIN_ISSUER ?? "", clientId: env.SERVICE_API_CLIENT_ID ?? "", clientSecret: env.SERVICE_API_CLIENT_SECRET ?? "", serviceApiUrl: env.SERVICE_API_URL ?? "" };
+}
 
 export const voteRoutes = new Hono<Env>();
 
@@ -71,7 +76,7 @@ async function handleVote(c: Context<Env>) {
     return jsonError(c, "body_tidak_valid", 400);
   }
   try {
-    return c.json(await castVote(c.env.DB, session, body), 201);
+    return c.json(await castVote(c.env.DB, session, body, undefined, serviceConfig(c.env)), 201);
   } catch (error) {
     if (error instanceof VoteError) return jsonError(c, error.reason, error.status);
     return jsonError(c, "terjadi_kesalahan", 500);
@@ -86,7 +91,7 @@ async function handleMe(c: Context<Env>) {
 
 async function handleEligibility(c: Context<Env>) {
   const session = await sessionOf(c);
-  const result = await getEligibility(c.env.DB, session);
+  const result = await getEligibility(c.env.DB, session, serviceConfig(c.env));
   return c.json({ ...result, freshLoginNeeded: result.fresh_login_needed });
 }
 

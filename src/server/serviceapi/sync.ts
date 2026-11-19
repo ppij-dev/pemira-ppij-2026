@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { buildAuditInsert } from "../lib/audit";
+import { stage } from "../lib/stage";
 import { ServiceApiClient, type Member, type ServiceApiConfig } from "./client";
 export { ServiceApiError } from "./client";
 
@@ -17,8 +18,13 @@ export interface SyncOptions {
    * Kunci & Jadwalkan agar roll beku tidak pernah memuat bukan pemilih.
    */
   full?: boolean;
+  /**
+   * Tanpa entri audit: dipakai segarkan otomatis view portal saat pemungutan
+   * suara (mode Tidak Membekukan DPT) agar rantai hash tidak banjir entri
+   * buku besar; sinkronisasi manual tetap tercatat.
+   */
+  silent?: boolean;
 }
-
 export async function assertSyncAllowed(db: D1Database): Promise<void> {
   const election = await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{ status_lock: string }>();
   if (election && election.status_lock !== "draft") { const error = new Error("Sync hanya diizinkan saat pemilihan berstatus draft") as Error & { status: number }; error.status = 409; throw error; }
@@ -89,10 +95,13 @@ export async function syncPemilih(db: D1Database, cfg: ServiceApiConfig, now: Da
     total = (totalRow?.total ?? 0) + added - removed;
   }
   const summary = `+${added} baru / -${removed} keluar` + (excluded ? ` / ${excluded} tanpa hak pilih` : "");
-  const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_sync", target: null, komsat_path: null, detail_json: JSON.stringify({ summary, added, removed, excluded, full: options.full === true }) });
+  if (options.silent !== true) {
+    const audit = await buildAuditInsert(db, { at: now.toISOString(), actor_type: "system", actor_member_id: null, actor_name: "", action: "pemilih_sync", target: null, komsat_path: null, detail_json: JSON.stringify({ summary, added, removed, excluded, full: options.full === true }) });
+    upserts.push(audit);
+  }
   // as_of server dari portal, bukan klok lokal: jaminan tidak melewatkan
   // perubahan yang tertulis saat sinkronisasi berjalan (kontrak §4.3).
-  upserts.push(db.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(page.asOf), audit);
+  upserts.push(db.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(page.asOf));
   await db.batch(upserts);
   return { added, removed, excluded, total };
 }
@@ -134,4 +143,69 @@ export async function enrichRollNames(db: D1Database, cfg: ServiceApiConfig, now
     await db.batch([...updates, audit]);
   }
   return { updated };
+}
+
+/** Hasil usaha segarkan view portal; stale berarti view terakhir dipakai apa adanya. */
+export interface PortalViewRefresh {
+  refreshed: boolean;
+  failed: boolean;
+  /** View lebih tua dari TTL dan tidak berhasil disegarkan pada percobaan ini. */
+  stale: boolean;
+  /** Di luar mode Tidak Membekukan DPT atau di luar tahap Dibuka. */
+  skipped: boolean;
+}
+
+/** Umur watermark sebelum view dianggap perlu disegarkan (keputusan owner Q19x/design D3). */
+export const PORTAL_VIEW_TTL_MS = 30_000;
+/** Jeda minimum antar percobaan setelah kegagalan, agar latensi memilih tetap terbatas. */
+export const PORTAL_VIEW_COOLDOWN_MS = 15_000;
+
+// Cooldown hidup di memori isolate; Workers bisa menjalankan beberapa isolate,
+// jadi sesekali dua isolate menyegarkan bersamaan — UPSERT idempoten terhadap
+// watermark yang sama, jadi hasilnya konsisten, hanya sedikit boros.
+let lastPortalViewFailureAt = 0;
+
+/**
+ * Segarkan view portal (tabel voters) secara lazy saat pemungutan suara
+ * berjalan dalam mode "Tidak Membekukan DPT" (keputusan owner 2026-11-19):
+ * incremental changed_since dari watermark portal (as_of, bukan klok lokal)
+ * bila view lebih tua dari TTL; tanpa watermark, bangun ulang penuh. Portal
+ * tidak tersedia berarti view terakhir tetap dipakai (stale-while-unavailable)
+ * dan percobaan berulang ditekan cooldown 15 detik. Tidak pernah melempar:
+ * pemilih tetap dilayani dari view terakhir. Tanpa entri audit (silent).
+ */
+export async function ensurePortalViewFresh(
+  db: D1Database,
+  cfg: ServiceApiConfig,
+  now: Date,
+  fetchImpl?: typeof fetch,
+): Promise<PortalViewRefresh> {
+  const idle: PortalViewRefresh = { refreshed: false, failed: false, stale: false, skipped: true };
+  const election = await db
+    .prepare("SELECT status_lock, opens_at, closes_at, closed_early_at, live_voter_roll FROM elections ORDER BY id LIMIT 1")
+    .first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number }>();
+  if (!election || election.live_voter_roll !== 1) return idle;
+  const currentStage = stage(election as never, now.toISOString());
+  if (currentStage !== "open") return idle;
+
+  const nowMs = now.getTime();
+  const watermark = (await db.prepare("SELECT value FROM system_config WHERE key = 'pemilih_last_sync'").first<{ value: string }>())?.value;
+  const watermarkAt = watermark ? Date.parse(watermark) : NaN;
+  const fresh = Number.isFinite(watermarkAt) && nowMs - watermarkAt < PORTAL_VIEW_TTL_MS;
+  if (fresh) return { refreshed: false, failed: false, stale: false, skipped: false };
+
+  if (nowMs - lastPortalViewFailureAt < PORTAL_VIEW_COOLDOWN_MS) {
+    return { refreshed: false, failed: false, stale: true, skipped: false };
+  }
+
+  try {
+    // Tanpa watermark: bangun ulang penuh (silent) supaya view mulai lengkap;
+    // dengan watermark: delta changed_since sejak as_of portal terakhir.
+    await syncPemilih(db, cfg, now, fetchImpl, Number.isFinite(watermarkAt) ? { silent: true } : { silent: true, full: true });
+    lastPortalViewFailureAt = 0;
+    return { refreshed: true, failed: false, stale: false, skipped: false };
+  } catch {
+    lastPortalViewFailureAt = nowMs;
+    return { refreshed: false, failed: true, stale: true, skipped: false };
+  }
 }

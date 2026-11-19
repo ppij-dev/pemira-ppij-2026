@@ -46,6 +46,8 @@ export async function loadAuditLabels(db: D1Database, rows: AuditTargetRow[]) {
   await Promise.all(jobs);
   const targetLabel = (target: string | null): string | null => {
     if (!target) return null;
+    // Undangan Langsung: `undangan:<referensi>` dibaca sebagai label, bukan id mentah.
+    if (target.startsWith("undangan:")) return `Undangan ${target.slice("undangan:".length)}`;
     const member = voters.get(target);
     if (member) return member;
     if (admins.has(target)) return admins.get(target)!;

@@ -1,5 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
+import { resolveHakPilih } from "../voting/board";
+import { directInviteTerm } from "../election/hakPilih";
 import { formatUnitPath } from "../../lib/formatKomsat";
 
 /** Candidate counts of a korda are hidden below this many ballots (admin-dashboard spec). */
@@ -8,7 +10,7 @@ export const KORDA_MIN_BALLOTS = 10;
 export const UNKNOWN_REGION_KEY = "/tidak-diketahui";
 
 export class ResultsError extends Error {
-  constructor(message: string, public status: 503) {
+  constructor(message: string, public status: 409 | 503) {
     super(message);
   }
 }
@@ -59,6 +61,8 @@ export interface ResultsPayload {
   closes_at: string | null;
   updated_at: string;
   eligible_count: number;
+  /** Jumlah tautan Undangan Langsung yang belum dibatalkan; bagian dari eligible_count. */
+  active_invite_count: number;
   used_count: number;
   unused_count: number;
   turnout_percentage: number;
@@ -69,6 +73,8 @@ export interface ResultsPayload {
   korda: KordaResult[];
   /** True saat pemilihan memakai mode kandidat tunggal (dibekukan di Kunci). */
   single_candidate_mode: boolean;
+  /** True saat mode "Tidak Membekukan DPT" menyala (dibekukan di Kunci). */
+  live_voter_roll: boolean;
   /**
    * Hanya angka, tanpa keputusan: sistem tidak pernah menyatakan terpilih,
    * tidak terpilih, atau seri (keputusan owner 2026-11-16). Null saat mode mati.
@@ -113,6 +119,8 @@ interface ElectionRow {
   single_candidate_mode: number;
   abstain_counted_at: string | null;
   abstain_counted_count: number | null;
+  live_voter_roll: number;
+  closing_hak_pilih: number | null;
 }
 
 /** Canonical region prefix "/ppij/<korda>"; malformed paths fall back to a named bucket. */
@@ -125,7 +133,7 @@ export function regionKey(komsatPath: string): string {
 
 async function getElection(db: D1Database): Promise<ElectionRow> {
   const row = await db
-    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode, abstain_counted_at, abstain_counted_count FROM elections ORDER BY id LIMIT 1")
+    .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, allow_admin_voting, frozen_hak_pilih, single_candidate_mode, abstain_counted_at, abstain_counted_count, live_voter_roll, closing_hak_pilih FROM elections ORDER BY id LIMIT 1")
     .first<ElectionRow>();
   if (!row) throw new ResultsError("pemilihan_belum_dibuat", 503);
   return row;
@@ -180,7 +188,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     ).bind(election.id, election.id),
     db.prepare("SELECT path, name FROM units WHERE type = 'korda'"),
     db.prepare("SELECT COUNT(*) AS n FROM admin_voting"),
-    db.prepare(`SELECT COUNT(*) AS n FROM voters ${eligibleVoterFilter}`),
   ];
   if (single) {
     // Jawaban per seluruh pemilihan dan jawaban per korda, hanya agregat
@@ -192,8 +199,16 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
         .bind(election.id),
     );
   }
+  // Undangan Langsung: tautan yang sudah dipakai masuk korda komsat pilihannya.
+  // Istilah Hak pilih dari tautan hidup di election/hakPilih.ts (liveHakPilih),
+  // jadi batch ini hanya menambah pengelompokan per korda, bukan denominator.
+  statements.push(
+    db.prepare(
+      "SELECT komsat_path AS path, COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL AND used_at IS NOT NULL GROUP BY komsat_path",
+    ),
+  );
   const batchResults = await db.batch(statements);
-  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, eligibleFallbackResult, choiceTotalResult, choiceByRegionResult] = batchResults;
+  const [candidatesResult, votesByRegionResult, participationByPathResult, ballotsByPathResult, votersByPathResult, participationTotalResult, ballotTotalResult, testCountsResult, unitsResult, adminCountResult, choiceTotalResult, choiceByRegionResult] = batchResults;
   const candidates = candidatesResult as { results: CandidateTally[] };
   const votesByRegion = votesByRegionResult as { results: { candidate_id: number; path: string; n: number }[] };
   const participationByPath = participationByPathResult as { results: { path: string; n: number }[] };
@@ -204,7 +219,6 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const testCounts = testCountsResult as { results: { participation_count: number; ballot_count: number }[] };
   const units = unitsResult as { results: { path: string; name: string }[] };
   const adminCount = adminCountResult as { results: { n: number }[] };
-  const eligibleFallback = eligibleFallbackResult as { results: { n: number }[] };
   const choiceTotal = choiceTotalResult as { results: { choice: string; n: number }[] } | undefined;
   const choiceByRegion = choiceByRegionResult as { results: { choice: string; path: string; n: number }[] } | undefined;
 
@@ -219,7 +233,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   const testCountRow = testCounts.results[0];
   const unitRows = units.results;
   const adminCountRow = adminCount.results[0];
-  const eligibleFallbackRow = eligibleFallback.results[0];
+  const inviteByPathResult = batchResults.at(-1) as { results: { path: string; n: number }[] };
 
   const testSummary = realOnly ? null : {
     participation_count: testCountRow?.participation_count ?? 0,
@@ -228,12 +242,28 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
 
   // D1 batch executes these SELECTs as one transaction, so totals and breakdowns
   // observe one consistent database snapshot even if a vote arrives concurrently.
-  const eligibleCount = election.frozen_hak_pilih ?? eligibleFallbackRow?.n ?? 0;
+  // Hak pilih: satu penyelesai untuk semua konsumen (keputusan owner 2026-11-19).
+  // Saklar mati memakai frozen_hak_pilih dengan fallback hitungan view saat Draf;
+  // saklar menyala memakai hitungan view selama Dibuka dan snapshot penutupan
+  // (ditetapkan di pembacaan pertama setelah Ditutup) sesudahnya. Penyelesai itu
+  // sudah memasukkan tautan Undangan Langsung (election/hakPilih.ts).
+  const resolution = await resolveHakPilih(db, new Date(nowIso));
+  const eligibleCount = resolution.hakPilih;
+  // Angka tautan aktif untuk tampilan Dasbor; istilah yang sama dengan penyelesai.
+  const inviteTerm = await directInviteTerm(db);
   const participationCount = participationCountRow?.n ?? 0;
   const ballotCount = ballotCountRow?.n ?? 0;
   const names = new Map(unitRows.map((unit) => [unit.path, unit.name]));
   const eligibleByRegion = bucketByRegion(votersByPathRows);
   const usedByRegion = bucketByRegion(participationByPathRows);
+  // Tautan terpakai masuk korda komsat yang dipilih tamu; tautan belum dipakai
+  // tidak masuk korda mana pun (komsatnya baru diketahui saat diklaim), sehingga
+  // baris korda bisa berjumlah kurang dari Hak pilih nasional dan halaman menyebutnya.
+  const inviteByRegion = bucketByRegion(inviteByPathResult.results);
+  for (const [key, n] of inviteByRegion) {
+    eligibleByRegion.set(key, (eligibleByRegion.get(key) ?? 0) + n);
+    usedByRegion.set(key, (usedByRegion.get(key) ?? 0) + n);
+  }
   const ballotsByRegion = bucketByRegion(ballotsByPathRows);
   // Pilihan surat suara hanya dibaca sebagai agregat, tidak pernah per surat suara.
   const choiceTotals = new Map<string, number>();
@@ -309,6 +339,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     closes_at: election.closes_at,
     updated_at: nowIso,
     eligible_count: eligibleCount,
+    active_invite_count: inviteTerm,
     used_count: participationCount,
     unused_count: Math.max(0, eligibleCount - participationCount),
     turnout_percentage: eligibleCount > 0 ? Math.round(((participationCount / eligibleCount) * 100) * 10) / 10 : 0,
@@ -318,6 +349,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     candidates: candidateRows,
     korda,
     single_candidate_mode: single,
+    live_voter_roll: election.live_voter_roll === 1,
     setuju_count: single ? setuju : null,
     tidak_setuju_count: single ? tidakSetuju : null,
     abstain_cast_count: single ? abstainCast : null,
@@ -359,4 +391,30 @@ export async function getPublicResults(db: D1Database, now: Date): Promise<Resul
   if (currentStage !== "published") return null;
   const { base } = await computeResults(db, election, currentStage, now.toISOString());
   return base;
+}
+
+export interface TurnoutPayload {
+  stage: Stage;
+  /** Hak pilih: frozen, live view, atau snapshot penutupan sesuai tahap dan saklar. */
+  eligible_count: number;
+  /** Partisipasi nyata (bukan Uji Coba); tanpa rincian kandidat/korda/pilihan. */
+  votes_count: number;
+  updated_at: string;
+}
+
+/**
+ * Dua angka publik untuk strip beranda (keputusan owner 2026-11-19): Jumlah
+ * Pemilih dan Suara Masuk. Hitungan saja, tanpa kandidat/pilihan/korda, dari
+ * Terjadwal sampai Diumumkan; Draf ditolak. Tidak pernah diaudit.
+ */
+export async function getTurnout(db: D1Database, now: Date): Promise<TurnoutPayload> {
+  const election = await getElection(db);
+  const currentStage = stage(
+    { status_lock: election.status_lock, opens_at: election.opens_at ?? "", closes_at: election.closes_at ?? "", closed_early_at: election.closed_early_at },
+    now.toISOString(),
+  );
+  if (currentStage === "draft") throw new ResultsError("statistik_belum_tersedia", 409);
+  const { hakPilih } = await resolveHakPilih(db, now);
+  const votes = (await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id = ? AND is_test = 0").bind(election.id).first<{ n: number }>())?.n ?? 0;
+  return { stage: currentStage, eligible_count: hakPilih, votes_count: votes, updated_at: now.toISOString() };
 }

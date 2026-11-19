@@ -1,0 +1,213 @@
+---
+/**
+ * Surat suara undangan langsung: markup, lembar konfirmasi dan kode bukti yang
+ * sama dengan Pemilih, dikirim ke /api/undangan/suara. Identitas tamu dibaca
+ * dari sesi undangan tersegel, bukan dari tautan di alamat.
+ */
+import { env } from "cloudflare:workers";
+import { IconAlertTriangle, IconBoxMultiple, IconInfoCircle } from "@tabler/icons-astro";
+import Base from "../../../layouts/Base.astro";
+import Button from "../../../components/ui/Button.astro";
+import Callout from "../../../components/ui/Callout.astro";
+import PageHeader from "../../../components/ui/PageHeader.astro";
+import PanelCard from "../../../components/ui/PanelCard.astro";
+import type { Bindings } from "../../../server/app";
+import { INVITE_SESSION_COOKIE, openInviteSession } from "../../../server/direct/claim";
+import { resolveDirectLink } from "../../../server/direct/open";
+import { candidatePhotoSrc } from "../../../lib/candidatePhoto";
+import { formatUnitPath } from "../../../lib/formatKomsat";
+
+const bindings = env as unknown as Bindings;
+const kode = Astro.params.kode ?? "";
+const now = new Date();
+const cookie = Astro.cookies.get(INVITE_SESSION_COOKIE)?.value;
+const session = cookie && bindings.APP_MASTER_KEY ? await openInviteSession(cookie, bindings.APP_MASTER_KEY) : null;
+const view = await resolveDirectLink(bindings.DB, now, kode);
+const matches = Boolean(session && view.invitation && session.invitation_id === view.invitation.id);
+const canVote = matches && view.outcome === "ok" && view.stage === "open";
+
+let candidates: any[] = [];
+let singleCandidateMode = false;
+if (canVote) {
+  try {
+    candidates = (await bindings.DB.prepare("SELECT id,number,nickname,name,komsat_path,color,photo_key FROM candidates ORDER BY number").all()).results ?? [];
+    singleCandidateMode = (await bindings.DB.prepare("SELECT single_candidate_mode FROM elections ORDER BY id LIMIT 1").first<{ single_candidate_mode: number }>())?.single_candidate_mode === 1;
+  } catch {
+    candidates = [];
+  }
+}
+const singleCandidate: any = singleCandidateMode ? (candidates[0] ?? null) : null;
+
+const blockedTitle = !session
+  ? "Sesi undangan tidak ditemukan"
+  : !matches
+    ? "Tautan tidak cocok dengan sesi Anda"
+    : view.outcome === "used"
+      ? "Tautan ini sudah dipakai"
+      : view.outcome === "cancelled"
+        ? "Tautan ini dibatalkan"
+        : view.stage === "closed" || view.stage === "published"
+          ? "Pemungutan suara telah ditutup"
+          : "Pemungutan suara belum dibuka";
+const blockedText = !session
+  ? "Buka kembali tautan undangan Anda dan isi data terlebih dahulu. Bila peramban dibersihkan, minta tautan baru ke panitia."
+  : view.outcome === "used"
+    ? "Satu tautan hanya berlaku untuk satu orang. Bila Anda belum memilih, hubungi panitia."
+    : "Tautan ini tidak dapat melayani Anda saat ini.";
+---
+<Base title="Surat Suara Undangan · PPIJ Pemilu" description="Surat suara rahasia lewat undangan langsung panitia.">
+  <PageHeader eyebrow="Undangan" title={canVote ? "Surat Suara" : blockedTitle} description={singleCandidateMode ? "Tentukan sikap Anda terhadap kandidat. Setelah dikirim, suara tidak dapat diubah." : "Pilih satu kandidat. Setelah dikirim, suara tidak dapat diubah."} />
+
+  {!canVote && <div class="mt-5 grid gap-4">
+    <Callout tone="warning" icon={IconAlertTriangle} title={blockedTitle}>{blockedText}</Callout>
+    <Button href={`/undangan/${encodeURIComponent(kode)}`} variant="secondary">Kembali ke halaman undangan</Button>
+  </div>}
+
+  {canVote && <>
+    <div id="ballot-entry" class="mt-5">
+      <PanelCard title="Siap memilih?" description={singleCandidateMode ? "Surat suara berisi satu kandidat. Tentukan sikap Anda, periksa lagi, lalu kirim." : "Surat suara berisi semua kandidat. Pilih satu, periksa lagi, lalu kirim."} icon={IconBoxMultiple}>
+        <div class="flex flex-col items-center gap-4 text-center">
+          <img src="/voting-ballot-box.svg" alt="" class="size-20" width="80" height="80" />
+          <Button id="open-ballot" type="button"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Buka surat suara</Button>
+          <p class="max-w-sm text-xs leading-5 text-brand-muted">Kode bukti muncul sekali setelah suara terkirim. Simpan kode itu untuk memeriksa surat suara Anda nanti.</p>
+        </div>
+      </PanelCard>
+    </div>
+
+    <div id="sheet-backdrop" hidden class="fixed inset-0 z-20 bg-foreground/40"></div>
+    <section id="ballot-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title" data-single={singleCandidateMode ? "1" : "0"} data-candidate-id={singleCandidate?.id ?? ""} data-candidate-nickname={singleCandidate?.nickname ?? ""} class="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+      <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
+      <div id="sheet-list">
+        <h2 id="sheet-title" class="text-xl font-bold tracking-tight text-brand-ink">{singleCandidateMode ? "Sikap Anda terhadap kandidat" : "Pilih satu kandidat"}</h2>
+        <p class="mt-1 text-sm text-brand-muted">{singleCandidateMode ? "Pilih satu jawaban, lalu periksa lagi sebelum mengirim." : "Periksa nomor dan nama sebelum melanjutkan."}</p>
+        {singleCandidateMode && singleCandidate && <div class="mt-4 flex items-center gap-3 rounded-xl border border-brand-border p-3">
+          <img src={candidatePhotoSrc(singleCandidate.photo_key)} alt="" width="80" height="107" loading="lazy" decoding="async" class="h-[74px] w-[56px] shrink-0 rounded-lg object-cover" data-candidate-portrait />
+          <div class="min-w-0 flex-1">
+            <strong class="block break-words text-brand-ink">{singleCandidate.nickname}</strong>
+            <span class="block break-words text-sm text-brand-muted">{singleCandidate.name}</span>
+            <span class="mt-0.5 block break-words text-xs text-brand-muted">{formatUnitPath(singleCandidate.komsat_path) || "PPI Jepang"}</span>
+          </div>
+        </div>}
+        {singleCandidateMode && <div class="mt-4 grid gap-2" role="radiogroup" aria-label="Jawaban surat suara">
+          {[{ value: "setuju", label: "Setuju" }, { value: "tidak_setuju", label: "Tidak Setuju" }, { value: "abstain", label: "Abstain" }].map((answer) => <label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-brand-border bg-card p-3 transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50/60 hover:bg-accent"><input type="radio" name="choice" class="peer sr-only" value={answer.value} data-label={answer.label} /><span class="min-w-0 flex-1"><strong class="block break-words text-brand-ink">{answer.label}</strong></span><span class="size-5 shrink-0 rounded-full border-2 border-input peer-checked:border-4 peer-checked:border-primary" aria-hidden="true"></span></label>)}
+        </div>}
+        {!singleCandidateMode && <div class="mt-4 grid gap-2" role="radiogroup" aria-label="Kandidat">
+          {candidates.map((c) => <label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-brand-border bg-card p-3 transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50/60 hover:bg-accent"><input type="radio" name="candidate" class="peer sr-only" value={c.id} data-nickname={c.nickname} data-number={c.number} /><span class="flex size-10 shrink-0 items-center justify-center rounded-full font-bold text-white" style={`background-color:${c.color || "#334155"}`}>{c.number}</span><span class="min-w-0 flex-1"><strong class="block break-words text-brand-ink">{c.nickname}</strong><span class="block truncate text-sm text-brand-muted">{c.name}</span></span><span class="size-5 shrink-0 rounded-full border-2 border-input peer-checked:border-4 peer-checked:border-primary" aria-hidden="true"></span></label>)}
+        </div>}
+        <div class="mt-5 flex gap-3">
+          <Button id="sheet-continue" type="button" disabled class="flex-1">Lanjut</Button>
+          <Button id="sheet-cancel" type="button" variant="secondary">Batal</Button>
+        </div>
+      </div>
+      <div id="sheet-confirm" hidden>
+        <h2 class="text-xl font-bold tracking-tight text-brand-ink">Konfirmasi pilihan</h2>
+        <p class="mt-2 text-sm text-brand-muted">Pilihan Anda: <strong id="confirm-name" class="break-words text-brand-ink"></strong>.</p>
+        {singleCandidateMode && <div class="mt-3">
+          <label for="confirm-nickname" class="block text-xs font-semibold text-brand-muted">Ketik nama panggilan kandidat</label>
+          <input id="confirm-nickname" type="text" autocomplete="off" spellcheck="false" class="mt-1.5 min-h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base text-brand-ink focus-visible:outline-2 focus-visible:outline-ring min-[600px]:text-sm" aria-describedby="confirm-nickname-help" />
+          <p id="confirm-nickname-help" class="mt-1.5 text-xs leading-5 text-brand-muted">Ketik "{singleCandidate?.nickname ?? ""}" untuk mengaktifkan Kirim suara.</p>
+        </div>}
+        <p class="mt-1 text-sm text-brand-muted">Pastikan sudah sesuai. Suara tidak dapat diubah setelah dikirim.</p>
+        <p id="vote-error" class="mt-3 text-sm font-medium text-destructive" role="status"></p>
+        <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
+          <Button id="send-vote" type="button" class="flex-1" disabled={singleCandidateMode}>Kirim suara</Button>
+          <Button id="confirm-back" type="button" variant="secondary">Ubah pilihan</Button>
+        </div>
+      </div>
+    </section>
+
+    <div id="success" hidden class="mt-5 rounded-xl border border-brand-border bg-card">
+      <div class="p-5 sm:p-6">
+        <Callout tone="success" title="Suara Anda sudah masuk">Satu suara tercatat lewat tautan undangan ini.</Callout>
+        <h2 class="mt-4 text-xl font-bold tracking-tight text-brand-ink">Simpan kode bukti ini</h2>
+        <p class="mt-2 text-sm leading-6 text-brand-muted">Kode ini hanya muncul sekali. Simpan salinan pribadi agar Anda dapat memeriksa surat suara nanti.</p>
+        <p id="receipt-code" class="mt-4 rounded-lg bg-muted p-4 font-mono text-base font-bold tracking-wide break-all text-brand-ink"></p>
+        <p id="storage-warning" hidden class="mt-2 text-sm font-medium text-destructive">Peramban tidak dapat menyimpan kode ini. Salin sekarang.</p>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <Button id="copy-code" type="button" variant="secondary">Salin kode</Button>
+          <Button id="receipt-link" href="/surat-suara">Periksa kode</Button>
+        </div>
+      </div>
+    </div>
+  </>}
+</Base>
+
+{canVote && <script is:inline>
+  const errors = {
+    undangan_tidak_aktif: "Sesi undangan tidak ditemukan. Buka kembali tautan undangan Anda.",
+    invite_used: "Tautan ini sudah dipakai.",
+    invite_cancelled: "Tautan ini dibatalkan oleh panitia.",
+    invite_not_found: "Tautan tidak ditemukan.",
+    not_open: "Batas waktu pemungutan suara telah lewat.",
+    confirmation_mismatch: "Konfirmasi tidak cocok. Buka ulang pilihan Anda.",
+    invalid_body: "Data pilihan tidak valid.",
+    invalid_choice: "Pilihan jawaban tidak dikenali. Muat ulang halaman.",
+    candidate_mismatch: "Kandidat tidak sesuai dengan surat suara. Muat ulang halaman.",
+    candidate_not_found: "Kandidat tidak ditemukan.",
+    rate_limited: "Terlalu banyak percobaan. Coba kembali nanti.",
+    audit_tip_changed: "Pemilihan sedang menerima suara lain. Coba lagi.",
+    origin_tidak_diizinkan: "Permintaan tidak dapat diverifikasi. Muat ulang halaman.",
+  };
+  const sheet = document.querySelector("#ballot-sheet"), backdrop = document.querySelector("#sheet-backdrop"), listStep = document.querySelector("#sheet-list"), confirmStep = document.querySelector("#sheet-confirm"), continueBtn = document.querySelector("#sheet-continue"), sendBtn = document.querySelector("#send-vote"), msg = document.querySelector("#vote-error"), confirmNameEl = document.querySelector("#confirm-name"), nicknameInput = document.querySelector("#confirm-nickname");
+  const single = sheet.dataset.single === "1";
+  let selected = null, answer = null;
+  sheet.querySelectorAll('input[name="candidate"]').forEach((radio) => { radio.addEventListener("change", () => { selected = { id: Number(radio.value), nickname: radio.dataset.nickname, number: radio.dataset.number }; refreshContinue(); }); });
+  sheet.querySelectorAll('input[name="choice"]').forEach((radio) => { radio.addEventListener("change", () => { answer = { value: radio.value, label: radio.dataset.label }; refreshContinue(); }); });
+  const normalizeName = (value) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const nicknameMatches = () => Boolean(selected && normalizeName(nicknameInput && nicknameInput.value) === normalizeName(selected.nickname));
+  const refreshContinue = () => { continueBtn.disabled = !(selected && (!single || answer)); };
+  const confirmText = () => !selected ? "" : single && answer ? `${answer.label} terhadap ${selected.nickname}` : `${selected.nickname} (no. ${selected.number})`;
+  if (single) { const id = Number(sheet.dataset.candidateId); if (id) selected = { id, nickname: sheet.dataset.candidateNickname }; }
+  const showList = () => { listStep.hidden = false; confirmStep.hidden = true; msg.textContent = ""; };
+  const showConfirm = () => { listStep.hidden = true; confirmStep.hidden = false; msg.textContent = ""; if (confirmNameEl) confirmNameEl.textContent = confirmText(); if (single) { if (nicknameInput) nicknameInput.value = ""; sendBtn.disabled = true; } sendBtn.focus(); };
+  if (nicknameInput) nicknameInput.addEventListener("input", () => { sendBtn.disabled = !nicknameMatches(); });
+  document.querySelector("#open-ballot").addEventListener("click", () => { sheet.hidden = false; backdrop.hidden = false; document.body.style.overflow = "hidden"; showList(); (sheet.querySelector('input[name="candidate"],input[name="choice"]') ?? continueBtn).focus(); });
+  document.querySelector("#sheet-cancel").addEventListener("click", closeSheet);
+  backdrop.addEventListener("click", closeSheet);
+  continueBtn.addEventListener("click", () => { if (selected && (!single || answer)) showConfirm(); });
+  document.querySelector("#confirm-back").addEventListener("click", showList);
+  function closeSheet() {
+    if (sheet.hidden) return;
+    sheet.hidden = true; backdrop.hidden = true; document.body.style.overflow = "";
+    document.querySelector("#open-ballot").focus();
+  }
+  sheet.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); closeSheet(); return; }
+    if (event.key !== "Tab") return;
+    const controls = [...sheet.querySelectorAll("input:not([disabled]),button:not([disabled])")].filter((el) => !el.closest("[hidden]"));
+    if (!controls.length) return;
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  sendBtn.addEventListener("click", async () => {
+    if (!selected || (single && (!answer || !nicknameMatches()))) return;
+    sendBtn.disabled = true; msg.textContent = "Mengirim suara...";
+    try {
+      const body = single
+        ? { candidate_id: selected.id, confirmation_text: normalizeName(nicknameInput.value), choice: answer.value }
+        : { candidate_id: selected.id, confirmation_text: selected.nickname };
+      const response = await fetch("/api/undangan/suara", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (response.status === 201 && typeof data.receipt_code === "string") {
+        const code = data.receipt_code;
+        closeSheet();
+        document.querySelector("#ballot-entry").hidden = true;
+        document.querySelector("#receipt-code").textContent = code;
+        document.querySelector("#receipt-link").href = "/surat-suara#" + encodeURIComponent(code);
+        document.querySelector("#success").hidden = false;
+        document.querySelector("#copy-code").focus();
+        try { localStorage.setItem("ppij_receipt_code", code); } catch { document.querySelector("#storage-warning").hidden = false; }
+        return;
+      }
+      msg.textContent = errors[data.error] || "Suara belum dapat dikirim. Coba kembali.";
+    } catch {
+      msg.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba kembali.";
+    }
+    sendBtn.disabled = single ? !nicknameMatches() : false;
+  });
+  document.querySelector("#copy-code").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(document.querySelector("#receipt-code").textContent); document.querySelector("#copy-code").textContent = "Tersalin"; }
+    catch { document.querySelector("#copy-code").textContent = "Salin manual"; }
+  });
+</script>}
