@@ -33,6 +33,15 @@ describe("UI Tidak Membekukan DPT", () => {
     expect(pemilih).toContain("Terakhir diperbarui dari portal:");
   });
 
+  it("formatJst dideklarasikan sebelum pemakaian pertamanya di Pemilih", () => {
+    // Regresi: rollDescription memakai formatJst sebelum deklarasi const-nya,
+    // sehingga /admin/pemilih melempar ReferenceError (500) saat diakses.
+    const declaration = pemilih.indexOf("const formatJst");
+    const firstUse = pemilih.indexOf("formatJst(");
+    expect(declaration).toBeGreaterThanOrEqual(0);
+    expect(firstUse).toBeGreaterThan(declaration);
+  });
+
   it("Beranda menampilkan strip di atas jadwal dan memakai /api/turnout", () => {
     expect(landing).toContain('id="turnout-strip"');
     expect(landing).toContain("Jumlah Pemilih");
