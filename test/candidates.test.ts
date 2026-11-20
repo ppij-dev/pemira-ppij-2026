@@ -7,6 +7,7 @@ import preview from "../migrations/0006_preview_mode.sql?raw";
 import intro from "../migrations/0007_candidate_short_intro.sql?raw";
 import memberNumber from "../migrations/0008_member_number.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
+import campaignUrlSql from "../migrations/0018_candidate_campaign_url.sql?raw";
 import {createCandidate,deleteCandidate,listCandidates,updateCandidate} from "../src/server/election/candidates";
 import {candidateProfileHref,resolveCandidateProfile} from "../src/server/election/profile";
 
@@ -18,7 +19,7 @@ const CARDED_UUID="44444444-4444-4444-4444-444444444444";
 const insertVoterSql="INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number) VALUES";
 beforeEach(async()=>{
  await reset();
- await env.DB.batch([base,units,lock,preview,intro,memberNumber,singleModeSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));
+ await env.DB.batch([base,units,lock,preview,intro,memberNumber,singleModeSql,campaignUrlSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));
  await env.DB.prepare("INSERT INTO elections(id) VALUES(1)").run();
  await env.DB.prepare(`${insertVoterSql}('v1','Voter','/u','ACTIVE','now','${CARD_1}'),('v2','Other','/u','ACTIVE','now','${CARD_2}'),('${NO_CARD_ID}','Tanpa Kartu','/u','ACTIVE','now',NULL),('${CARDED_UUID}','Punya Kartu','/u','ACTIVE','now','${CARD_4}')`).run();
 });
@@ -168,5 +169,74 @@ describe("kandidat yang dirujuk suara tersimpan",()=>{
   await deleteCandidate(env.DB,now,1);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:0});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='Kandidat dihapus'").first()).toEqual({n:2});
+ });
+});
+
+// Portal kampanye kandidat (keputusan pemilik 2026-11-20): satu tautan https://
+// opsional, disunting hanya saat Draf, dibekukan di Kunci, dan setiap perubahan
+// alamatnya tercatat di detail audit.
+describe("portal kampanye kandidat",()=>{
+ const PORTAL="https://ereksoforppi.netlify.app/";
+ const withPortal=(campaign_url:unknown)=>({...candidate(CARD_1,1,"One"),campaign_url:campaign_url as string});
+ const auditRows=async()=>(await env.DB.prepare("SELECT action,detail_json FROM audit_log ORDER BY seq").all<{action:string;detail_json:string|null}>()).results;
+ it("menerima tautan https dan menyimpannya dalam bentuk kanonik",async()=>{
+  expect(await createCandidate(env.DB,now,withPortal(PORTAL))).toMatchObject({campaign_url:PORTAL});
+  // Skema dan nama host dinormalkan, sama seperti yang nanti dirender di profil.
+  expect(await updateCandidate(env.DB,now,1,withPortal("HTTPS://EreksoForPPI.netlify.app/kampanye"))).toMatchObject({campaign_url:"https://ereksoforppi.netlify.app/kampanye"});
+  expect((await listCandidates(env.DB))[0]).toMatchObject({campaign_url:"https://ereksoforppi.netlify.app/kampanye"});
+  // Nilai kosong berarti tanpa portal, dan kolom yang tidak dikirim mempertahankan nilai lama.
+  expect((await resolveCandidateProfile(env.DB,"1-One",false))).toMatchObject({campaign_url:"https://ereksoforppi.netlify.app/kampanye"});
+  expect(await updateCandidate(env.DB,now,1,candidate(CARD_1,1,"One"))).toMatchObject({campaign_url:"https://ereksoforppi.netlify.app/kampanye"});
+  expect(await updateCandidate(env.DB,now,1,withPortal(""))).toMatchObject({campaign_url:null});
+  expect((await listCandidates(env.DB))[0]).toMatchObject({campaign_url:null});
+ });
+ it("menolak http, javascript:, data:, mailto:, tanpa host, berkredensial, berspasi dan terlalu panjang",async()=>{
+  await createCandidate(env.DB,now,candidate(CARD_1,1,"One"));
+  await createCandidate(env.DB,now,candidate(CARD_2,2,"Two"));
+  const refused=[[
+   "http://ereksoforppi.netlify.app/","javascript:alert(1)","data:text/html,<h1>x</h1>","mailto:tim@contoh.id",
+   "//ereksoforppi.netlify.app/","https://","https://user:secret@contoh.id/kampanye","https://contoh.id/kampanye satu",
+   "https://contoh.id/\nkampanye",`https://contoh.id/${"a".repeat(300)}`,
+  ],[]] as const;
+  for(const value of refused[0]){
+   await expect(createCandidate(env.DB,now,withPortal(value))).rejects.toMatchObject({status:400});
+   await expect(updateCandidate(env.DB,now,1,withPortal(value))).rejects.toMatchObject({status:400});
+  }
+  // Bukan teks juga ditolak, dan tidak ada satu baris pun yang berubah.
+  for(const value of [123,{},[],true]) await expect(updateCandidate(env.DB,now,1,withPortal(value))).rejects.toMatchObject({status:400});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM candidates").first()).toEqual({n:2});
+  expect(await env.DB.prepare("SELECT campaign_url FROM candidates WHERE id=1").first()).toEqual({campaign_url:null});
+  // Batas panjang tepat 300 karakter masih diterima.
+  const longest=`https://contoh.id/${"a".repeat(282)}`;
+  expect(longest.length).toBe(300);
+  expect(await updateCandidate(env.DB,now,1,withPortal(longest))).toMatchObject({campaign_url:longest});
+ });
+ it("hanya dapat diubah selama Draf dan tetap beku setelah Kunci",async()=>{
+  await createCandidate(env.DB,now,withPortal(PORTAL));
+  await expect(createCandidate(env.DB,now,{...candidate(CARD_2,2,"Two"),campaign_url:"http://contoh.id"})).rejects.toMatchObject({status:400});
+  await env.DB.prepare("UPDATE elections SET status_lock='locked'").run();
+  await expect(updateCandidate(env.DB,now,1,withPortal("https://contoh.id/baru"))).rejects.toMatchObject({status:409});
+  expect(await env.DB.prepare("SELECT campaign_url FROM candidates WHERE id=1").first()).toEqual({campaign_url:PORTAL});
+  // Kembali ke Draf membuka suntingan lagi, sama seperti kolom kandidat lain.
+  await env.DB.prepare("UPDATE elections SET status_lock='draft'").run();
+  expect(await updateCandidate(env.DB,now,1,withPortal("https://contoh.id/baru"))).toMatchObject({campaign_url:"https://contoh.id/baru"});
+ });
+ it("mencatat alamat kampanye di detail audit hanya saat berubah",async()=>{
+  await createCandidate(env.DB,now,withPortal(PORTAL));
+  expect(await auditRows()).toEqual([{action:"Kandidat ditambahkan",detail_json:JSON.stringify({campaign_url:PORTAL})}]);
+  // Suntingan yang mengirim alamat yang sama, atau tidak mengirimnya, tidak menambah detail.
+  await updateCandidate(env.DB,now,1,{...candidate(CARD_1,1,"One Baru"),campaign_url:PORTAL});
+  expect((await auditRows()).at(-1)).toEqual({action:"Kandidat diperbarui",detail_json:null});
+  await updateCandidate(env.DB,now,1,{...candidate(CARD_1,1,"One Lagi")});
+  expect((await auditRows()).at(-1)).toEqual({action:"Kandidat diperbarui",detail_json:null});
+  // Perubahan alamat tercatat, termasuk saat dikosongkan.
+  await updateCandidate(env.DB,now,1,withPortal("https://contoh.id/baru"));
+  expect((await auditRows()).at(-1)).toEqual({action:"Kandidat diperbarui",detail_json:JSON.stringify({campaign_url:"https://contoh.id/baru"})});
+  await updateCandidate(env.DB,now,1,withPortal(""));
+  expect((await auditRows()).at(-1)).toEqual({action:"Kandidat diperbarui",detail_json:JSON.stringify({campaign_url:null})});
+  // Penolakan validasi tidak menulis entri apa pun.
+  await expect(updateCandidate(env.DB,now,1,withPortal("http://contoh.id"))).rejects.toMatchObject({status:400});
+  // Lima entri: buat, sunting tanpa perubahan alamat, sunting tanpa kolom, ubah alamat, kosongkan.
+  expect((await auditRows()).length).toBe(5);
  });
 });

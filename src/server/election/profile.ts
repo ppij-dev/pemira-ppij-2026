@@ -16,9 +16,10 @@ export interface CandidateProfile {
   color: string | null;
   photo_key: string | null;
   short_intro: string | null;
+  campaign_url: string | null;
 }
 
-const PROFILE_COLUMNS = "id,number,name,nickname,komsat_path,description,color,photo_key,short_intro";
+const PROFILE_COLUMNS = "id,number,name,nickname,komsat_path,description,color,photo_key,short_intro,campaign_url";
 
 /** Tautan profil: tanpa segmen nomor saat mode kandidat tunggal. */
 export function candidateProfileHref(candidate: { nickname: string; number: number }, singleCandidateMode: boolean): string {
