@@ -147,23 +147,24 @@ if (view.outcome === "unknown") Astro.response.status = 404;
         const komsat_path = form.querySelector("#claim-unit").value;
         if (nama.length < 2) { errorBox.textContent = errors.invalid_name; errorBox.removeAttribute("hidden"); return; }
         if (!komsat_path) { errorBox.textContent = "Pilih Korda/Komsat Anda."; errorBox.removeAttribute("hidden"); return; }
-        submit.disabled = true;
-        try {
-          const response = await fetch("/api/undangan/klaim", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ kode, nama, email, komsat_path }),
-          });
-          const data = await response.json();
-          if (response.ok && typeof data.redirect === "string") { location.assign(data.redirect); return; }
-          errorBox.textContent = errors[data.error] || "Data belum dapat disimpan. Coba lagi.";
-          errorBox.removeAttribute("hidden");
-        } catch {
-          errorBox.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba lagi.";
-          errorBox.removeAttribute("hidden");
-        } finally {
-          submit.disabled = false;
-        }
+        await window.withBusy(submit, "Menyimpan…", async () => {
+          try {
+            const response = await fetch("/api/undangan/klaim", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ kode, nama, email, komsat_path }),
+            });
+            const data = await response.json();
+            if (response.ok && typeof data.redirect === "string") { location.assign(data.redirect); return; }
+            errorBox.textContent = errors[data.error] || "Data belum dapat disimpan. Coba lagi.";
+            errorBox.removeAttribute("hidden");
+            window.toast(errors[data.error]||"Data belum dapat disimpan. Coba lagi.",{variant:"error"});
+          } catch {
+            errorBox.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba lagi.";
+            errorBox.removeAttribute("hidden");
+            window.toast("Koneksi bermasalah. Periksa jaringan lalu coba lagi.",{variant:"error"});
+          }
+        });
       });
     }
   </script>}

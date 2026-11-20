@@ -174,8 +174,8 @@ const votedAtJst = votedAt ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/
     }
     if (fragmentCode) runCheck();
     document.querySelectorAll('[data-copy-receipt]').forEach(button => button.addEventListener('click', async event => {
-      try { await navigator.clipboard.writeText(displayCode); event.currentTarget.textContent = 'Kode tersalin'; }
-      catch { event.currentTarget.textContent = 'Salin manual'; }
+      try { await navigator.clipboard.writeText(displayCode); event.currentTarget.textContent = 'Kode tersalin'; window.toast('Kode bukti disalin.',{variant:'success'}); }
+      catch { event.currentTarget.textContent = 'Salin manual'; window.toast('Kode belum tersalin. Salin manual dari kode di atas.',{variant:'error'}); }
     }));
   </script>
 </Base>

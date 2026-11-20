@@ -4,6 +4,8 @@ import { IconHome2, IconRosetteDiscountCheck, IconSpeakerphone, IconUsers } from
 import { env } from "cloudflare:workers";
 import BottomBar from "../components/ui/BottomBar.astro";
 import Button from "../components/ui/Button.astro";
+import Toast from "../components/ui/Toast.astro";
+import BusyButton from "../components/ui/BusyButton.astro";
 import { getSiteLogo } from "../server/lib/logo";
 import { NEUTRAL_ACCOUNT_NAME, initialsFor, resolveDisplayName } from "../server/lib/displayName";
 import { SESSION_COOKIE, openSession, type SessionData } from "../server/auth/session";
@@ -111,6 +113,8 @@ const navItems = [
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class:list={["min-h-dvh text-brand-ink antialiased", canvas === "white" ? "bg-white" : "bg-background"]}>
+    <Toast />
+    <BusyButton />
     <a href="#konten" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-card focus:px-4 focus:py-3 focus:font-semibold focus:outline-2 focus:outline-ring">Lewati ke konten</a>
     <header class="sticky top-0 z-20 border-b border-brand-border bg-card/95 backdrop-blur">
       <div class="mx-auto flex min-h-14 w-full max-w-3xl flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-1.5 sm:px-6">

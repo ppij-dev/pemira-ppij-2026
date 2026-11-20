@@ -14,6 +14,8 @@ import {
 import AdminSidebar from "../components/ui/AdminSidebar.astro";
 import AdminTopBar from "../components/ui/AdminTopBar.astro";
 import BottomBar from "../components/ui/BottomBar.astro";
+import Toast from "../components/ui/Toast.astro";
+import BusyButton from "../components/ui/BusyButton.astro";
 import { NEUTRAL_ADMIN_NAME, initialsFor, resolveDisplayName } from "../server/lib/displayName";
 import { getSiteLogo } from "../server/lib/logo";
 import { SESSION_COOKIE, isAdminPageAuthorized, openAdminSession, type AdminBindings } from "../pages/admin/admin-auth";
@@ -72,6 +74,8 @@ const todayJst = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", week
     <link rel="preload" href="/fonts/plus-jakarta-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class="min-h-dvh bg-brand-bg text-brand-ink antialiased">
+    <Toast />
+    <BusyButton />
     <div id="admin-shell" data-collapsed="false" class="group/shell min-h-dvh bg-brand-bg min-[701px]:flex">
       {authorized && <AdminSidebar items={nav} current={path} identity={identity} brand={{ src: logo.src, alt: "PPI Jepang", label: "PPI Jepang", caption: "Admin Voting" }} voterHref="/" />}
       <div class="min-w-0 min-[701px]:flex-1">

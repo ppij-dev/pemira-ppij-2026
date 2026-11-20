@@ -73,8 +73,10 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
     const stageLabel={draft:'Draf',scheduled:'Terjadwal',open:'Dibuka',closed:'Ditutup',published:'Diumumkan'};
     let timer,target,stage;
     const countdown=()=>{const el=document.querySelector('#countdown');if(!el||!target)return;const sec=Math.max(0,Math.floor((Date.parse(target)-Date.now())/1000));const d=Math.floor(sec/86400),clock=[Math.floor(sec%86400/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':');el.textContent=d>0?d+' hari '+clock:clock};
-    async function load(){
-      error.setAttribute('hidden','');access.setAttribute('hidden','');refresh.disabled=true;refreshLabel.textContent='Memuat...';
+    async function load(manual){
+      error.setAttribute('hidden','');access.setAttribute('hidden','');
+      // Muat otomatis pertama memakai label lama; muat manual dikunci window.withBusy.
+      if(!manual){refresh.disabled=true;refreshLabel.textContent='Memuat...'}
       try{
         const r=await fetch('/api/dashboard',{credentials:'same-origin'}),d=await r.json();
         if(r.status===403){root.replaceChildren();access.removeAttribute('hidden');return}
@@ -108,10 +110,12 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
           tallyPanel+
           '<section class="'+panel+'"><div class="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><h2 class="'+panelTitle+'">Hasil per korda</h2></div><div class="overflow-x-auto"><table class="w-full caption-bottom text-sm'+(single?' min-w-[34rem]':'')+'"><thead><tr class="border-b border-brand-border"><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Korda</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Hak pilih</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Digunakan</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">Partisipasi</th><th class="h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap">'+kordaHead+'</tr></thead><tbody>'+d.korda.map(k=>'<tr class="border-b border-brand-border last:border-b-0"><th scope="row" class="p-2 text-left align-middle text-[13px] font-semibold text-brand-ink">'+esc(k.name)+'</th><td class="p-2 align-middle text-[13px] tabular-nums">'+num(k.eligible_count)+'</td><td class="p-2 align-middle text-[13px] tabular-nums">'+num(k.used_count)+'</td><td class="p-2 align-middle text-[13px] tabular-nums">'+(k.turnout_percentage===null?'—':percent(k.turnout_percentage))+'</td>'+kordaCells(k)+'</tr>').join('')+'</tbody></table></div></section>';
         countdown();
-      }catch(e){error.textContent=(e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.';error.removeAttribute('hidden')}finally{refresh.disabled=false;refreshLabel.textContent='Muat Ulang Data'}
+        // Toast hanya pada muat manual; muat awal halaman tidak berisik.
+        if(manual)window.toast('Data dasbor dimuat ulang.',{variant:'success'})
+      }catch(e){error.textContent=(e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.';error.removeAttribute('hidden');if(manual)window.toast((e.message||'Data dasbor gagal dimuat.')+' Coba muat ulang.',{variant:'error'})}finally{if(!manual){refresh.disabled=false;refreshLabel.textContent='Muat Ulang Data'}}
     }
     // Penjaga null: tanpa tombol, skrip tetap tidak boleh melempar galat.
-    if(refresh)refresh.addEventListener('click',load);
+    if(refresh)refresh.addEventListener('click',()=>window.withBusy(refresh,'Memuat…',()=>load(true)));
     if(root)load();
   </script>
 </AdminLayout>

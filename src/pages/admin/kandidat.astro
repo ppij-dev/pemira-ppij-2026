@@ -108,6 +108,9 @@ const control = "w-full min-w-0 rounded-md border border-input bg-card px-3 text
 // tombolnya diam saja. Pemanggilan eksplisit di bawah menjaga itu tetap aman.
 const form=document.querySelector('#candidate'),msg=document.querySelector('#message');
 if(!form||!msg)return;
+// Toast hasil setelah muat ulang lewat flag URL sekali pakai (dihapus dari URL
+// oleh window.toastFromFlag, jadi muat ulang manual tidak mengulang pesan).
+if(window.toastFromFlag){window.toastFromFlag('kandidat','Kandidat tersimpan.',{variant:'success'});window.toastFromFlag('kandidat-terhapus','Kandidat dihapus.',{variant:'success'})}
 const intro=form.elements.short_intro,count=document.querySelector('#short-intro-count');
 const updateCount=()=>{if(count)count.textContent=`${intro.value.length}/100`};
 intro.addEventListener('input',updateCount);
@@ -118,23 +121,26 @@ form.onsubmit=async e=>{
   const fields=Object.fromEntries(new FormData(form)),numberField=form.elements.namedItem('number'),number=Number(fields.number);
   if(numberField&&(!Number.isInteger(number)||number<=0)){msg.textContent='Nomor kandidat harus berupa bilangan bulat lebih besar dari 0.';numberField.focus();return}
   const button=form.querySelector('button[type="submit"]');
-  button.disabled=true;button.textContent='Menyimpan...';msg.textContent='';
-  try{
-    const id=form.dataset.id;
-    // Mode kandidat tunggal tidak mengirim nomor urut (server menyimpan nomor internal 1).
-    const payload=numberField?{...fields,number}:fields;
-    const r=await fetch('/api/election/candidates'+(id?'/'+id:''),{method:id?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
-    const d=await r.json();
-    if(r.ok)location.reload();else msg.textContent=d.error||'Kandidat belum tersimpan. Coba kembali.';
-  }catch{msg.textContent='Koneksi bermasalah. Periksa jaringan lalu simpan kembali.'}
-  finally{button.disabled=false;button.textContent='Simpan Kandidat'}
+  msg.textContent='';
+  await window.withBusy(button,'Menyimpan…',async()=>{
+    try{
+      const id=form.dataset.id;
+      // Mode kandidat tunggal tidak mengirim nomor urut (server menyimpan nomor internal 1).
+      const payload=numberField?{...fields,number}:fields;
+      const r=await fetch('/api/election/candidates'+(id?'/'+id:''),{method:id?'PUT':'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json().catch(()=>({}));
+      // Berhasil: muat ulang lewat navigasi; toast sukses menyusul lewat flag URL.
+      if(r.ok){location.assign('/admin/kandidat?kandidat=1');return}
+      window.toast(d.error||'Kandidat belum tersimpan. Coba kembali.',{variant:'error'});
+    }catch{window.toast('Koneksi bermasalah. Periksa jaringan lalu simpan kembali.',{variant:'error'})}
+  });
 };
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
   form.dataset.id=b.dataset.edit;
   for(const k of ['member','number','name','nickname','color','description']){const field=form.elements[k==='member'?'member_id':k];if(field)field.value=b.dataset[k]||''}
   intro.value=b.dataset.shortIntro||'';updateCount();msg.textContent='';
 });
-document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus kandidat ini?')){const r=await fetch('/api/election/candidates/'+b.dataset.delete,{method:'DELETE'});if(r.ok)location.reload();else msg.textContent=(await r.json()).error||'Gagal menghapus'}});
+document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Hapus kandidat ini?'))return;await window.withBusy(b,'Menghapus…',async()=>{try{const r=await fetch('/api/election/candidates/'+b.dataset.delete,{method:'DELETE'});if(r.ok){location.assign('/admin/kandidat?kandidat-terhapus=1');return}const d=await r.json().catch(()=>({}));window.toast(d.error||'Kandidat belum terhapus. Coba kembali.',{variant:'error'})}catch{window.toast('Koneksi bermasalah. Periksa jaringan lalu coba lagi.',{variant:'error'})}})});
 })();
 </script>
 </AdminLayout>
