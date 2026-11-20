@@ -151,6 +151,89 @@ describe("surat suara undangan", () => {
     expect(ballot!.choice).toBe("abstain");
   });
 
+  it("membuka tautan dan mengisi klaim tidak menandai tautan terpakai; hanya suara yang terkirim", async () => {
+    await seedElection(1);
+    const created = await generateDirectInvitations(env.DB, new Date(), 1, actor, { masterKey: MASTER_KEY, baseUrl: BASE_URL });
+    const code = new URL(created.links[0]!.link).pathname.split("/").at(-1)!;
+    const claim = await claimDirectInvitation(
+      env.DB,
+      new Date(),
+      { kode: code, nama: "Tamu Satu", email: "tamu@example.test", komsat_path: `${SCOPE}/komsat-okayama` },
+      null,
+      { masterKey: MASTER_KEY, scope: SCOPE },
+    );
+    // Membuka tautan dan mengisi formulir tidak pernah menandai tautan terpakai.
+    const afterClaim = await env.DB.prepare("SELECT used_at, claimed_at FROM direct_invitations WHERE id=?").bind(created.links[0]!.id).first<{ used_at: string | null; claimed_at: string | null }>();
+    expect(afterClaim!.used_at).toBeNull();
+    expect(afterClaim!.claimed_at).not.toBeNull();
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM participation").first<{ n: number }>())!.n).toBe(0);
+    // Hanya suara yang berhasil terkirim yang menandai tautan terpakai.
+    await castInviteVote(env.DB, claim.session, { candidate_id: 1, confirmation_text: "Budi", choice: "setuju" });
+    const afterVote = await env.DB.prepare("SELECT used_at FROM direct_invitations WHERE id=?").bind(created.links[0]!.id).first<{ used_at: string | null }>();
+    expect(afterVote!.used_at).not.toBeNull();
+  });
+
+  it("reservasi 30 menit tidak mengunci pemegangnya sendiri dan tidak pernah menyebut sudah dipakai", async () => {
+    await seedElection(1);
+    const created = await generateDirectInvitations(env.DB, new Date(), 1, actor, { masterKey: MASTER_KEY, baseUrl: BASE_URL });
+    const code = new URL(created.links[0]!.link).pathname.split("/").at(-1)!;
+    const claimInput = { kode: code, nama: "Tamu Dua", email: "tamu2@example.test", komsat_path: `${SCOPE}/komsat-okayama` };
+    const claimOpts = { masterKey: MASTER_KEY, scope: SCOPE };
+    const first = await claimDirectInvitation(env.DB, new Date(), claimInput, null, claimOpts);
+    // Pemegang reservasi (claim_id sama, peramban yang sama) boleh melanjutkan.
+    const holder = await claimDirectInvitation(env.DB, new Date(), { ...claimInput, nama: "Tamu Dua Revised" }, first.session.claim_id, claimOpts);
+    expect(holder.session.claim_id).toBe(first.session.claim_id);
+    // Konteks peramban lain tidak mengambil alih reservasi — pesannya sedang
+    // diisi orang lain, bukan "sudah dipakai".
+    await expect(claimDirectInvitation(env.DB, new Date(), { ...claimInput, nama: "Tamu Lain" }, null, claimOpts)).rejects.toMatchObject({ reason: "invite_reserved" });
+  });
+
+  it("klaim menolak tautan yang sudah menulis suara walau kolom tautan direset", async () => {
+    await seedElection(1);
+    const created = await generateDirectInvitations(env.DB, new Date(), 1, actor, { masterKey: MASTER_KEY, baseUrl: BASE_URL });
+    const code = new URL(created.links[0]!.link).pathname.split("/").at(-1)!;
+    const reference = created.links[0]!.reference;
+    // Buku besar mencatat suara undangan ini, tetapi baris tautannya direset
+    // by hand (used_at NULL): klaim harus menolak sejak awal, jujur.
+    await env.DB
+      .prepare("INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, ?, 'Tamu Lama', ?, 0)")
+      .bind(`undangan:${reference}`, new Date().toISOString())
+      .run();
+    await expect(claimDirectInvitation(
+      env.DB,
+      new Date(),
+      { kode: code, nama: "Tamu Baru", email: "tamu3@example.test", komsat_path: `${SCOPE}/komsat-okayama` },
+      null,
+      { masterKey: MASTER_KEY, scope: SCOPE },
+    )).rejects.toMatchObject({ reason: "invite_used" });
+  });
+
+  it("kegagalan batch yang bukan suara ganda tidak melaporkan sudah dipakai", async () => {
+    await seedElection(1);
+    const { session, id } = await readyLink();
+    // Batch yang selalu gagal dengan kesalahan batasan, tanpa pernah menulis:
+    // tautan tetap bersih, jadi pesan tidak boleh menyebut "sudah dipakai".
+    const sabotaged = {
+      prepare: (...args: Parameters<typeof env.DB.prepare>) => env.DB.prepare(...args),
+      batch: async () => {
+        throw new Error("UNIQUE constraint failed: participation.election_id, participation.member_id");
+      },
+    } as unknown as typeof env.DB;
+    await expect(castInviteVote(sabotaged, session, { candidate_id: 1, confirmation_text: "Budi", choice: "setuju" })).rejects.toMatchObject({ reason: "vote_write_failed" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM participation").first<{ n: number }>())!.n).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first<{ n: number }>())!.n).toBe(0);
+    const invitation = await env.DB.prepare("SELECT used_at FROM direct_invitations WHERE id=?").bind(id).first<{ used_at: string | null }>();
+    expect(invitation!.used_at).toBeNull();
+    // Ketika suara undangan ini memang sudah ada di buku besar, pesan tetap
+    // "sudah dipakai" — kini berdasar fakta, bukan tebakan.
+    const reference = (await env.DB.prepare("SELECT reference FROM direct_invitations WHERE id=?").bind(id).first<{ reference: string }>())!.reference;
+    await env.DB
+      .prepare("INSERT INTO participation (election_id, member_id, member_name, voted_at, is_test) VALUES (1, ?, 'Tamu Lama', ?, 0)")
+      .bind(`undangan:${reference}`, new Date().toISOString())
+      .run();
+    await expect(castInviteVote(sabotaged, session, { candidate_id: 1, confirmation_text: "Budi", choice: "setuju" })).rejects.toMatchObject({ reason: "invite_used" });
+  });
+
   it("menghasilkan tepat satu suara untuk dua permintaan bersamaan", async () => {
     await seedElection();
     const { session } = await readyLink();

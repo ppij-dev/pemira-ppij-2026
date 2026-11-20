@@ -103,6 +103,25 @@ async function resolveChoice(
   return choice;
 }
 
+/** Klasifikasi kegagalan batch yang jujur: "sudah dipakai" hanya bila suara
+ * benar-benar ada — tautan benar-benar terpakai, atau baris partisipasi
+ * undangan ini sudah ada di buku besar. Kegagalan batasan lain (mis. data
+ * lama yang tidak konsisten) bukan tanda tautan terpakai: jangan pernah
+ * melaporkan "sudah dipakai" pada tautan yang belum mengirim suara apa pun. */
+async function inviteVoteBlocker(db: D1Database, invitationId: number, memberId: string): Promise<InviteVoteError> {
+  const still = await db
+    .prepare("SELECT used_at FROM direct_invitations WHERE id = ?")
+    .bind(invitationId)
+    .first<{ used_at: string | null }>();
+  if (still?.used_at) return new InviteVoteError("Tautan sudah dipakai.", 409, "invite_used");
+  const voted = await db
+    .prepare("SELECT 1 AS vote FROM participation WHERE member_id = ? LIMIT 1")
+    .bind(memberId)
+    .first<{ vote: number }>();
+  if (voted) return new InviteVoteError("Tautan sudah dipakai.", 409, "invite_used");
+  return new InviteVoteError("Suara belum dapat disimpan. Coba lagi sebentar; bila tetap gagal, hubungi panitia.", 503, "vote_write_failed");
+}
+
 export async function castInviteVote(
   db: D1Database,
   session: InviteSessionData,
@@ -216,7 +235,7 @@ export async function castInviteVote(
     } catch (error) {
       const message = String(error);
       if (message.includes("UNIQUE") || message.includes("constraint")) {
-        throw new InviteVoteError("Tautan sudah dipakai.", 409, "invite_used");
+        throw await inviteVoteBlocker(db, invitation.id, memberId);
       }
       throw error;
     }

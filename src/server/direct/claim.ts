@@ -137,6 +137,14 @@ export async function claimDirectInvitation(
   if (!row) throw new DirectInviteError("Tautan tidak ditemukan.", 404, "invite_not_found");
   if (row.used_at) throw new DirectInviteError("Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu orang.", 409, "invite_used");
   if (row.cancelled_at) throw new DirectInviteError("Tautan ini dibatalkan oleh panitia.", 409, "invite_cancelled");
+  // Suara untuk identitas undangan ini sudah ada di buku besar (mis. baris
+  // tautan pernah direset panitia tanpa menghapus suaranya): tolak klaim sejak
+  // awal dengan pesan yang jujur, bukan setelah tamu mengisi seluruh formulir.
+  const priorVote = await db
+    .prepare("SELECT 1 AS vote FROM participation WHERE member_id = ? LIMIT 1")
+    .bind(`undangan:${row.reference}`)
+    .first<{ vote: number }>();
+  if (priorVote) throw new DirectInviteError("Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu orang.", 409, "invite_used");
   const election = await loadInviteElection(db);
   const nowIso = now.toISOString();
   const currentStage = inviteStage(election, nowIso);
