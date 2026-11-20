@@ -107,10 +107,16 @@ function windowGuard(alias: string): string {
 }
 const WINDOW_GUARD = windowGuard("");
 
-/** Penjaga tahap Dibuka untuk klaim dan vote: terkunci, sudah dibekukan, dan dalam jadwal. */
+/**
+ * Penjaga tahap Dibuka untuk klaim dan vote: terkunci dan di dalam jadwal.
+ * Roll beku (`frozen_at`) sengaja TIDAK diminta: tautan undangan adalah
+ * kredensialnya sendiri (design D5/D7), dan mode "Tidak Membekukan DPT"
+ * memang membiarkan `frozen_at` NULL sampai pemungutan suara ditutup, jadi
+ * syarat itu membuat setiap tautan gagal diklaim pada pemilihan seperti itu.
+ */
 export function openElectionGuard(alias = "e"): string {
   const prefix = alias ? `${alias}.` : "";
-  return `(${prefix}status_lock = 'locked' AND ${prefix}frozen_at IS NOT NULL AND ${prefix}closed_early_at IS NULL AND julianday(${prefix}opens_at) <= julianday(?) AND julianday(${prefix}closes_at) > julianday(?))`;
+  return `(${prefix}status_lock = 'locked' AND ${prefix}closed_early_at IS NULL AND julianday(${prefix}opens_at) <= julianday(?) AND julianday(${prefix}closes_at) > julianday(?))`;
 }
 
 const CLOSED_MESSAGE =

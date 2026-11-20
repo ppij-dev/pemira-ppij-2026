@@ -98,6 +98,58 @@ export interface ClaimResult {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Alasan penolakan yang sebenarnya saat UPDATE klaim tidak mengubah baris. */
+async function claimBlocker(
+  db: D1Database,
+  now: Date,
+  row: Pick<DirectInvitationRow, "id" | "claim_id">,
+  currentClaimId: string | null,
+): Promise<DirectInviteError> {
+  const current = await db
+    .prepare("SELECT used_at, cancelled_at, claimed_at, claim_id FROM direct_invitations WHERE id = ?")
+    .bind(row.id)
+    .first<Pick<DirectInvitationRow, "used_at" | "cancelled_at" | "claimed_at" | "claim_id">>();
+  if (current?.used_at) {
+    return new DirectInviteError("Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu orang.", 409, "invite_used");
+  }
+  if (current?.cancelled_at) {
+    return new DirectInviteError("Tautan ini dibatalkan oleh panitia.", 409, "invite_cancelled");
+  }
+  const claimedMs = current?.claimed_at ? Date.parse(current.claimed_at) : Number.NaN;
+  if (
+    current?.claim_id &&
+    Number.isFinite(claimedMs) &&
+    now.getTime() - claimedMs < CLAIM_RESERVATION_MS &&
+    current.claim_id !== currentClaimId
+  ) {
+    return new DirectInviteError(
+      "Tautan sedang diisi orang lain. Minta panitia mengirim tautan baru bila perlu.",
+      409,
+      "invite_reserved",
+    );
+  }
+  let latestStage: string | null = null;
+  try {
+    latestStage = inviteStage(await loadInviteElection(db), now.toISOString());
+  } catch {
+    latestStage = null;
+  }
+  if (latestStage !== "open") {
+    return new DirectInviteError(
+      latestStage === "scheduled" || latestStage === "draft"
+        ? "Pemungutan suara belum dibuka. Simpan tautan ini dan kembali sesuai jadwal."
+        : "Pemungutan suara telah ditutup.",
+      409,
+      "invite_not_open",
+    );
+  }
+  return new DirectInviteError(
+    "Tautan belum dapat dipakai saat ini. Coba lagi sebentar; bila tetap gagal, hubungi panitia pemilihan.",
+    409,
+    "invite_not_ready",
+  );
+}
+
 /**
  * Simpan data tamu dan reservasi tautan. `currentClaimId` berasal dari cookie
  * sesi undangan bila ada, sehingga pemegang reservasi boleh melanjutkan.
@@ -183,11 +235,10 @@ export async function claimDirectInvitation(
     .bind(nowIso, claimId, nama, email, unit.path, row.id, nowIso, nowIso, claimId, nowIso, Math.floor(CLAIM_RESERVATION_MS / 1000))
     .run();
   if (!result.meta.changes) {
-    throw new DirectInviteError(
-      "Tautan sedang diisi orang lain. Minta panitia mengirim tautan baru bila perlu.",
-      409,
-      "invite_reserved",
-    );
+    // Penjaga di dalam UPDATE menolak tanpa mengubah satu baris pun. Pesannya
+    // harus jujur: "sudah dipakai" hanya bila tautan benar-benar terpakai,
+    // reservasi hidup disebut reservasi, dan kegagalan lain bukan tuduhan.
+    throw await claimBlocker(db, now, row, currentClaimId);
   }
   const session: InviteSessionData = {
     invitation_id: row.id,
