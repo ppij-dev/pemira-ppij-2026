@@ -3,6 +3,9 @@ import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
+import previewModeSql from "../migrations/0006_preview_mode.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
+import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import singleModeSql from "../migrations/0011_single_candidate_mode.sql?raw";
 import ballotChoiceSql from "../migrations/0012_ballot_choice.sql?raw";
@@ -15,6 +18,8 @@ import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { getAbstainCount } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
+import { getDashboard } from "../src/server/results/queries";
+import { allPortalMembers, changedPortalMembers, createServiceApiStub } from "./lib/serviceapi-fixture";
 import type { DashboardPayload, ResultsPayload } from "../src/server/results/queries";
 
 declare module "*.sql?raw" {
@@ -46,7 +51,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
+  for (const file of [initSql, unitsSql, lockSql, previewModeSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -818,6 +823,18 @@ describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
     await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES ('anggota-4','anggota-4',?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()).run();
     const again = await requestDashboard("admin-1");
     expect(((await again.json()) as DashboardPayload).eligible_count).toBe(5);
+  });
+  it("pembacaan Dasbor memicu segarkan portal: anggota baru naik tanpa ada yang memilih", async () => {
+    await seedLive();
+    // Watermark lama supaya pembacaan berikutnya menyegarkan dari delta stub.
+    await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?)").bind(new Date(Date.now() - 120_000).toISOString()).run();
+    const grown = createServiceApiStub({ all: allPortalMembers(), changed: changedPortalMembers() });
+    const portal = { issuer: grown.issuer, clientId: "c", clientSecret: "s", serviceApiUrl: grown.serviceUrl, fetchImpl: grown.fetchImpl };
+    // Delta stub menambah member-9..11 (member-1 tidak ada di view seed): 4 + 3.
+    const data = await getDashboard(env.DB, new Date(), portal);
+    expect(data.live_voter_roll).toBe(true);
+    expect(data.eligible_count).toBe(7);
+    expect(data.participation_count).toBe(0);
   });
   it("setelah Ditutup: eligible dari snapshot tersimpan, tidak berubah walau view bergeser", async () => {
     await seedLive();

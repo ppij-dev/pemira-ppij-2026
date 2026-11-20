@@ -12,15 +12,16 @@ roll. With the switch off, Dasbor is unchanged.
 ### Requirement: Dasbor Hak pilih live while open, saved after close
 
 While the switch is on and voting is open, Dasbor's Hak pilih, turnout percentage and
-per-korda eligible counts SHALL be computed from the live portal view, and any share
-derived from them SHALL reflect the live denominator. After voting closes, Dasbor SHALL
-use the saved closing Hak pilih for every share, exactly like results and Hitung Abstain.
-Dasbor SHALL keep its manual refresh in both modes.
+per-korda eligible counts SHALL come from the live portal view, and derived shares SHALL
+use the same denominator. Loading Dasbor SHALL refresh the view by the same rule as every
+other read (voter-roll delta). After close, Dasbor SHALL use the saved closing Hak pilih
+for every share, exactly like results and Hitung Abstain. Dasbor SHALL keep its manual
+refresh (no polling) in both modes.
 
 #### Scenario: Live figures while open
 
-- **WHEN** a new member joins the live view while voting is open and an Admin Voting refreshes Dasbor
-- **THEN** Hak pilih, turnout percentage and the per-korda denominators reflect the live count
+- **WHEN** a new member joins the portal while voting is open and an Admin Voting opens or reloads Dasbor after the refresh TTL
+- **THEN** Hak pilih, turnout percentage and the per-korda denominators reflect the live count, with no vote cast in between
 
 #### Scenario: Saved figures after close
 
@@ -30,7 +31,7 @@ Dasbor SHALL keep its manual refresh in both modes.
 #### Scenario: Dasbor still manual
 
 - **WHEN** votes arrive while an Admin Voting keeps Dasbor open in live mode
-- **THEN** the numbers change only when the Admin Voting refreshes, as today
+- **THEN** the numbers change only when the Admin Voting reloads the page by button or navigation, never on their own
 
 ### Requirement: Live-mode note on Dasbor
 

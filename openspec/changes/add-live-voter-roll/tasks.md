@@ -117,9 +117,25 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       stage and both switch states; manual smoke of the flip animation against the local
       dev server.
 
-## 10. Verification
+## 10. Reads refresh the live view (fix, 2026-11-20)
 
-- [x] 10.1 Full focused suite for the touched test files green (schema, lifecycle,
+- [x] 10.1 Failing tests first in `test/turnout-api.test.ts` and
+      `test/results-api.test.ts`: with the switch on and the stage Dibuka, a member added to
+      the portal fixture after Kunci raises Jumlah Pemilih on the next turnout read (watermark
+      past the TTL) with no vote cast and can then vote; a member removed from the portal
+      lowers it; a Dasbor read does the same; a slow portal is served from the last view
+      within the short wait and the watermark still advances afterwards.
+- [x] 10.2 One refresh path for readers: `refreshPortalViewForRead(db, cfg, now)` in
+      `src/server/serviceapi/sync.ts` (TTL 30 s, 15 s failure cooldown,
+      stale-while-unavailable, `PORTAL_VIEW_READ_WAIT_MS` wait cap, Mode Pratinjau skipped),
+      used by `resolveHakPilih` in `src/server/voting/board.ts`, `src/pages/index.astro` and
+      `src/pages/admin/pemilih.astro`; Terjadwal also refreshes; run the group's tests green.
+
+## 11. Verification
+
+- [x] 11.1 Full focused suite for the touched test files green (schema, lifecycle,
       serviceapi, vote-api, results-api, receipt-board, turnout-api) and `npm run build`
       green.
-- [x] 10.2 `openspec validate add-live-voter-roll --strict` green.
+- [x] 11.2 `openspec validate add-live-voter-roll --strict` green.
+- [x] 11.3 Full `npx vitest run` suite green and a local `wrangler dev` check on a private
+      port: an added fixture member raised `/api/turnout` within one TTL cycle with no vote.

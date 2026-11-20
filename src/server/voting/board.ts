@@ -4,6 +4,8 @@ import type { Bindings } from "../app";
 import { AUDIT_GENESIS_HASH, canonicalRow, sha256Hex, type AuditEntry } from "../lib/audit";
 import { stage } from "../lib/stage";
 import { directInviteTerm, liveHakPilih, withDirectInvites } from "../election/hakPilih";
+import type { ServiceApiConfig } from "../serviceapi/client";
+import { refreshPortalViewForRead } from "../serviceapi/sync";
 
 type Env = { Bindings: Bindings };
 
@@ -152,11 +154,19 @@ interface ResolveRow extends ClosingHakPilihRow {
  * hitungan live sebelumnya. Titik penetapan snapshot dijalankan di sini, jadi
  * tidak ada konsumen yang melihat "Ditutup tapi belum disimpan".
  */
-export async function resolveHakPilih(db: D1Database, now: Date): Promise<HakPilihResolution> {
+export async function resolveHakPilih(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<HakPilihResolution> {
   const row = await db
     .prepare("SELECT id, status_lock, opens_at, closes_at, closed_early_at, closing_hak_pilih, live_voter_roll, frozen_hak_pilih FROM elections ORDER BY id LIMIT 1")
     .first<ResolveRow>();
   if (!row) return { hakPilih: 0, source: "frozen" };
+  if (row.live_voter_roll === 1) {
+    // Pembacaan yang menunjukkan Hak pilih (turnout, Dasbor, hasil) menyegarkan
+    // view portal lewat jalur yang sama dengan jalur memilih: TTL 30 detik,
+    // cooldown gagal, stale-while-unavailable, dengan batas tunggu pendek supaya
+    // halaman publik tidak pernah menunggu portal lama. Draf/Ditutup/Diumumkan
+    // dilewati oleh penjaga di dalam penyegar.
+    await refreshPortalViewForRead(db, portal, now);
+  }
   if (row.live_voter_roll !== 1) {
     // Roll beku: `frozen_hak_pilih` tetap hanya suku roll, jadi tautan Undangan
     // Langsung ditambahkan di sini lewat helper yang sama (satu tempat).

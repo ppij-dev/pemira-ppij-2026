@@ -1,6 +1,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
 import { resolveHakPilih } from "../voting/board";
+import type { ServiceApiConfig } from "../serviceapi/client";
 import { directInviteTerm } from "../election/hakPilih";
 import { formatUnitPath } from "../../lib/formatKomsat";
 
@@ -150,7 +151,7 @@ function bucketByRegion(rows: { path: string; n: number }[]): Map<string, number
 }
 
 /** All aggregates for one election, set-based SQL only (no per-voter loops). */
-async function computeResults(db: D1Database, election: ElectionRow, currentStage: Stage, nowIso: string) {
+async function computeResults(db: D1Database, election: ElectionRow, currentStage: Stage, nowIso: string, portal?: ServiceApiConfig) {
   // Test rows stay visible (and labeled) while Draf; later stages count is_test=0 only.
   const realOnly = currentStage !== "draft";
   const testOn = (alias: string) => (realOnly ? `AND ${alias}.is_test = 0` : "");
@@ -247,7 +248,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
   // saklar menyala memakai hitungan view selama Dibuka dan snapshot penutupan
   // (ditetapkan di pembacaan pertama setelah Ditutup) sesudahnya. Penyelesai itu
   // sudah memasukkan tautan Undangan Langsung (election/hakPilih.ts).
-  const resolution = await resolveHakPilih(db, new Date(nowIso));
+  const resolution = await resolveHakPilih(db, new Date(nowIso), portal);
   const eligibleCount = resolution.hakPilih;
   // Angka tautan aktif untuk tampilan Dasbor; istilah yang sama dengan penyelesai.
   const inviteTerm = await directInviteTerm(db);
@@ -371,25 +372,25 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
 }
 
 /** Dasbor payload for Admin Voting; the caller records the tally-load audit entry. */
-export async function getDashboard(db: D1Database, now: Date): Promise<DashboardPayload> {
+export async function getDashboard(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<DashboardPayload> {
   const election = await getElection(db);
   const currentStage = stage(
     { status_lock: election.status_lock, opens_at: election.opens_at ?? "", closes_at: election.closes_at ?? "", closed_early_at: election.closed_early_at },
     now.toISOString(),
   );
-  const { base, admin_count, test } = await computeResults(db, election, currentStage, now.toISOString());
+  const { base, admin_count, test } = await computeResults(db, election, currentStage, now.toISOString(), portal);
   return { ...base, committee_warning: admin_count < 2, test };
 }
 
 /** Public aggregates; null until the election is Diumumkan. Never audit-logged. */
-export async function getPublicResults(db: D1Database, now: Date): Promise<ResultsPayload | null> {
+export async function getPublicResults(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<ResultsPayload | null> {
   const election = await getElection(db);
   const currentStage = stage(
     { status_lock: election.status_lock, opens_at: election.opens_at ?? "", closes_at: election.closes_at ?? "", closed_early_at: election.closed_early_at },
     now.toISOString(),
   );
   if (currentStage !== "published") return null;
-  const { base } = await computeResults(db, election, currentStage, now.toISOString());
+  const { base } = await computeResults(db, election, currentStage, now.toISOString(), portal);
   return base;
 }
 
@@ -407,14 +408,14 @@ export interface TurnoutPayload {
  * Pemilih dan Suara Masuk. Hitungan saja, tanpa kandidat/pilihan/korda, dari
  * Terjadwal sampai Diumumkan; Draf ditolak. Tidak pernah diaudit.
  */
-export async function getTurnout(db: D1Database, now: Date): Promise<TurnoutPayload> {
+export async function getTurnout(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<TurnoutPayload> {
   const election = await getElection(db);
   const currentStage = stage(
     { status_lock: election.status_lock, opens_at: election.opens_at ?? "", closes_at: election.closes_at ?? "", closed_early_at: election.closed_early_at },
     now.toISOString(),
   );
   if (currentStage === "draft") throw new ResultsError("statistik_belum_tersedia", 409);
-  const { hakPilih } = await resolveHakPilih(db, now);
+  const { hakPilih } = await resolveHakPilih(db, now, portal);
   const votes = (await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id = ? AND is_test = 0").bind(election.id).first<{ n: number }>())?.n ?? 0;
   return { stage: currentStage, eligible_count: hakPilih, votes_count: votes, updated_at: now.toISOString() };
 }

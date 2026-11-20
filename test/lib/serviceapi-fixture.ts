@@ -2,7 +2,19 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 // The HTTP fixture is for out-of-workerd rehearsals; focused workerd tests use createServiceApiStub.
-type FixtureOptions = { mode?: "ok" | "no_grant" | "fail_page_n"; delayMs?: number; failPage?: number };
+/** Baris anggota portal pada fixture; bentuknya sama dengan Member Service API. */
+export type FixtureMember = {
+  member_id: string;
+  full_name: string;
+  nickname: string | null;
+  komsat_path: string;
+  status: string;
+  member_number: string | null;
+  member_category: string | null;
+  can_vote: boolean | null;
+  updated_at: string;
+};
+type FixtureOptions = { mode?: "ok" | "no_grant" | "fail_page_n"; delayMs?: number; failPage?: number; /** Timpa daftar delta changed_since (anggota baru/hilang untuk uji segarkan). */ changed?: FixtureMember[]; /** Timpa daftar snapshot penuh (status=ALL). */ all?: FixtureMember[] };
 /** as_of halaman pertama: klien menyimpannya sebagai changed_since berikutnya. */
 const AS_OF = "2026-01-01T00:00:00.000Z";
 function createHandler(opts: FixtureOptions) {
@@ -12,16 +24,16 @@ function createHandler(opts: FixtureOptions) {
     { path: "/ppij/kyushu", name: "Kyushu", parent_path: "/ppij", type: "korda" },
     ...["okayama", "kyushu", "fukuoka", "kumamoto", "kagoshima"].map((name, index) => ({ path: `/ppij/${index < 1 ? "okayama" : "kyushu"}/${name}`, name, parent_path: `/ppij/${index < 1 ? "okayama" : "kyushu"}`, type: "komsat" as const })),
   ];
-  const initial = Array.from({ length: 8 }, (_, index) => ({ member_id: `member-${index + 1}`, full_name: `Member ${index + 1}`, nickname: `M${index + 1}`, komsat_path: index < 4 ? "/ppij/okayama/okayama" : "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(index + 1), member_category: "BIASA", can_vote: true, updated_at: `2026-01-01T00:00:0${index}Z` }));
-  const joined = [9, 10, 11].map((n) => ({ member_id: `member-${n}`, full_name: `Member ${n}`, nickname: `M${n}`, komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(n), member_category: "BIASA", can_vote: true, updated_at: "2026-01-02T00:00:00Z" }));
+  const initial = defaultInitialMembers();
+  const joined = defaultJoinedMembers();
   // Luar Biasa: portal menyatakan can_vote false.
   const extraordinary = { member_id: "member-12", full_name: "Member 12", nickname: "M12", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "12", member_category: "LUAR_BIASA", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
   // Kategori belum ditentukan: portal mengirim can_vote null.
   const undetermined = { member_id: "member-13", full_name: "Member 13", nickname: "M13", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "13", member_category: null, can_vote: null, updated_at: "2026-01-02T00:00:00Z" };
   const memberOneExpired = { ...initial[0]!, status: "EXPIRED", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
   // Deltanya sync bertahap; snapshot penuh (status=ALL) mencerminkan keadaan server sekarang.
-  const changed = [...joined, extraordinary, undetermined, memberOneExpired];
-  const all = [...initial.filter((member) => member.member_id !== "member-1"), memberOneExpired, ...joined, extraordinary, undetermined];
+  const changed = opts.changed ?? [...joined, extraordinary, undetermined, memberOneExpired];
+  const all = opts.all ?? [...initial.filter((member) => member.member_id !== "member-1"), memberOneExpired, ...joined, extraordinary, undetermined];
   const envelope = (items: unknown[], url: URL) => {
     const page = url.searchParams.get("cursor") ? Number(url.searchParams.get("cursor")) : 0;
     return { items: items.slice(page * 2, page * 2 + 2), cursor: (page + 1) * 2 < items.length ? String(page + 1) : null, as_of: AS_OF };
@@ -40,6 +52,30 @@ function createHandler(opts: FixtureOptions) {
     if (opts.mode === "fail_page_n" && page === (opts.failPage ?? 1)) return Response.json({ error: "failed_page" }, { status: 500 });
     return Response.json(envelope(data, url));
   };
+}
+
+function defaultInitialMembers(): FixtureMember[] {
+  return Array.from({ length: 8 }, (_, index) => ({ member_id: `member-${index + 1}`, full_name: `Member ${index + 1}`, nickname: `M${index + 1}`, komsat_path: index < 4 ? "/ppij/okayama/okayama" : "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(index + 1), member_category: "BIASA", can_vote: true, updated_at: `2026-01-01T00:00:0${index}Z` }));
+}
+
+function defaultJoinedMembers(): FixtureMember[] {
+  return [9, 10, 11].map((n) => ({ member_id: `member-${n}`, full_name: `Member ${n}`, nickname: `M${n}`, komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: String(n), member_category: "BIASA", can_vote: true, updated_at: "2026-01-02T00:00:00Z" }));
+}
+
+/** Snapshot penuh dasar (status=ALL) plus anggota tambahan untuk uji segarkan. */
+export function allPortalMembers(extra: FixtureMember[] = []): FixtureMember[] {
+  const extraordinary = { member_id: "member-12", full_name: "Member 12", nickname: "M12", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "12", member_category: "LUAR_BIASA", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
+  const undetermined = { member_id: "member-13", full_name: "Member 13", nickname: "M13", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "13", member_category: null, can_vote: null, updated_at: "2026-01-02T00:00:00Z" };
+  const memberOneExpired = { ...defaultInitialMembers()[0]!, status: "EXPIRED", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
+  return [...defaultInitialMembers().filter((member) => member.member_id !== "member-1"), memberOneExpired, ...defaultJoinedMembers(), extraordinary, undetermined, ...extra];
+}
+
+/** Delta changed_since dasar plus anggota tambahan/berubah untuk uji segarkan. */
+export function changedPortalMembers(extra: FixtureMember[] = []): FixtureMember[] {
+  const extraordinary = { member_id: "member-12", full_name: "Member 12", nickname: "M12", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "12", member_category: "LUAR_BIASA", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
+  const undetermined = { member_id: "member-13", full_name: "Member 13", nickname: "M13", komsat_path: "/ppij/kyushu/fukuoka", status: "ACTIVE", member_number: "13", member_category: null, can_vote: null, updated_at: "2026-01-02T00:00:00Z" };
+  const memberOneExpired = { ...defaultInitialMembers()[0]!, status: "EXPIRED", can_vote: false, updated_at: "2026-01-02T00:00:00Z" };
+  return [...defaultJoinedMembers(), extraordinary, undetermined, memberOneExpired, ...extra];
 }
 
 export function createServiceApiStub(opts: FixtureOptions = {}): { fetchImpl: typeof fetch; issuer: string; serviceUrl: string; token: string; asOf: string } {
