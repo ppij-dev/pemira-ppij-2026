@@ -72,6 +72,19 @@ korda rows or any per-person data, and SHALL NOT answer in Draf.
 - **WHEN** a client fetches the turnout endpoint while the election is in Draf
 - **THEN** the request is refused without counts
 
+### Requirement: Turnout figures follow the live view
+
+While the switch is on, the endpoint and the server-rendered strip SHALL refresh the live
+portal view by the same throttled rule as every other read (voter-roll delta) before
+computing Jumlah Pemilih. Jumlah Pemilih therefore follows the portal with no vote cast,
+and one refresh per TTL serves the endpoint, the strip, Dasbor, the Pemilih page and the
+results.
+
+#### Scenario: Jumlah Pemilih follows the portal without a vote
+
+- **WHEN** the portal gains or loses an eligible member and the next poll of the endpoint happens after the refresh TTL
+- **THEN** Jumlah Pemilih changes while Suara Masuk does not, and no page waits more than the short bound for it
+
 ### Requirement: Live updates by short polling
 
 The strip SHALL update without a page reload by polling the turnout endpoint about every

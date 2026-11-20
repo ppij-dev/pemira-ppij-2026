@@ -13,6 +13,7 @@ import Empty from "../../components/ui/Empty.astro";
 import Callout from "../../components/ui/Callout.astro";
 import { memberCategoryLabel } from "../../lib/memberCategory";
 import { unitPathLabel, type UnitNames } from "../../lib/formatKomsat";
+import { refreshPortalViewForRead, serviceApiConfig } from "../../server/serviceapi/sync";
 import { isAdminPageAuthorized, SESSION_COOKIE, type AdminBindings } from "./admin-auth";
 const bindings = env as unknown as AdminBindings;
 const authorized = await isAdminPageAuthorized(Astro.cookies.get(SESSION_COOKIE)?.value, bindings);
@@ -32,7 +33,12 @@ const undetermined = (await db?.prepare('SELECT COUNT(*) AS n FROM voters WHERE 
 const sync = await db?.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first<{ value: string }>();
 // Mode "Tidak Membekukan DPT": roll mengikuti portal, jadi halaman tidak
 // mengaku beku dan waktu segarkan terakhir (watermark portal) ditegaskan.
+// Pembacaan halaman ikut menyegarkan view portal lewat jalur yang sama dengan
+// endpoint Hak pilih (TTL, cooldown, stale-while-unavailable) dengan batas tunggu
+// pendek supaya halaman tidak pernah menunggu portal lama; tanpa
+// SERVICE_API_URL tidak ada percobaan.
 const liveRollPage = (await db?.prepare('SELECT live_voter_roll FROM elections ORDER BY id LIMIT 1').first<{ live_voter_roll: number }>())?.live_voter_roll === 1;
+if (liveRollPage && db) await refreshPortalViewForRead(db, serviceApiConfig(bindings), new Date());
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)) + " JST";
 const rollDescription = liveRollPage ? `Roll mengikuti portal (tidak dibekukan). Terakhir diperbarui dari portal: ${sync?.value ? formatJst(sync.value) : "belum pernah"}` : `Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}`;
 const pageQuery = (target: number) => `?q=${encodeURIComponent(q)}&komsat=${encodeURIComponent(komsat)}&status=${filter}&page=${Math.max(1, target)}`;

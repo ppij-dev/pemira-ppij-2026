@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env, reset } from "cloudflare:test";
 import initSql from "../migrations/0001_init.sql?raw";
 import unitsSql from "../migrations/0002_units.sql?raw";
+import previewModeSql from "../migrations/0006_preview_mode.sql?raw";
 import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
@@ -17,7 +18,7 @@ beforeEach(async () => {
   await env.DB.batch(sql.split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
   // ALTER tidak bersifat idempoten; abaikan bila kolom sudah ada dari batch sebelumnya.
   try {
-    await env.DB.batch([memberNumberSql, categorySql, canVoteSql, liveRollSql, closingHakPilihSql].join(";").split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
+    await env.DB.batch([previewModeSql, memberNumberSql, categorySql, canVoteSql, liveRollSql, closingHakPilihSql].join(";").split(";").filter((statement) => statement.trim()).map((statement) => env.DB.prepare(statement)));
   } catch { /* kolom member_number/category/can_vote/live_voter_roll sudah ada */ }
 });
 const cfg = (stub: { issuer: string; serviceUrl: string; fetchImpl: typeof fetch }) => ({ issuer: stub.issuer, serviceApiUrl: stub.serviceUrl, clientId: "test-client", clientSecret: "test-secret", fetchImpl: stub.fetchImpl });
@@ -173,15 +174,71 @@ describe("live portal view refresh", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())!.n).toBe(10);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{n:number}>())!.n).toBe(0);
   });
-  it("only refreshes in live mode while the stage is open", async () => {
+  it("refreshes in live mode while Terjadwal or Dibuka, never in Draf or with the switch off", async () => {
     const fixture = countingStub();
     await insertLiveOpenElection(0);
     const off = await ensurePortalViewFresh(env.DB, cfg(fixture), AFTER_TTL);
     expect(off).toEqual({ refreshed: false, failed: false, stale: false, skipped: true });
     expect(fixture.count()).toBe(0);
+    // Terjadwal ikut disegarkan (angka strip hidup sejak sebelum dibuka).
     await env.DB.prepare("UPDATE elections SET live_voter_roll=1, opens_at='2026-06-01T00:00:00Z'").run();
-    const scheduled = await ensurePortalViewFresh(env.DB, cfg(fixture), AFTER_TTL);
-    expect(scheduled).toEqual({ refreshed: false, failed: false, stale: false, skipped: true });
+    const scheduled = await ensurePortalViewFresh(env.DB, cfg(fixture), AFTER_TTL, undefined, { maxWaitMs: 5000 });
+    expect(scheduled).toEqual({ refreshed: true, failed: false, stale: false, skipped: false });
+    expect(fixture.count()).toBeGreaterThan(0);
+    // Draf tidak pernah menyegarkan (Mode Pratinjau berlatar Draf).
+    await env.DB.prepare("UPDATE elections SET status_lock='draft', opens_at=?").bind(OPEN_AT).run();
+    const draft = await ensurePortalViewFresh(env.DB, cfg(fixture), AFTER_TTL);
+    expect(draft).toEqual({ refreshed: false, failed: false, stale: false, skipped: true });
+  });
+  it("caps a read's wait: serves the stale view quickly while the refresh finishes in the background", async () => {
+    const fixture = createServiceApiStub();
+    await insertLiveOpenElection();
+    await syncPemilih(env.DB, cfg(fixture), T0);
+    const slowBase = createServiceApiStub();
+    // Hanya permintaan pertama yang lambat; sisanya cepat supaya segarkan latar
+    // (beberapa permintaan berurutan) tetap selesai dalam hitungan detik.
+    let slowCalls = 0;
+    const slow: typeof fetch = (input, init) => {
+      if (slowCalls++ === 0) return new Promise((resolve) => setTimeout(() => resolve(slowBase.fetchImpl(input, init)), 1500));
+      return slowBase.fetchImpl(input, init);
+    };
+    const started = Date.now();
+    const capped = await ensurePortalViewFresh(
+      env.DB,
+      { issuer: slowBase.issuer, serviceApiUrl: slowBase.serviceUrl, clientId: "c", clientSecret: "s", fetchImpl: slow },
+      new Date("2026-01-01T00:05:00Z"),
+      undefined,
+      { maxWaitMs: 300 },
+    );
+    expect(Date.now() - started).toBeLessThan(1200);
+    expect(capped).toEqual({ refreshed: false, failed: false, stale: true, skipped: false });
+    // View masih data lama; segarkan latar tetap berjalan dan selesai.
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())!.n).toBe(8);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    // Delta incremental: member-9..11 masuk, member-1 kedaluwarsa keluar (8 - 1 + 3).
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM voters").first<{n:number}>())!.n).toBe(10);
+    const later = await ensurePortalViewFresh(env.DB, cfg(slowBase), new Date("2026-01-01T00:05:02Z"), undefined, { maxWaitMs: 3000 });
+    expect(later).toEqual({ refreshed: true, failed: false, stale: false, skipped: false });
+  }, 10_000);
+  it("never refreshes in Mode Pratinjau, even with the switch left on", async () => {
+    const fixture = countingStub();
+    await insertLiveOpenElection();
+    await env.DB.prepare("UPDATE elections SET preview_mode=1").run();
+    // Pratinjau menang atas saklar: tidak ada permintaan portal sama sekali.
+    const result = await ensurePortalViewFresh(env.DB, cfg(fixture), AFTER_TTL, undefined, { maxWaitMs: 5000 });
+    expect(result).toEqual({ refreshed: false, failed: false, stale: false, skipped: true });
     expect(fixture.count()).toBe(0);
   });
+  it("shares one in-flight refresh between concurrent readers", async () => {
+    const fixture = countingStub();
+    await insertLiveOpenElection();
+    const [first, second] = await Promise.all([
+      ensurePortalViewFresh(env.DB, cfg(fixture), T0, undefined, { maxWaitMs: 5000 }),
+      ensurePortalViewFresh(env.DB, cfg(fixture), T0, undefined, { maxWaitMs: 5000 }),
+    ]);
+    expect(first.refreshed).toBe(true);
+    expect(second.refreshed).toBe(true);
+    // Token + units + members halaman: dua pembaca berbagi satu percobaan (dua sync penuh akan dua kali lipat).
+    expect(fixture.count()).toBeLessThanOrEqual(12);
+  }, 10_000);
 });

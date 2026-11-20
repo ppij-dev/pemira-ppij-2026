@@ -159,11 +159,84 @@ export interface PortalViewRefresh {
 export const PORTAL_VIEW_TTL_MS = 30_000;
 /** Jeda minimum antar percobaan setelah kegagalan, agar latensi memilih tetap terbatas. */
 export const PORTAL_VIEW_COOLDOWN_MS = 15_000;
+/**
+ * Batas tunggu pembacaan (strip beranda, Dasbor, hasil, halaman Pemilih) saat
+ * menyegarkan: halaman publik tidak pernah menunggu portal lama; bila lewat,
+ * angka terakhir tetap dilayani dan segarkan berlanjut di latar. Portal yang
+ * sehat menjawab satu delta dalam ratusan milidetik, sehingga satu detik sudah
+ * cukup untuk pembaruan biasa tanpa membuat pembaca menunggu satu timeout 10 s.
+ */
+export const PORTAL_VIEW_READ_WAIT_MS = 1_000;
 
 // Cooldown hidup di memori isolate; Workers bisa menjalankan beberapa isolate,
 // jadi sesekali dua isolate menyegarkan bersamaan — UPSERT idempoten terhadap
 // watermark yang sama, jadi hasilnya konsisten, hanya sedikit boros.
 let lastPortalViewFailureAt = 0;
+// Satu segarkan berjalan per isolate: pembaca serentak berbagi percobaan yang
+// sama, bukan menumpuk permintaan portal (tetap idempoten bila tetap ganda).
+let portalViewRefreshInFlight: Promise<PortalViewRefresh> | null = null;
+
+async function runPortalViewRefresh(
+  db: D1Database,
+  cfg: ServiceApiConfig,
+  now: Date,
+  hadWatermark: boolean,
+  failedAtMs: number,
+  fetchImpl?: typeof fetch,
+): Promise<PortalViewRefresh> {
+  try {
+    // Tanpa watermark: bangun ulang penuh (silent) supaya view mulai lengkap;
+    // dengan watermark: delta changed_since sejak as_of portal terakhir.
+    await syncPemilih(db, cfg, now, fetchImpl, hadWatermark ? { silent: true } : { silent: true, full: true });
+    lastPortalViewFailureAt = 0;
+    return { refreshed: true, failed: false, stale: false, skipped: false };
+  } catch {
+    lastPortalViewFailureAt = failedAtMs;
+    return { refreshed: false, failed: true, stale: true, skipped: false };
+  }
+}
+
+export interface PortalViewRefreshOptions {
+  /**
+   * Batas tunggu maksimal (ms) untuk pembacaan halaman: bila segarkan belum
+   * selesai, view terakhir tetap dipakai dan segarkan berlanjut di latar.
+   * Tanpa opsi ini (jalur memilih) menunggu sampai selesai seperti semula.
+   */
+  maxWaitMs?: number;
+}
+
+/** Binding Service API pada situs (variabel dan rahasia Wrangler). */
+export interface ServiceApiEnv {
+  ONELOGIN_ISSUER?: string;
+  SERVICE_API_CLIENT_ID?: string;
+  SERVICE_API_CLIENT_SECRET?: string;
+  SERVICE_API_URL?: string;
+}
+
+/**
+ * Konfigurasi klien Service API dari binding situs. Tanpa `SERVICE_API_URL`
+ * tidak ada percobaan sama sekali: pembacaan tetap dilayani dari view terakhir.
+ */
+export function serviceApiConfig(env: ServiceApiEnv | undefined): ServiceApiConfig | undefined {
+  if (!env?.SERVICE_API_URL) return undefined;
+  return { issuer: env.ONELOGIN_ISSUER ?? "", clientId: env.SERVICE_API_CLIENT_ID ?? "", clientSecret: env.SERVICE_API_CLIENT_SECRET ?? "", serviceApiUrl: env.SERVICE_API_URL };
+}
+
+/** Opsi segarkan untuk pembaca halaman: batas tunggu pendek, sisanya jalur yang sama. */
+const READ_REFRESH_OPTIONS: PortalViewRefreshOptions = { maxWaitMs: PORTAL_VIEW_READ_WAIT_MS };
+
+/**
+ * SATU jalur segarkan untuk semua pembaca yang menampilkan Hak pilih: endpoint
+ * publik /api/turnout, strip beranda, Dasbor, hasil dan halaman Pemilih. Aturan
+ * penyegaran (TTL 30 detik, cooldown gagal 15 detik, stale-while-unavailable)
+ * sama persis dengan jalur memilih; bedanya pembaca hanya menunggu paling lama
+ * PORTAL_VIEW_READ_WAIT_MS lalu dilayani dari view terakhir, sehingga tidak ada
+ * halaman yang tertahan menunggu portal. Tidak pernah melempar.
+ */
+export async function refreshPortalViewForRead(db: D1Database, cfg: ServiceApiConfig | undefined, now: Date): Promise<PortalViewRefresh> {
+  if (!cfg) return { refreshed: false, failed: false, stale: false, skipped: true };
+  return ensurePortalViewFresh(db, cfg, now, undefined, READ_REFRESH_OPTIONS);
+}
 
 /**
  * Segarkan view portal (tabel voters) secara lazy saat pemungutan suara
@@ -173,20 +246,31 @@ let lastPortalViewFailureAt = 0;
  * tidak tersedia berarti view terakhir tetap dipakai (stale-while-unavailable)
  * dan percobaan berulang ditekan cooldown 15 detik. Tidak pernah melempar:
  * pemilih tetap dilayani dari view terakhir. Tanpa entri audit (silent).
+ * Dipakai jalur memilih lewat `ensurePortalViewFresh` langsung (menunggu sampai
+ * selesai) dan semua pembacaan Hak pilih lewat `refreshPortalViewForRead`
+ * (batas tunggu pendek) supaya angka yang tampil selalu dari view yang sama.
+ * Tahap Terjadwal ikut disegarkan supaya angka sudah hidup sebelum dibuka;
+ * Draf dan Mode Pratinjau tidak pernah menyegarkan.
  */
 export async function ensurePortalViewFresh(
   db: D1Database,
   cfg: ServiceApiConfig,
   now: Date,
   fetchImpl?: typeof fetch,
+  options?: PortalViewRefreshOptions,
 ): Promise<PortalViewRefresh> {
   const idle: PortalViewRefresh = { refreshed: false, failed: false, stale: false, skipped: true };
   const election = await db
-    .prepare("SELECT status_lock, opens_at, closes_at, closed_early_at, live_voter_roll FROM elections ORDER BY id LIMIT 1")
-    .first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number }>();
+    .prepare("SELECT status_lock, opens_at, closes_at, closed_early_at, live_voter_roll, preview_mode FROM elections ORDER BY id LIMIT 1")
+    .first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number; preview_mode: number }>();
   if (!election || election.live_voter_roll !== 1) return idle;
+  // Mode Pratinjau selalu menang (design D3): pemilihan pratinjau tetap berlatih
+  // dengan baris yang didaftarkan otomatis, jadi view portal tidak pernah
+  // disegarkan dan tidak pernah tercampur data asli. Saklar yang tertinggal
+  // menyala tidak mengubah perilaku pratinjau sedikit pun.
+  if (election.preview_mode === 1) return idle;
   const currentStage = stage(election as never, now.toISOString());
-  if (currentStage !== "open") return idle;
+  if (currentStage !== "open" && currentStage !== "scheduled") return idle;
 
   const nowMs = now.getTime();
   const watermark = (await db.prepare("SELECT value FROM system_config WHERE key = 'pemilih_last_sync'").first<{ value: string }>())?.value;
@@ -198,14 +282,18 @@ export async function ensurePortalViewFresh(
     return { refreshed: false, failed: false, stale: true, skipped: false };
   }
 
-  try {
-    // Tanpa watermark: bangun ulang penuh (silent) supaya view mulai lengkap;
-    // dengan watermark: delta changed_since sejak as_of portal terakhir.
-    await syncPemilih(db, cfg, now, fetchImpl, Number.isFinite(watermarkAt) ? { silent: true } : { silent: true, full: true });
-    lastPortalViewFailureAt = 0;
-    return { refreshed: true, failed: false, stale: false, skipped: false };
-  } catch {
-    lastPortalViewFailureAt = nowMs;
-    return { refreshed: false, failed: true, stale: true, skipped: false };
+  if (!portalViewRefreshInFlight) {
+    portalViewRefreshInFlight = runPortalViewRefresh(db, cfg, now, Number.isFinite(watermarkAt), nowMs, fetchImpl).finally(() => {
+      portalViewRefreshInFlight = null;
+    });
   }
+  const attempt = portalViewRefreshInFlight;
+  if (!options?.maxWaitMs) return attempt;
+  const timedOut = await Promise.race([
+    attempt.then(() => false),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(true), options.maxWaitMs)),
+  ]);
+  // Lewat batas tunggu: halaman dilayani dari view terakhir (usang apa adanya);
+  // segarkan di latar berlanjut dan pembaca berikutnya mendapat view barunya.
+  return timedOut ? { refreshed: false, failed: false, stale: true, skipped: false } : attempt;
 }

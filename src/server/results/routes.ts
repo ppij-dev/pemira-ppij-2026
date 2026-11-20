@@ -5,10 +5,11 @@ import type { Context } from "hono";
 import type { Bindings } from "../app";
 import type { SessionData } from "../auth/session";
 import { requireAdmin } from "../admin/routes";
+import { serviceApiConfig } from "../serviceapi/sync";
 import { buildAuditInsert } from "../lib/audit";
 import { getDashboard, getPublicResults, getTurnout, ResultsError } from "./queries";
 
-type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
+type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string; ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 
 function fail(c: Context<Env>, error: unknown) {
   if (error instanceof ResultsError) return c.json({ error: error.message }, error.status);
@@ -22,7 +23,7 @@ export const resultsRoutes = new Hono<Env>();
 resultsRoutes.get("/dashboard", requireAdmin, async (c) => {
   const now = new Date();
   try {
-    const data = await getDashboard(c.env.DB, now);
+    const data = await getDashboard(c.env.DB, now, serviceApiConfig(c.env));
     const actor = c.get("adminAuth")!;
     await c.env.DB.batch([await buildAuditInsert(c.env.DB, {
       at: now.toISOString(),
@@ -41,9 +42,10 @@ resultsRoutes.get("/dashboard", requireAdmin, async (c) => {
 });
 
 // Public aggregates only once Diumumkan; before publication there are no counts at all.
+// Pembacaan Hak pilih menyegarkan view portal lewat jalur yang sama dengan turnout.
 resultsRoutes.get("/results", async (c) => {
   try {
-    const data = await getPublicResults(c.env.DB, new Date());
+    const data = await getPublicResults(c.env.DB, new Date(), serviceApiConfig(c.env));
     if (!data) return c.json({ error: "hasil_belum_diumumkan" }, 409);
     return c.json(data, 200);
   } catch (error) {
@@ -73,7 +75,7 @@ resultsRoutes.get("/turnout", async (c) => {
   const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   if (!await consumeTurnoutAttempt(c.env.DB, ip)) return c.json({ error: "rate_limited" }, 429);
   try {
-    return c.json(await getTurnout(c.env.DB, new Date()), 200);
+    return c.json(await getTurnout(c.env.DB, new Date(), serviceApiConfig(c.env)), 200);
   } catch (error) {
     return fail(c, error);
   }

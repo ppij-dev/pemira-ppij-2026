@@ -77,7 +77,21 @@ per-korda eligible counts, live Hak pilih) keeps working. Rows keep their existi
 `synced_at` doubles as the per-row freshness stamp.
 
 **Refresh mechanics.** A helper `ensurePortalViewFresh(db, cfg, now)` runs before the
-roll lookup in `authorizeVoter` (live mode, stage Dibuka only):
+roll lookup in `authorizeVoter` (live mode, stage Terjadwal or Dibuka):
+
+It is also the single refresh for every read that shows Hak pilih — the public
+`/api/turnout` endpoint, the server-rendered landing strip, Dasbor, the Pemilih page and
+the results — through one wrapper, `refreshPortalViewForRead(db, cfg, now)`. Those readers
+only refresh while they would show the live count: a read in Terjadwal or Dibuka in live
+mode outside Mode Pratinjau. Reads wait at most `PORTAL_VIEW_READ_WAIT_MS` (1 s) for a
+refresh in progress and otherwise answer from the last known view; the refresh keeps
+running in the isolate so the next read shows it, and a refresh that never lands only
+costs another attempt (idempotent UPSERTs against the same watermark). Without this, the
+denominator on the landing page, Dasbor, the Pemilih page and the results stayed at the
+Kunci snapshot until a member voted, which is exactly what the owner saw in rehearsal.
+
+Mode Pratinjau wins inside the helper too (D3 precedence below), so a rehearsal election
+never refreshes from the portal even when the switch was left on.
 
 - If the watermark `pemilih_last_sync` is older than **TTL = 30 s**, run one incremental
   `changed_since` sync. It reuses `syncPemilih`'s incremental path (same eligibility

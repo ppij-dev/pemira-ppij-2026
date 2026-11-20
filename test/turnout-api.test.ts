@@ -10,6 +10,7 @@ import unitsSql from "../migrations/0002_units.sql?raw";
 import lockSql from "../migrations/0003_election_lock.sql?raw";
 import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import snapshotSql from "../migrations/0005_closing_snapshot.sql?raw";
+import previewModeSql from "../migrations/0006_preview_mode.sql?raw";
 import memberNumberSql from "../migrations/0008_member_number.sql?raw";
 import categorySql from "../migrations/0009_voter_category.sql?raw";
 import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
@@ -21,6 +22,9 @@ import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import { app } from "../src/server/app";
+import { getTurnout as getTurnoutDirect } from "../src/server/results/queries";
+import { authorizeVoter } from "../src/server/voting/vote";
+import { allPortalMembers, changedPortalMembers, createServiceApiStub, type FixtureMember } from "./lib/serviceapi-fixture";
 
 declare module "*.sql?raw" { const sql: string; export default sql; }
 
@@ -30,7 +34,7 @@ const bindings = { DB: env.DB, APP_MASTER_KEY: MASTER_KEY };
 const now = Date.now();
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, limitsSql, snapshotSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
+  for (const file of [initSql, unitsSql, lockSql, limitsSql, snapshotSql, previewModeSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -142,4 +146,60 @@ describe("GET /api/turnout", () => {
     }
     expect(last!.status).toBe(429);
   });
+});
+
+describe("GET /api/turnout live mode: reads refresh the portal view", () => {
+  function member(id: string, overrides: Partial<FixtureMember> = {}): FixtureMember {
+    return { member_id: id, full_name: `Anggota ${id}`, nickname: id, komsat_path: `${SCOPE}/komsat-a`, status: "ACTIVE", member_number: id, member_category: "BIASA", can_vote: true, updated_at: new Date().toISOString(), ...overrides };
+  }
+  function portalOf(stub: ReturnType<typeof createServiceApiStub>) {
+    return { issuer: stub.issuer, clientId: "c", clientSecret: "s", serviceApiUrl: stub.serviceUrl, fetchImpl: stub.fetchImpl };
+  }
+  it("anggota baru dari portal menaikkan Jumlah Pemilih tanpa ada yang memilih, lalu bisa memilih", async () => {
+    await seedElection({ live: true });
+    const base = createServiceApiStub();
+    // Pembacaan pertama membangun view penuh dari portal: 10 berhak, tanpa suara.
+    expect(await getTurnoutDirect(env.DB, new Date(), portalOf(base))).toMatchObject({ eligible_count: 10, votes_count: 0 });
+    // Anggota baru mendaftar di portal; pembacaan berikutnya (watermark sudah lewat TTL)
+    // menaikkan angka tanpa satu pun suara masuk.
+    const grown = createServiceApiStub({ all: allPortalMembers([member("member-14")]), changed: changedPortalMembers([member("member-14")]) });
+    expect(await getTurnoutDirect(env.DB, new Date(), portalOf(grown))).toMatchObject({ eligible_count: 11, votes_count: 0 });
+    // Dan anggota baru itu dapat memilih: otorisasi menemukannya di view yang segar.
+    const session = { member_id: "member-14", name: "Anggota member-14", affiliation: `${SCOPE}/komsat-a`, auth_time: Math.floor(Date.now() / 1000) - 60 };
+    const { voter } = await authorizeVoter(env.DB, session, portalOf(grown));
+    expect(voter.member_id).toBe("member-14");
+    expect(voter.can_vote).toBe(1);
+  });
+  it("anggota yang hilang dari portal menurunkan Jumlah Pemilih", async () => {
+    await seedElection({ live: true });
+    const grown = createServiceApiStub({ all: allPortalMembers([member("member-14")]), changed: changedPortalMembers([member("member-14")]) });
+    expect((await getTurnoutDirect(env.DB, new Date(), portalOf(grown))).eligible_count).toBe(11);
+    // Portal menandai member-14 EXPIRED: bacaan berikutnya menurunkan angka.
+    const shrunk = createServiceApiStub({ changed: [...changedPortalMembers(), member("member-14", { status: "EXPIRED", can_vote: false })] });
+    expect(await getTurnoutDirect(env.DB, new Date(), portalOf(shrunk))).toMatchObject({ eligible_count: 10, votes_count: 0 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id='member-14'").first<{n:number}>()).toEqual({ n: 0 });
+  });
+  it("portal menggantung: bacaan dilayani cepat dari view usang (batas tunggu pendek)", async () => {
+    await seedElection({ live: true });
+    // Watermark lama + view ada: pembacaan ingin menyegarkan, tapi portal menggantung.
+    await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('pemilih_last_sync',?)").bind(new Date(Date.now() - 120_000).toISOString()).run();
+    for (const id of ["anggota-1", "anggota-2"]) {
+      await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES (?, ?, ?, 'ACTIVE', ?, 1)").bind(id, `Anggota ${id}`, `${SCOPE}/komsat-a`, new Date().toISOString()).run();
+    }
+    const base = createServiceApiStub();
+    // Hanya permintaan pertama yang menggantung 2,5 detik; sisanya cepat supaya
+    // segarkan latar (beberapa permintaan berurutan) tetap selesai dalam hitungan detik.
+    let slowCalls = 0;
+    const slow: typeof fetch = (input, init) => {
+      if (slowCalls++ === 0) return new Promise((resolve) => setTimeout(() => resolve(base.fetchImpl(input, init)), 2500));
+      return base.fetchImpl(input, init);
+    };
+    const started = Date.now();
+    const data = await getTurnoutDirect(env.DB, new Date(), { issuer: base.issuer, clientId: "c", clientSecret: "s", serviceApiUrl: base.serviceUrl, fetchImpl: slow });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(data.eligible_count).toBe(2);
+    // Segarkan latar tetap selesai: watermark naik ke as_of portal.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    expect((await env.DB.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first<{ value: string }>())!.value).toBe(base.asOf);
+  }, 12_000);
 });

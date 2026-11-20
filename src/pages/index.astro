@@ -18,6 +18,7 @@ import type { Bindings } from "../server/app";
 import { stage as getStage } from "../server/lib/stage";
 import { isSingleCandidateMode } from "../server/election/mode";
 import { getPublicResults, getTurnout } from "../server/results/queries";
+import { serviceApiConfig } from "../server/serviceapi/sync";
 import { getSiteLogo } from "../server/lib/logo";
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -57,11 +58,15 @@ const singleResultFacts = publicResults ? [
     : [{ label: "Tidak memilih", value: `${notVotingCount} orang (belum dihitung)` }]),
 ] : [];
 const boardReady = currentStage === "closed" || currentStage === "published";
+// Konfigurasi Service API untuk segarkan view portal pada pembacaan Hak pilih
+// (mode "Tidak Membekukan DPT"); tanpa SERVICE_API_URL tidak ada percobaan.
+const portal = serviceApiConfig(bindings);
 // Strip statistik publik (Jumlah Pemilih dan Suara Masuk, keputusan owner
 // 2026-11-19): dua angka agregat saja, dari Terjadwal sampai Diumumkan,
-// disembunyikan saat Draf. Angka awal dirender server; pembaruan lewat
-// polling endpoint publik /api/turnout (lihat skrip di bawah).
-const turnout = currentStage !== "draft" && db ? await getTurnout(db, new Date()).catch(() => null) : null;
+// disembunyikan saat Draf. Angka awal dirender server dari view yang baru
+// disegarkan; pembaruan lewat polling endpoint publik /api/turnout (lihat
+// skrip di bawah).
+const turnout = currentStage !== "draft" && db ? await getTurnout(db, new Date(), portal).catch(() => null) : null;
 const turnoutNumber = new Intl.NumberFormat("id-ID");
 let voted = false;
 if (session && currentStage === "open") {
