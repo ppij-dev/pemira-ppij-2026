@@ -11,6 +11,7 @@ import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveVoterRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
+import candidateCampaignUrlSql from "../migrations/0018_candidate_campaign_url.sql?raw";
 
 
 declare module "*.sql?raw" {
@@ -47,6 +48,7 @@ beforeEach(async () => {
     liveVoterRollSql,
     closingHakPilihSql,
     directInvitationsSql,
+    candidateCampaignUrlSql,
   ].join(";")
     .split(";")
     .map((statement) => statement.trim())
@@ -326,5 +328,32 @@ describe("migrations/0001_init.sql", () => {
     // Tabel undangan Admin Voting tetap seperti semula.
     const legacy = await env.DB.prepare("PRAGMA table_info(invitations)").all<{ name: string }>();
     expect(legacy.results.map((row) => row.name)).toEqual(["token_hash", "member_id", "created_at", "expires_at", "accepted_at", "cancelled_at"]);
+  });
+
+  it("0018 menambah campaign_url opsional tanpa mengubah kolom kandidat lain", async () => {
+    const { results } = await env.DB.prepare("PRAGMA table_info(candidates)").all<{ name: string; notnull: number; dflt_value: string | null }>();
+    const campaign = results.find((row) => row.name === "campaign_url");
+    // Kandidat lama tidak punya portal kampanye: kolomnya boleh kosong dan tanpa nilai bawaan.
+    expect(campaign).toMatchObject({ notnull: 0, dflt_value: null });
+    expect(results.map((row) => row.name)).toEqual([
+      "id",
+      "member_id",
+      "number",
+      "name",
+      "nickname",
+      "komsat_path",
+      "photo_key",
+      "youtube_url",
+      "content_html",
+      "color",
+      "description",
+      "campaign_url",
+    ]);
+    await insertCandidate(1, "m-c-1");
+    expect(await env.DB.prepare("SELECT campaign_url FROM candidates WHERE id = 1").first()).toEqual({ campaign_url: null });
+    const url = `https://contoh.id/${"a".repeat(282)}`;
+    expect(url.length).toBe(300);
+    await env.DB.prepare("UPDATE candidates SET campaign_url = ? WHERE id = 1").bind(url).run();
+    expect(await env.DB.prepare("SELECT campaign_url FROM candidates WHERE id = 1").first()).toEqual({ campaign_url: url });
   });
 });

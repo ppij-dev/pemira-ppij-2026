@@ -1,5 +1,5 @@
 ---
-import { IconArrowLeft, IconBoxMultiple, IconInfoCircle, IconUserSearch } from "@tabler/icons-astro";
+import { IconArrowLeft, IconBoxMultiple, IconExternalLink, IconInfoCircle, IconUserSearch } from "@tabler/icons-astro";
 import { env } from "cloudflare:workers";
 import Base from "../../layouts/Base.astro";
 import Button from "../../components/ui/Button.astro";
@@ -45,6 +45,12 @@ const fallbackIntro = (candidate?.description ?? "")
   .find((part) => part && !part.startsWith("#") && !part.startsWith("-")) ?? "";
 const plainIntro = fallbackIntro.replace(/[*_>`[\]()#-]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
 const ogDescription = candidate?.short_intro?.trim() || plainIntro;
+// Portal kampanye kandidat (keputusan pemilik 2026-11-20): hanya tautan https
+// yang lolos validasi server yang pernah tersimpan, tetapi halaman tetap
+// memeriksa bentuknya supaya nilai lama atau rusak tidak pernah jadi iframe.
+const campaignUrl = typeof candidate?.campaign_url === "string" && /^https:\/\//i.test(candidate.campaign_url.trim())
+  ? candidate.campaign_url.trim()
+  : null;
 ---
 
 <Base title={candidate ? `${candidate.nickname} · Kandidat` : "Kandidat tidak ditemukan"} ogType="profile" ogImage={photoSrc} ogDescription={ogDescription} inviteCode={inviteCode}>
@@ -82,6 +88,25 @@ const ogDescription = candidate?.short_intro?.trim() || plainIntro;
         ? <div class="markdown mt-3 max-w-[70ch] text-base leading-8 text-brand-ink sm:mt-4" set:html={content} />
         : <p class="mt-3 text-brand-muted">Deskripsi kandidat belum tersedia.</p>}
     </section>
+
+    {campaignUrl && <section aria-labelledby="campaign-heading" class="border-t border-brand-border p-4 sm:p-6">
+      <h2 id="campaign-heading" class="text-xl font-bold tracking-tight text-brand-ink sm:text-2xl">Portal kampanye</h2>
+      <p class="mt-2 max-w-[70ch] text-sm leading-6 text-brand-muted">Konten di bawah ini disiapkan oleh tim kandidat, bukan oleh panitia pemilihan. Panitia tidak mengubah isinya.</p>
+      <div class="mt-4 overflow-hidden rounded-lg border border-brand-border bg-background">
+        <iframe
+          src={campaignUrl}
+          title={`Portal kampanye ${candidate.nickname}`}
+          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          referrerpolicy="no-referrer"
+          loading="lazy"
+          class="block h-[clamp(520px,78dvh,900px)] w-full border-0"
+        ></iframe>
+      </div>
+      <p class="mt-3 text-xs leading-5 text-brand-muted">Jika halaman tidak tampil, buka di tab baru. Tautan ini selalu tersedia meski situs kandidat menolak ditampilkan di dalam halaman ini.</p>
+      <a href={campaignUrl} target="_blank" rel="noopener noreferrer" class="mt-1 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-brand-red hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <IconExternalLink size={18} stroke={1.8} aria-hidden="true" /> Buka di tab baru
+      </a>
+    </section>}
 
     {isOpen && !inviteCode && <footer class="border-t border-brand-border bg-background/60 p-4 sm:p-6">
       <Button href="/pilih-suara"><IconBoxMultiple size={19} stroke={1.8} aria-hidden="true" />Pilih Sekarang</Button>
