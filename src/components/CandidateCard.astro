@@ -10,6 +10,11 @@ interface Props {
   unitName?: string;
   /** Mode kandidat tunggal: tanpa nomor urut dan tautan /kandidat/<nickname>. */
   singleCandidateMode?: boolean;
+  /**
+   * Kode undangan langsung: kartu tetap di alur undangan, tanpa ajakan masuk
+   * (lihat Base.astro) dan tautan profilnya membawa kode yang sama.
+   */
+  inviteCode?: string | null;
   candidate: {
     number: number;
     name: string;
@@ -21,13 +26,16 @@ interface Props {
   };
 }
 
-const { candidate, unitName, headingLevel = 3, singleCandidateMode = false } = Astro.props;
+const { candidate, unitName, headingLevel = 3, singleCandidateMode = false, inviteCode = null } = Astro.props;
 const Heading = headingLevel === 2 ? "h2" : "h3";
 const unit = unitName || formatUnitPath(candidate.komsat_path) || "PPI Jepang";
+const profileHref = inviteCode
+  ? `${candidateProfileHref(candidate, singleCandidateMode)}?undangan=${encodeURIComponent(inviteCode)}`
+  : candidateProfileHref(candidate, singleCandidateMode);
 ---
 
 <a
-  href={candidateProfileHref(candidate, singleCandidateMode)}
+  href={profileHref}
   class="group flex min-w-0 flex-col overflow-hidden rounded-xl border border-brand-border bg-card transition-colors hover:border-brand-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 >
   <div class="aspect-[3/4] w-full overflow-hidden bg-muted" data-candidate-portrait>

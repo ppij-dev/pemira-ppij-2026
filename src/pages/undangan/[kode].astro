@@ -6,20 +6,28 @@
  * dikembalikan ke halaman ini.
  */
 import { env } from "cloudflare:workers";
-import { IconAlertTriangle, IconCalendarEvent, IconInfoCircle, IconShieldLock, IconUsers } from "@tabler/icons-astro";
+import { IconArrowUpRight, IconAlertTriangle, IconCalendarEvent, IconInfoCircle, IconShieldLock, IconUsers } from "@tabler/icons-astro";
 import Base from "../../layouts/Base.astro";
 import Button from "../../components/ui/Button.astro";
 import Callout from "../../components/ui/Callout.astro";
 import PageHeader from "../../components/ui/PageHeader.astro";
 import PanelCard from "../../components/ui/PanelCard.astro";
+import CandidateCard from "../../components/CandidateCard.astro";
 import type { Bindings } from "../../server/app";
 import { consumeOpenLimit, resolveDirectLink } from "../../server/direct/open";
 import { INVITE_SESSION_COOKIE, loadInviteUnits, openInviteSession } from "../../server/direct/claim";
 import { unitPathLabel } from "../../lib/formatKomsat";
 import { loadUnitNames } from "../../server/lib/units";
+import { isSingleCandidateMode } from "../../server/election/mode";
+import { renderMarkdown } from "../../server/lib/markdown";
+import { candidatePhotoSrc, PLACEHOLDER_CANDIDATE_PHOTO } from "../../lib/candidatePhoto";
+import { candidateProfileHref } from "../../server/election/profile";
+import { normalizeLinkCode } from "../../server/direct/code";
 
 const bindings = env as unknown as Bindings;
 const kode = Astro.params.kode ?? "";
+// Kode ternormalisasi untuk tautan profil: tamu tetap di alur undangan ini.
+const inviteCode = normalizeLinkCode(kode);
 const now = new Date();
 
 let allowed = false;
@@ -42,6 +50,31 @@ const units = view.outcome === "ok" && view.stage === "open"
   : [];
 const names = await loadUnitNames(bindings.DB);
 
+// Profil kandidat tampil langsung di halaman undangan (publik, sama dengan
+// /kandidat): satu profil penuh pada mode kandidat tunggal, kartu profil
+// untuk semua kandidat pada mode biasa.
+let candidates: Array<{ number: number; name: string; nickname: string; komsat_path: string; short_intro: string | null; description: string | null; color: string | null; photo_key: string | null }> = [];
+let singleCandidateMode = false;
+if (view.outcome === "ok") {
+  try {
+    candidates = (await bindings.DB.prepare("SELECT number,name,nickname,komsat_path,short_intro,description,color,photo_key FROM candidates ORDER BY number").all<(typeof candidates)[number]>()).results ?? [];
+  } catch {
+    candidates = [];
+  }
+  try {
+    singleCandidateMode = await isSingleCandidateMode(bindings.DB);
+  } catch {
+    singleCandidateMode = false;
+  }
+}
+const singleCandidate = singleCandidateMode ? candidates[0] ?? null : null;
+const singleProfile = singleCandidate?.description?.trim() ? renderMarkdown(singleCandidate.description) : "";
+const singlePhotoSrc = candidatePhotoSrc(singleCandidate?.photo_key);
+const singleHasPhoto = singlePhotoSrc !== PLACEHOLDER_CANDIDATE_PHOTO;
+const singleProfileHref = singleCandidate && inviteCode
+  ? `${candidateProfileHref(singleCandidate, true)}?undangan=${encodeURIComponent(inviteCode)}`
+  : singleCandidate ? candidateProfileHref(singleCandidate, true) : "/kandidat";
+
 const jst = (value: string | null) =>
   value && Number.isFinite(Date.parse(value))
     ? new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)) + " JST"
@@ -53,7 +86,7 @@ const schedule = view.opens_at
 
 if (view.outcome === "unknown") Astro.response.status = 404;
 ---
-<Base title="Undangan Pemilih · PPIJ Pemilu" description="Undangan langsung untuk memilih pada pemilihan PPI Jepang.">
+<Base title="Undangan Pemilih · PPIJ Pemilu" description="Undangan langsung untuk memilih pada pemilihan PPI Jepang." inviteCode={inviteCode}>
   <PageHeader eyebrow="Undangan" title="Selamat datang di Pemilihan Umum" description="Tautan ini adalah undangan langsung dari panitia pemilihan PPI Jepang." />
 
   {view.outcome === "unknown" && <div class="mt-5">
@@ -84,9 +117,35 @@ if (view.outcome === "unknown") Astro.response.status = 404;
     </div>}
 
     <div class="mt-5 grid gap-4">
-      <PanelCard title="Lihat profil kandidat" description="Kenali kandidat sebelum menentukan pilihan." icon={IconUsers}>
-        <p class="text-sm leading-6 text-brand-muted">Daftar kandidat dan profil masing-masing terbuka untuk umum.</p>
-        <Button href="/kandidat" variant="secondary" class="mt-4">Lihat profil kandidat</Button>
+      <PanelCard title="Kenali kandidat" description="Profil kandidat pemilihan ini, langsung di halaman ini." icon={IconUsers}>
+        {candidates.length === 0 && <p class="text-sm leading-6 text-brand-muted">Profil kandidat akan tampil di sini setelah panitia menambahkannya.</p>}
+
+        {singleCandidate && <article class="min-w-0 overflow-hidden rounded-xl border border-brand-border bg-card">
+          <div class="p-4">
+            <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-4">
+              <figure class="col-start-1 row-start-1">
+                <img src={singlePhotoSrc} alt="" width="600" height="800" loading="lazy" decoding="async" class="aspect-[3/4] w-full rounded-lg bg-muted object-cover" />
+                <figcaption class="mt-2 text-xs leading-5 text-brand-muted">{singleHasPhoto ? "Foto kandidat" : "Foto belum tersedia"}</figcaption>
+              </figure>
+              <header class="col-start-2 row-start-1 min-w-0">
+                <h3 class="break-words text-xl font-bold leading-tight tracking-tight text-brand-ink">{singleCandidate.name}</h3>
+                <p class="mt-1 break-words text-sm font-semibold text-brand-muted">{singleCandidate.nickname}</p>
+                <p class="mt-2 break-words text-xs text-brand-muted">Unit asal <span class="font-semibold text-brand-ink">{unitPathLabel(singleCandidate.komsat_path, names)}</span></p>
+              </header>
+            </div>
+          </div>
+          <section class="border-t border-brand-border p-4">
+            <h4 class="text-sm font-bold tracking-tight text-brand-ink">Tentang kandidat</h4>
+            {singleProfile
+              ? <div class="markdown mt-2 max-w-[70ch] text-sm leading-7 text-brand-ink" set:html={singleProfile} />
+              : <p class="mt-2 text-sm text-brand-muted">Deskripsi kandidat belum tersedia.</p>}
+            <a href={singleProfileHref} class="mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-brand-red hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Buka profil lengkap <IconArrowUpRight size={17} stroke={1.8} aria-hidden="true" /></a>
+          </section>
+        </article>}
+
+        {!singleCandidate && candidates.length > 0 && <div class="grid gap-5">
+          {candidates.map((candidate) => <CandidateCard candidate={candidate} unitName={unitPathLabel(candidate.komsat_path, names)} headingLevel={3} singleCandidateMode={false} inviteCode={inviteCode} />)}
+        </div>}
       </PanelCard>
 
       {view.stage === "open" && <>
@@ -134,6 +193,7 @@ if (view.outcome === "unknown") Astro.response.status = 404;
       invite_used: "Tautan ini sudah dipakai. Satu tautan hanya berlaku untuk satu orang.",
       invite_cancelled: "Tautan ini dibatalkan oleh panitia.",
       invite_not_open: "Pemungutan suara belum dibuka atau telah ditutup.",
+      invite_not_ready: "Tautan belum dapat dipakai saat ini. Coba lagi sebentar; bila tetap gagal, hubungi panitia pemilihan.",
       invite_reserved: "Tautan sedang diisi orang lain. Minta panitia mengirim tautan baru bila perlu.",
       rate_limited: "Terlalu banyak percobaan. Coba lagi nanti.",
       invite_not_found: "Tautan tidak ditemukan.",

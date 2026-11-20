@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import adminPage from "../src/pages/admin/undangan.astro?raw";
 import welcomePage from "../src/pages/undangan/[kode].astro?raw";
 import ballotPage from "../src/pages/undangan/[kode]/surat-suara.astro?raw";
+import profilePage from "../src/pages/kandidat/[slug].astro?raw";
+import candidateListPage from "../src/pages/kandidat/index.astro?raw";
+import candidateCard from "../src/components/CandidateCard.astro?raw";
+import layoutBase from "../src/layouts/Base.astro?raw";
 import layout from "../src/layouts/AdminLayout.astro?raw";
 import { VOTE_CHOICES, VOTE_CHOICE_LABELS } from "../src/server/voting/choice";
 import { DIRECT_INVITE_BATCH_MAX } from "../src/server/direct/create";
@@ -88,13 +92,60 @@ describe("Undangan Pemilih: tabel, filter dan unduhan", () => {
 });
 
 describe("Halaman undangan publik", () => {
-  it("menyapa, menyebut jadwal, dan menawarkan profil kandidat", () => {
+  it("menyapa, menyebut jadwal, dan menampilkan profil kandidat langsung", () => {
     expect(welcomePage).toContain("Selamat datang di Pemilihan Umum");
-    expect(welcomePage).toContain("Lihat profil kandidat");
-    expect(welcomePage).toContain('href="/kandidat"');
+    expect(welcomePage).toContain("Kenali kandidat");
+    expect(welcomePage).toContain("CandidateCard");
+    expect(welcomePage).toContain("candidatePhotoSrc");
+    expect(welcomePage).toContain("Tentang kandidat");
+    expect(welcomePage).toContain("candidateProfileHref");
     expect(welcomePage).toContain("Pemungutan suara belum dibuka");
     expect(welcomePage).toContain("Pemungutan suara telah ditutup");
     expect(welcomePage).toContain("Hasil sudah diumumkan");
+  });
+
+  it("menampilkan satu profil penuh tanpa tautan /kandidat biasa, dan semua kartu pada mode banyak kandidat", () => {
+    // Satu kandidat: profil penuh di halaman ini (foto, nama, nickname, unit, deskripsi).
+    expect(welcomePage).toContain("singleCandidateMode ? candidates[0] ?? null : null");
+    expect(welcomePage).toContain("renderMarkdown(singleCandidate.description)");
+    expect(welcomePage).toContain("singleHasPhoto ? \"Foto kandidat\" : \"Foto belum tersedia\"");
+    expect(welcomePage).toContain("Unit asal");
+    // Beberapa kandidat: kartu yang sama dengan /kandidat, bukan desain baru.
+    expect(welcomePage).toContain("<CandidateCard candidate={candidate}");
+    expect(welcomePage).toContain("singleCandidateMode={false}");
+    // Kartu Pilih tetap di bawah profil kandidat.
+    expect(welcomePage.indexOf("Kenali kandidat")).toBeLessThan(welcomePage.indexOf('title="Pilih"'));
+  });
+
+  it("tidak pernah mengajak masuk: kode undangan dibawa ke halaman profil", () => {
+    expect(welcomePage).toContain("inviteCode={inviteCode}");
+    expect(welcomePage).toContain("?undangan=${encodeURIComponent(inviteCode)}");
+    expect(ballotPage).toContain("inviteCode={inviteCode}");
+    // Halaman undangan tidak memakai tautan masuk sama sekali.
+    for (const page of [welcomePage, ballotPage]) {
+      expect(page).not.toContain("/api/auth/login");
+    }
+    // Tata letak: ajakan masuk diganti satu jalan kembali ke undangan.
+    expect(layoutBase).toContain("inviteCode?: string | null;");
+    // Tanpa tombol Masuk, tanpa navigasi pemilih, tanpa bilah bawah.
+    expect(layoutBase).toContain("const inviteInProgress = Boolean(inviteCode);");
+    expect(layoutBase).toContain("{!inviteInProgress && <ul");
+    expect(layoutBase).toContain("{!inviteInProgress && <div");
+  });
+
+  it("profil kandidat yang dibuka dari undangan bebas ajakan masuk", () => {
+    expect(profilePage).toContain('normalizeLinkCode(Astro.url.searchParams.get("undangan") ?? "")');
+    expect(profilePage).toContain("inviteCode={inviteCode}");
+    expect(profilePage).toContain('inviteCode ? "Kembali ke undangan" : "Semua Kandidat"');
+    expect(profilePage).toContain("Tidak perlu masuk untuk melihat profil");
+    // Ajakan masuk (Pilih Sekarang -> /pilih-suara) hilang di alur undangan.
+    expect(profilePage).toContain("{isOpen && !inviteCode && <footer");
+    expect(profilePage).toContain("Kembali ke undangan dan pilih");
+    expect(candidateListPage).toContain('normalizeLinkCode(Astro.url.searchParams.get("undangan") ?? "")');
+    expect(candidateListPage).toContain("inviteCode={inviteCode}");
+    expect(candidateCard).toContain("const profileHref = inviteCode");
+    expect(candidateCard).toContain('${candidateProfileHref(candidate, singleCandidateMode)}?undangan=${encodeURIComponent(inviteCode)}');
+    expect(candidateCard).toContain("href={profileHref}");
   });
 
   it("menampilkan pesan untuk tautan dipakai, dibatalkan dan tidak dikenal", () => {

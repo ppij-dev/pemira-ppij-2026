@@ -5,7 +5,7 @@
  * dari sesi undangan tersegel, bukan dari tautan di alamat.
  */
 import { env } from "cloudflare:workers";
-import { IconAlertTriangle, IconBoxMultiple, IconInfoCircle } from "@tabler/icons-astro";
+import { IconAlertTriangle, IconArrowLeft, IconBoxMultiple, IconInfoCircle } from "@tabler/icons-astro";
 import Base from "../../../layouts/Base.astro";
 import Button from "../../../components/ui/Button.astro";
 import Callout from "../../../components/ui/Callout.astro";
@@ -14,11 +14,14 @@ import PanelCard from "../../../components/ui/PanelCard.astro";
 import type { Bindings } from "../../../server/app";
 import { INVITE_SESSION_COOKIE, openInviteSession } from "../../../server/direct/claim";
 import { resolveDirectLink } from "../../../server/direct/open";
+import { normalizeLinkCode } from "../../../server/direct/code";
 import { candidatePhotoSrc } from "../../../lib/candidatePhoto";
 import { formatUnitPath } from "../../../lib/formatKomsat";
 
 const bindings = env as unknown as Bindings;
 const kode = Astro.params.kode ?? "";
+// Seluruh alur undangan bebas ajakan masuk; kode ini hanya untuk tautan kembali.
+const inviteCode = normalizeLinkCode(kode);
 const now = new Date();
 const cookie = Astro.cookies.get(INVITE_SESSION_COOKIE)?.value;
 const session = cookie && bindings.APP_MASTER_KEY ? await openInviteSession(cookie, bindings.APP_MASTER_KEY) : null;
@@ -55,7 +58,10 @@ const blockedText = !session
     ? "Satu tautan hanya berlaku untuk satu orang. Bila Anda belum memilih, hubungi panitia."
     : "Tautan ini tidak dapat melayani Anda saat ini.";
 ---
-<Base title="Surat Suara Undangan · PPIJ Pemilu" description="Surat suara rahasia lewat undangan langsung panitia.">
+<Base title="Surat Suara Undangan · PPIJ Pemilu" description="Surat suara rahasia lewat undangan langsung panitia." inviteCode={inviteCode}>
+  <a href={`/undangan/${encodeURIComponent(kode)}`} class="mb-4 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-brand-red hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+    <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" /> Kembali ke halaman undangan
+  </a>
   <PageHeader eyebrow="Undangan" title={canVote ? "Surat Suara" : blockedTitle} description={singleCandidateMode ? "Tentukan sikap Anda terhadap kandidat. Setelah dikirim, suara tidak dapat diubah." : "Pilih satu kandidat. Setelah dikirim, suara tidak dapat diubah."} />
 
   {!canVote && <div class="mt-5 grid gap-4">
