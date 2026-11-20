@@ -5,7 +5,7 @@
  * dari sesi undangan tersegel, bukan dari tautan di alamat.
  */
 import { env } from "cloudflare:workers";
-import { IconAlertTriangle, IconBoxMultiple, IconInfoCircle } from "@tabler/icons-astro";
+import { IconAlertTriangle, IconArrowLeft, IconBoxMultiple, IconInfoCircle } from "@tabler/icons-astro";
 import Base from "../../../layouts/Base.astro";
 import Button from "../../../components/ui/Button.astro";
 import Callout from "../../../components/ui/Callout.astro";
@@ -14,11 +14,14 @@ import PanelCard from "../../../components/ui/PanelCard.astro";
 import type { Bindings } from "../../../server/app";
 import { INVITE_SESSION_COOKIE, openInviteSession } from "../../../server/direct/claim";
 import { resolveDirectLink } from "../../../server/direct/open";
+import { normalizeLinkCode } from "../../../server/direct/code";
 import { candidatePhotoSrc } from "../../../lib/candidatePhoto";
 import { formatUnitPath } from "../../../lib/formatKomsat";
 
 const bindings = env as unknown as Bindings;
 const kode = Astro.params.kode ?? "";
+// Seluruh alur undangan bebas ajakan masuk; kode ini hanya untuk tautan kembali.
+const inviteCode = normalizeLinkCode(kode);
 const now = new Date();
 const cookie = Astro.cookies.get(INVITE_SESSION_COOKIE)?.value;
 const session = cookie && bindings.APP_MASTER_KEY ? await openInviteSession(cookie, bindings.APP_MASTER_KEY) : null;
@@ -55,7 +58,10 @@ const blockedText = !session
     ? "Satu tautan hanya berlaku untuk satu orang. Bila Anda belum memilih, hubungi panitia."
     : "Tautan ini tidak dapat melayani Anda saat ini.";
 ---
-<Base title="Surat Suara Undangan · PPIJ Pemilu" description="Surat suara rahasia lewat undangan langsung panitia.">
+<Base title="Surat Suara Undangan · PPIJ Pemilu" description="Surat suara rahasia lewat undangan langsung panitia." inviteCode={inviteCode}>
+  <a href={`/undangan/${encodeURIComponent(kode)}`} class="mb-4 inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-brand-red hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+    <IconArrowLeft size={18} stroke={1.8} aria-hidden="true" /> Kembali ke halaman undangan
+  </a>
   <PageHeader eyebrow="Undangan" title={canVote ? "Surat Suara" : blockedTitle} description={singleCandidateMode ? "Tentukan sikap Anda terhadap kandidat. Setelah dikirim, suara tidak dapat diubah." : "Pilih satu kandidat. Setelah dikirim, suara tidak dapat diubah."} />
 
   {!canVote && <div class="mt-5 grid gap-4">
@@ -145,6 +151,7 @@ const blockedText = !session
     candidate_mismatch: "Kandidat tidak sesuai dengan surat suara. Muat ulang halaman.",
     candidate_not_found: "Kandidat tidak ditemukan.",
     rate_limited: "Terlalu banyak percobaan. Coba kembali nanti.",
+    vote_write_failed: "Suara belum dapat disimpan. Coba lagi sebentar; bila tetap gagal, hubungi panitia.",
     audit_tip_changed: "Pemilihan sedang menerima suara lain. Coba lagi.",
     origin_tidak_diizinkan: "Permintaan tidak dapat diverifikasi. Muat ulang halaman.",
   };
@@ -182,32 +189,37 @@ const blockedText = !session
   });
   sendBtn.addEventListener("click", async () => {
     if (!selected || (single && (!answer || !nicknameMatches()))) return;
-    sendBtn.disabled = true; msg.textContent = "Mengirim suara...";
-    try {
-      const body = single
-        ? { candidate_id: selected.id, confirmation_text: normalizeName(nicknameInput.value), choice: answer.value }
-        : { candidate_id: selected.id, confirmation_text: selected.nickname };
-      const response = await fetch("/api/undangan/suara", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const data = await response.json();
-      if (response.status === 201 && typeof data.receipt_code === "string") {
-        const code = data.receipt_code;
-        closeSheet();
-        document.querySelector("#ballot-entry").hidden = true;
-        document.querySelector("#receipt-code").textContent = code;
-        document.querySelector("#receipt-link").href = "/surat-suara#" + encodeURIComponent(code);
-        document.querySelector("#success").hidden = false;
-        document.querySelector("#copy-code").focus();
-        try { localStorage.setItem("ppij_receipt_code", code); } catch { document.querySelector("#storage-warning").hidden = false; }
-        return;
+    msg.textContent = "Mengirim suara...";
+    await window.withBusy(sendBtn, "Mengirim…", async () => {
+      try {
+        const body = single
+          ? { candidate_id: selected.id, confirmation_text: normalizeName(nicknameInput.value), choice: answer.value }
+          : { candidate_id: selected.id, confirmation_text: selected.nickname };
+        const response = await fetch("/api/undangan/suara", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const data = await response.json();
+        if (response.status === 201 && typeof data.receipt_code === "string") {
+          const code = data.receipt_code;
+          closeSheet();
+          document.querySelector("#ballot-entry").hidden = true;
+          document.querySelector("#receipt-code").textContent = code;
+          document.querySelector("#receipt-link").href = "/surat-suara#" + encodeURIComponent(code);
+          document.querySelector("#success").hidden = false;
+          document.querySelector("#copy-code").focus();
+          try { localStorage.setItem("ppij_receipt_code", code); } catch { document.querySelector("#storage-warning").hidden = false; }
+          return;
+        }
+        const text = errors[data.error] || "Suara belum dapat dikirim. Coba kembali.";
+        msg.textContent = text;
+        window.toast(text, { variant: "error" });
+      } catch {
+        msg.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba kembali.";
+        window.toast("Koneksi bermasalah. Periksa jaringan lalu coba kembali.", { variant: "error" });
       }
-      msg.textContent = errors[data.error] || "Suara belum dapat dikirim. Coba kembali.";
-    } catch {
-      msg.textContent = "Koneksi bermasalah. Periksa jaringan lalu coba kembali.";
-    }
+    });
     sendBtn.disabled = single ? !nicknameMatches() : false;
   });
   document.querySelector("#copy-code").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(document.querySelector("#receipt-code").textContent); document.querySelector("#copy-code").textContent = "Tersalin"; }
-    catch { document.querySelector("#copy-code").textContent = "Salin manual"; }
+    try { await navigator.clipboard.writeText(document.querySelector("#receipt-code").textContent); document.querySelector("#copy-code").textContent = "Tersalin"; window.toast("Kode bukti disalin.",{variant:"success"}); }
+    catch { document.querySelector("#copy-code").textContent = "Salin manual"; window.toast("Kode belum tersalin. Salin manual dari kode di atas.",{variant:"error"}); }
   });
 </script>}

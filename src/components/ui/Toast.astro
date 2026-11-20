@@ -1,0 +1,67 @@
+---
+/**
+ * Toast: pemberitahuan singkat hasil aksi (sukses, galat, info) untuk seluruh
+ * situs. Dipasang sekali per layout, sebelum konten, supaya window.toast(...)
+ * sudah tersedia saat skrip halaman berjalan. Varian mengikuti bahasa visual
+ * Callout (iklon Tabler, tanpa emoji); posisi: bertumpuk di bawah pada ponsel
+ * di atas navigasi bawah, kanan atas pada 701px ke atas.
+ */
+import { IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconX } from "@tabler/icons-astro";
+---
+<div id="toast-region" aria-live="polite" aria-label="Pemberitahuan" class="pointer-events-none fixed z-50 flex flex-col items-center gap-2 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 min-[701px]:bottom-auto min-[701px]:top-5 min-[701px]:left-auto min-[701px]:right-5 min-[701px]:translate-x-0 min-[701px]:items-end"></div>
+<template id="toast-template">
+  <div data-toast data-variant="info" role="status" class="pointer-events-auto flex w-full items-start gap-2.5 rounded-lg border border-brand-border bg-card p-3.5 text-brand-ink shadow-[0_12px_32px_rgba(28,31,35,0.16)]">
+    <span data-toast-icon="success" class="mt-0.5 shrink-0 text-[#35604a]" hidden><IconCircleCheck size={17} stroke={1.9} aria-hidden="true" /></span>
+    <span data-toast-icon="error" class="mt-0.5 shrink-0 text-[#8f1730]" hidden><IconAlertTriangle size={17} stroke={1.9} aria-hidden="true" /></span>
+    <span data-toast-icon="info" class="mt-0.5 shrink-0 text-[#4c627b]" hidden><IconInfoCircle size={17} stroke={1.9} aria-hidden="true" /></span>
+    <p data-toast-message class="m-0 min-w-0 flex-1 text-[13px] leading-5 font-medium"></p>
+    <button type="button" data-toast-close aria-label="Tutup pemberitahuan" class="-mt-1 -mr-1 flex size-8 shrink-0 items-center justify-center rounded-md text-current opacity-60 transition hover:bg-foreground/5 hover:opacity-100"><IconX size={15} stroke={1.8} aria-hidden="true" /></button>
+  </div>
+</template>
+<script is:inline>
+(function(){
+  if(window.toast)return;
+  const region=document.getElementById('toast-region'),template=document.getElementById('toast-template');
+  // Nada warna mengikuti Callout: permukaan, tepi dan warna teks per varian.
+  const TONES={
+    success:{role:'status',remove:['bg-card','text-brand-ink','border-brand-border'],add:['bg-[#f1f5f3]','border-[#cfe3d6]','text-[#35604a]']},
+    error:{role:'alert',remove:['bg-card','text-brand-ink','border-brand-border'],add:['bg-[#fdf2f4]','border-[#f0ccd4]','text-[#8f1730]']},
+    info:{role:'status',remove:['bg-card','text-brand-ink','border-brand-border'],add:['bg-[#f0f4fa]','border-[#d8e2ee]','text-[#4c627b]']}
+  };
+  // Sukses hilang sendiri cepat; galat diberi waktu lebih lama agar terbaca.
+  const DEFAULT_MS={success:4000,error:7000,info:5000};
+  window.toast=function(message,options){
+    options=options||{};
+    const variant=TONES[options.variant]?options.variant:'info';
+    const tone=TONES[variant];
+    const ms=Number.isFinite(options.duration)?options.duration:DEFAULT_MS[variant];
+    if(!region||!template)return;
+    const node=template.content.firstElementChild.cloneNode(true);
+    node.setAttribute('data-variant',variant);
+    node.setAttribute('role',tone.role);
+    for(const name of tone.remove)node.classList.remove(name);
+    for(const name of tone.add)node.classList.add(name);
+    for(const icon of node.querySelectorAll('[data-toast-icon]'))icon.hidden=icon.getAttribute('data-toast-icon')!==variant;
+    node.querySelector('[data-toast-message]').textContent=String(message??'');
+    let timer=null;
+    const dismiss=()=>{if(timer)clearTimeout(timer);node.remove()};
+    node.querySelector('[data-toast-close]').addEventListener('click',dismiss);
+    if(ms>0)timer=setTimeout(dismiss,ms);
+    region.append(node);
+    return node;
+  };
+  // Alur yang memuat ulang halaman (mis. ?kembali=1) tetap mendapat toast:
+  // flag dibaca sekali, pesannya tampil, lalu flag dihapus dari URL.
+  window.toastFromFlag=function(flag,message,options){
+    let had=false;
+    try{
+      const url=new URL(location.href);
+      had=url.searchParams.has(flag);
+      if(!had)return;
+      url.searchParams.delete(flag);
+      history.replaceState(null,'',url.pathname+url.search+url.hash);
+    }catch{return}
+    if(had)window.toast(message,options);
+  };
+})();
+</script>

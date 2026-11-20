@@ -128,6 +128,6 @@ const identityFacts = [
   </div>
 
   <script is:inline>
-const logout=document.querySelector('#logout'),status=document.querySelector('#logout-status');logout?.addEventListener('click',async()=>{if(!confirm('Keluar dari situs ini?'))return;status.textContent='Keluar…';try{await fetch('/api/auth/logout',{method:'POST'});location.assign('/')}catch{status.textContent='Keluar belum berhasil. Coba kembali.'}});
+const logout=document.querySelector('#logout'),status=document.querySelector('#logout-status');logout?.addEventListener('click',async()=>{if(!confirm('Keluar dari situs ini?'))return;status.textContent='';await window.withBusy(logout,'Keluar…',async()=>{try{await fetch('/api/auth/logout',{method:'POST'});location.assign('/')}catch{status.textContent='Keluar belum berhasil. Coba kembali.';window.toast('Keluar belum berhasil. Periksa koneksi lalu coba lagi.',{variant:'error'})}})});
 </script>
 </Base>

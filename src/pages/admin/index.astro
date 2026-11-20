@@ -75,59 +75,68 @@ const invitationState = (inv: any) =>
   const msg = document.querySelector('#message');
   const say = (text) => { if (msg) msg.textContent = text; };
   const removeCopyButton = () => { const old = msg && msg.querySelector('button[data-copy]'); if (old) old.remove(); };
+  // Toast hasil setelah muat ulang lewat flag URL sekali pakai (dihapus dari URL
+  // oleh window.toastFromFlag, jadi muat ulang manual tidak mengulang pesan).
+  if (window.toastFromFlag) {
+    window.toastFromFlag('panitia-terhapus','Admin Voting dihapus.',{variant:'success'});
+    window.toastFromFlag('undangan-dibatalkan','Undangan Admin Voting dibatalkan.',{variant:'success'});
+  }
   const form = document.querySelector('#invite');
   if (form) form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = form.querySelector('button[type="submit"]');
-    if (button) button.disabled = true;
     removeCopyButton();
-    say('Memproses...');
-    try {
-      const response = await fetch('/api/admin/invitations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ member_id: new FormData(form).get('member_id') }) });
-      const body = await response.json().catch(() => ({}));
-      if (body.invitation_url) {
-        say('Undangan dibuat: ' + body.invitation_url);
-        const copy = document.createElement('button');
-        copy.type = 'button';
-        copy.dataset.copy = 'true';
-        copy.textContent = 'Salin tautan';
-        copy.className = 'ml-2 min-h-11 font-semibold text-primary underline underline-offset-2';
-        copy.addEventListener('click', () => navigator.clipboard.writeText(body.invitation_url));
-        if (msg) msg.append(copy);
-      } else {
-        say(body.error || 'Undangan belum dibuat. Coba kembali.');
+    await window.withBusy(button,'Memproses…',async() => {
+      try {
+        const response = await fetch('/api/admin/invitations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ member_id: new FormData(form).get('member_id') }) });
+        const body = await response.json().catch(() => ({}));
+        if (body.invitation_url) {
+          // Tautannya tetap tampil di panel agar mudah disalin; toast memberi tahu hasilnya.
+          window.toast('Undangan Admin Voting dibuat.',{variant:'success'});
+          say('Undangan dibuat: ' + body.invitation_url);
+          const copy = document.createElement('button');
+          copy.type = 'button';
+          copy.dataset.copy = 'true';
+          copy.textContent = 'Salin tautan';
+          copy.className = 'ml-2 min-h-11 font-semibold text-primary underline underline-offset-2';
+          copy.addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(body.invitation_url); window.toast('Tautan undangan disalin.',{variant:'success'}); }
+            catch { window.toast('Tautan belum tersalin. Salin manual dari teks di atas.',{variant:'error'}); }
+          });
+          if (msg) msg.append(copy);
+        } else {
+          say('');
+          window.toast(body.error || 'Undangan belum dibuat. Coba kembali.',{variant:'error'});
+        }
+      } catch {
+        say('');
+        window.toast('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.',{variant:'error'});
       }
-    } catch {
-      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
-    } finally {
-      if (button) button.disabled = false;
-    }
+    });
   });
   document.querySelectorAll('[data-remove]').forEach((button) => button.addEventListener('click', async () => {
     if (!confirm('Hapus Admin Voting ini?')) return;
-    button.disabled = true;
-    try {
-      const response = await fetch('/api/admin/' + encodeURIComponent(button.dataset.remove), { method: 'DELETE' });
-      if (response.ok) { location.reload(); return; }
-      say((await response.json().catch(() => ({}))).error || 'Admin Voting belum terhapus. Coba kembali.');
-    } catch {
-      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
-    } finally {
-      button.disabled = false;
-    }
+    await window.withBusy(button,'Menghapus…',async() => {
+      try {
+        const response = await fetch('/api/admin/' + encodeURIComponent(button.dataset.remove), { method: 'DELETE' });
+        if (response.ok) { location.assign('/admin?panitia-terhapus=1'); return; }
+        window.toast((await response.json().catch(() => ({}))).error || 'Admin Voting belum terhapus. Coba kembali.',{variant:'error'});
+      } catch {
+        window.toast('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.',{variant:'error'});
+      }
+    });
   }));
   document.querySelectorAll('[data-cancel]').forEach((button) => button.addEventListener('click', async () => {
     if (!confirm('Batalkan undangan ini?')) return;
-    button.disabled = true;
-    try {
-      const response = await fetch('/api/admin/invitations/' + encodeURIComponent(button.dataset.cancel), { method: 'DELETE' });
-      if (response.ok) { location.reload(); return; }
-      say((await response.json().catch(() => ({}))).error || 'Undangan belum dibatalkan. Coba kembali.');
-    } catch {
-      say('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.');
-    } finally {
-      button.disabled = false;
-    }
+    await window.withBusy(button,'Membatalkan…',async() => {
+      try {
+        const response = await fetch('/api/admin/invitations/' + encodeURIComponent(button.dataset.cancel), { method: 'DELETE' });
+        if (response.ok) { location.assign('/admin?undangan-dibatalkan=1'); return; }
+        window.toast((await response.json().catch(() => ({}))).error || 'Undangan belum dibatalkan. Coba kembali.',{variant:'error'});
+      } catch {
+        window.toast('Tidak dapat menghubungi server. Periksa koneksi internet lalu coba lagi.',{variant:'error'});
+      }
+    });
   }));
 })();
 </script>
