@@ -543,7 +543,10 @@ describe("suara tersimpan melewati Kembali ke Draf", () => {
     await env.DB.prepare("DELETE FROM voters WHERE member_id='voter-1'").run();
     const dashboard = await getDashboard(env.DB, new Date());
     expect(dashboard).toMatchObject({ participation_count: 2, ballot_count: 2 });
-    expect(dashboard.candidates.find(candidate => candidate.id === 1)).toMatchObject({ votes: 2 });
+    // Sebelum Diumumkan perolehan suara disegel (keputusan owner 2026-11-21); suara
+    // yang tersimpan tetap terhitung, terbukti dari jumlah surat suara di kotak.
+    expect(dashboard).toMatchObject({ tally_sealed: true });
+    expect(dashboard.candidates.find(candidate => candidate.id === 1)).toMatchObject({ votes: null });
     // Bukti suara pembukaan sebelumnya tetap terverifikasi setelah pemilihan ditutup lagi.
     await env.DB.prepare("UPDATE elections SET closes_at=?").bind(new Date(Date.now() - 1_000).toISOString()).run();
     const receiptHash = await hashReceipt(normalizeReceiptCode(receipt));

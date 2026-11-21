@@ -60,4 +60,34 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
     expect(pengaturan).toContain("abstainCard.hidden=!d.single_candidate_mode");
     expect(pengaturan).toContain("openAbstain.disabled=!d.can_run");
   });
+
+  // Keputusan owner 2026-11-21: angka pilihan disegel dari semua orang, panitia
+  // termasuk, sampai Umumkan Hasil. Dasbor membaca tally_sealed dari server.
+  it("Dasbor menampilkan keadaan disegel sampai Umumkan Hasil tanpa satu angka pilihan", () => {
+    expect(dasbor).toContain("const sealed=Boolean(d.tally_sealed)");
+    expect(dasbor).toContain("Hasil disegel sampai Umumkan Hasil");
+    // Nilai kunci pada panel Sikap suara (kandidat tunggal) dan perolehan keseluruhan.
+    expect(dasbor).toContain("sealedPanel(single?'Sikap suara':'Perolehan suara keseluruhan'");
+    // Alasan netral, bukan janji hasil.
+    expect(dasbor).toContain("supaya penghitungan tetap netral dan pilihan setiap Pemilih tetap rahasia");
+    // Ikon kunci dari Tabler (path IconLock), tanpa emoji.
+    expect(dasbor).toContain("M8 11v-4a4 4 0 1 1 8 0v4");
+    // Kolom Setuju, Tidak Setuju dan Abstain tidak dirender sama sekali selama disegel:
+    // header pilihan hanya ada di cabang yang tidak disegel, dan selnya kosong.
+    expect(dasbor).toContain("const kordaHead=sealed?''");
+    expect(dasbor).toContain("const kordaCells=(k)=>sealed?'':kordaCellsUnsealed(k)");
+    const lines = dasbor.split("\n");
+    const headGuard = lines.findIndex((line) => line.includes("const kordaHead=sealed?''"));
+    const choiceHeader = lines.findIndex((line) => line.includes(">Setuju</th>"));
+    expect(headGuard).toBeGreaterThan(-1);
+    // Header pilihan hanya hidup di cabang terlarang (`sealed?'':<pilihan>`), dua baris sesudahnya.
+    expect(choiceHeader).toBe(headGuard + 2);
+    // Tidak ada <th> pembungkus kosong: header terpasang langsung setelah kolom partisipasi.
+    expect(dasbor).toContain(">Partisipasi</th>'+kordaHead+'</tr>");
+    // Kolom partisipasi tetap dirender pada setiap baris.
+    expect(dasbor).toContain("Angka pilihan per korda muncul setelah Umumkan Hasil.");
+    // Angka pilihan hanya dirender dari cabang yang tidak disegel.
+    expect(dasbor).toContain("const tallyPanelUnsealed=single");
+    expect(dasbor).not.toMatch(/emoji|🔒/u);
+  });
 });
