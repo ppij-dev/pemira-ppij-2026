@@ -544,18 +544,8 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await castChoice("setuju", "/ppij/tokyo/komsat-a", 4);
     // Sebelum Diumumkan setiap angka pilihan per korda disegel; partisipasinya tetap.
     const sealedRow = (await dashboardData()).korda.find((row) => row.key === SCOPE);
-    expect(sealedRow).toMatchObject({
-      eligible_count: 20,
-      used_count: 10,
-      ballot_count: 10,
-      suppressed: false,
-      setuju_count: null,
-      tidak_setuju_count: null,
-      abstain_cast_count: null,
-      tidak_memilih_count: null,
-      abstain_count: null,
-      abstain_percentage: null,
-    });
+    expect(sealedRow).toMatchObject({ eligible_count: 20, used_count: 10, ballot_count: 10, suppressed: false, tidak_memilih_count: null });
+    for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(sealedRow).not.toHaveProperty(field);
     // Alur nyata: Hitung Abstain lalu Diumumkan; angka per korda muncul sesudahnya.
     await countNow();
     await env.DB.prepare("UPDATE elections SET status_lock = 'published'").run();
@@ -575,6 +565,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
       tidak_setuju_percentage: 15,
       abstain_percentage: 60,
     });
+    for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(okayama).toHaveProperty(field);
     const tokyo = data.korda.find((row) => row.key === "/ppij/tokyo");
     expect(tokyo).toMatchObject({ ballot_count: 4, suppressed: true });
     expect(tokyo?.setuju_count).toBeNull();
@@ -674,6 +665,18 @@ async function adminAction(path: string, method: "POST" | "GET" = "POST", body: 
   return app.request(path, { method, headers, body: method === "POST" ? JSON.stringify(body) : undefined }, bindings);
 }
 
+/** Medan pilihan per korda yang tidak boleh ada sama sekali sebelum Diumumkan. */
+const SEALED_KORDA_CHOICE_FIELDS = [
+  "candidates",
+  "setuju_count",
+  "tidak_setuju_count",
+  "abstain_cast_count",
+  "abstain_count",
+  "setuju_percentage",
+  "tidak_setuju_percentage",
+  "abstain_percentage",
+] as const;
+
 /** Angka pilihan yang harus null selama hasil disegel sebelum Diumumkan. */
 const SEALED_CHOICE_FIELDS = [
   "setuju_count",
@@ -714,8 +717,10 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     // Larik kandidat tetap ada (nomor, nickname, warna) tanpa perolehan suara.
     expect(data.candidates.map((candidate) => candidate.votes)).toEqual([null]);
     const row = data.korda.find((entry) => entry.key === SCOPE);
-    expect(row).toMatchObject({ eligible_count: 8, used_count: 7, ballot_count: 7, setuju_count: null, tidak_setuju_count: null, abstain_cast_count: null, abstain_count: null });
+    expect(row).toMatchObject({ eligible_count: 8, used_count: 7, ballot_count: 7 });
     expect(typeof row?.turnout_percentage).toBe("number");
+    // Medan pilihan per korda tidak dikirim sama sekali, bukan sekadar null.
+    for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(row).not.toHaveProperty(field);
   });
 
   it("menyegel perolehan kandidat dan rincian korda mode biasa sebelum Diumumkan", async () => {
@@ -727,7 +732,8 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     expect(data.candidates.map((candidate) => candidate.votes)).toEqual([null, null]);
     expect(data.candidates.map((candidate) => candidate.nickname)).toEqual(["Satu", "Dua"]);
     const row = data.korda.find((entry) => entry.key === SCOPE);
-    expect(row).toMatchObject({ ballot_count: 12, suppressed: false, candidates: null });
+    expect(row).toMatchObject({ ballot_count: 12, suppressed: false });
+    for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(row).not.toHaveProperty(field);
     expect(JSON.stringify(data)).not.toContain('"votes":12');
   });
 
@@ -751,7 +757,9 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     const multi = (await (await requestDashboard()).json()) as DashboardPayload;
     expect(multi.tally_sealed).toBe(false);
     expect(multi.candidates.map((candidate) => candidate.votes)).toEqual([12, 0]);
-    expect(multi.korda.find((entry) => entry.key === SCOPE)?.candidates?.map((candidate) => candidate.votes)).toEqual([12, 0]);
+    const multiRow = multi.korda.find((entry) => entry.key === SCOPE);
+    expect(multiRow?.candidates?.map((candidate) => candidate.votes)).toEqual([12, 0]);
+    for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(multiRow).toHaveProperty(field);
     const publicMulti = (await (await requestPublicResults()).json()) as ResultsPayload;
     expect(publicMulti.candidates[0]?.votes).toBe(12);
   });

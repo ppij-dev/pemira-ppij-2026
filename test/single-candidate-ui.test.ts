@@ -72,9 +72,19 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
     expect(dasbor).toContain("supaya penghitungan tetap netral dan pilihan setiap Pemilih tetap rahasia");
     // Ikon kunci dari Tabler (path IconLock), tanpa emoji.
     expect(dasbor).toContain("M8 11v-4a4 4 0 1 1 8 0v4");
-    // Kolom pilihan pada tabel per korda tidak dirender selama disegel; satu catatan menjelaskan.
-    expect(dasbor).toContain("const kordaHead=sealed?'':single");
+    // Kolom Setuju, Tidak Setuju dan Abstain tidak dirender sama sekali selama disegel:
+    // header pilihan hanya ada di cabang yang tidak disegel, dan selnya kosong.
+    expect(dasbor).toContain("const kordaHead=sealed?''");
     expect(dasbor).toContain("const kordaCells=(k)=>sealed?'':kordaCellsUnsealed(k)");
+    const lines = dasbor.split("\n");
+    const headGuard = lines.findIndex((line) => line.includes("const kordaHead=sealed?''"));
+    const choiceHeader = lines.findIndex((line) => line.includes(">Setuju</th>"));
+    expect(headGuard).toBeGreaterThan(-1);
+    // Header pilihan hanya hidup di cabang terlarang (`sealed?'':<pilihan>`), dua baris sesudahnya.
+    expect(choiceHeader).toBe(headGuard + 2);
+    // Tidak ada <th> pembungkus kosong: header terpasang langsung setelah kolom partisipasi.
+    expect(dasbor).toContain(">Partisipasi</th>'+kordaHead+'</tr>");
+    // Kolom partisipasi tetap dirender pada setiap baris.
     expect(dasbor).toContain("Angka pilihan per korda muncul setelah Umumkan Hasil.");
     // Angka pilihan hanya dirender dari cabang yang tidak disegel.
     expect(dasbor).toContain("const tallyPanelUnsealed=single");
