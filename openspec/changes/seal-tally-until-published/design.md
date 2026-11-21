@@ -43,8 +43,10 @@ Hitung Abstain → Umumkan Hasil must not need a look at the counts; no new audi
 `computeResults` computes `sealed = stage !== "published"` and builds the payload from it.
 Sealed output is `null` for: `candidates[].votes`, `setuju_count`,
 `tidak_setuju_count`, `abstain_cast_count`, `abstain_count`, `setuju_percentage`,
-`tidak_setuju_percentage`, `abstain_percentage`; per korda the same fields plus
-`korda[].candidates`. The payload gains `tally_sealed: boolean` so a screen tells "sealed"
+`tidak_setuju_percentage`, `abstain_percentage`; the per-korda choice fields are left out
+of the row object entirely (`candidates`, `setuju_count`, `tidak_setuju_count`,
+`abstain_cast_count`, `abstain_count` and the three percentages are absent, not `null`, per
+the owner addition of 2026-11-21), so `KordaResult` marks exactly those fields optional. The payload gains `tally_sealed: boolean` so a screen tells "sealed"
 apart from "no votes yet", and the type of `candidates[].votes` becomes
 `number | null`.
 
@@ -83,8 +85,10 @@ A sealed panel is a card with the section title, a lock icon (`IconLock`, Tabler
 "Hasil disegel sampai Umumkan Hasil" and one sentence: the committee does not see the
 direction of votes until the result is announced, so the count stays neutral and every
 Pemilih's choice stays secret. The per-korda table keeps its Korda, Hak pilih, Digunakan
-and Partisipasi columns (participation data) and collapses the choice columns into one
-sealed cell. No new tab, no new page, Bahasa Indonesia, no emoji, Tabler icons only.
+and Partisipasi columns (participation data) and does not render the choice columns at all
+— no header, no empty cell — so it fits 390 px without sideways scrolling; one note under
+the table says the per-korda figures appear after the announcement. No new tab, no new
+page, Bahasa Indonesia, no emoji, Tabler icons only.
 
 ### D6: No new audit action
 

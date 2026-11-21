@@ -19,7 +19,9 @@ ever looking at how people voted.
   `abstain_count` (which contains that cast figure), the per-candidate `votes` in
   multi-candidate mode, and the per-korda breakdowns of all of them, plus their
   percentages. The payload carries `tally_sealed: true` so a screen can tell "sealed"
-  apart from "zero".
+  apart from "zero". Per-korda choice fields are **absent** from the payload, not `null`
+  (owner addition, 2026-11-21), so no screen can render an empty column or a zero where a
+  figure belongs.
 - **Server-side, not just the UI.** The seal lives in the results query layer
   (`src/server/results/queries.ts`), so `/api/dashboard`, the SSR landing page and any
   future consumer of the payload get nothing to leak. `/api/results` already answers 409
@@ -38,7 +40,9 @@ ever looking at how people voted.
   icon, "Hasil disegel sampai Umumkan Hasil" and one short reason that keeps the
   committee neutral (the committee does not see the direction of votes while voting
   runs, so the count stays neutral and each Pemilih's choice stays secret). The per-korda
-  table replaces its choice columns with the same sealed line. After Umumkan Hasil the
+  table drops the Setuju / Tidak Setuju / Abstain columns entirely (the candidate column
+  in multi-candidate mode) and keeps Korda, Hak pilih, Digunakan and Partisipasi, with the
+  note "Angka pilihan per korda muncul setelah Umumkan Hasil.". After Umumkan Hasil the
   section renders exactly as today.
 - **Flow unchanged.** Tutup → Hitung Abstain → Umumkan Hasil needs no look at the counts;
   the Umumkan confirmation never showed counts and still does not. After Umumkan the

@@ -43,15 +43,23 @@ any candidate vote count, to any Admin Voting.
 ### Requirement: Sealed tally in the korda table
 
 Before Diumumkan, the per-korda table SHALL show only the Korda, Hak pilih, Digunakan and
-Partisipasi columns, with no choice column header or cell, and SHALL show the note "Angka
-pilihan per korda muncul setelah Umumkan Hasil." under the table. After Diumumkan the
-table SHALL show the choice columns exactly as today, including "Data terlalu sedikit" for
-a korda under ten ballots.
+Partisipasi columns; the Setuju, Tidak Setuju and Abstain columns (and the candidate column
+in multi-candidate mode) SHALL NOT be rendered, not even with an empty cell.
+
+#### Scenario: Note explains the seal
+
+- **WHEN** the per-korda table is sealed
+- **THEN** the note "Angka pilihan per korda muncul setelah Umumkan Hasil." sits under the table
 
 #### Scenario: Regional table while sealed
 
 - **WHEN** an Admin Voting loads Dasbor while voting is Dibuka
-- **THEN** every korda row shows its Hak pilih, Digunakan and Partisipasi figures, no choice column is rendered, and the note says the per-korda choice figures appear after announcement
+- **THEN** the table has exactly the Korda, Hak pilih, Digunakan and Partisipasi columns, every row shows those figures, and the note says the per-korda choice figures appear after announcement
+
+#### Scenario: No empty choice column
+
+- **WHEN** the sealed table is rendered at 390 px or wider
+- **THEN** no Setuju, Tidak Setuju, Abstain or candidate header or cell exists in the markup, so no horizontally scrolled blank column appears
 
 #### Scenario: Regional table after announcement
 

@@ -7,8 +7,8 @@ truth: the deltas in `specs/` of this change. No migration; the schema is unchan
 
 - [x] 1.1 Failing tests first in `test/results-api.test.ts`: `/api/dashboard` before
       published returns `tally_sealed: true` with null Setuju / Tidak Setuju / Abstain
-      cast, null `abstain_count`, null choice percentages, null `candidates[].votes` and
-      null per-korda choice fields, in single candidate mode and in multi-candidate mode;
+      cast, null `abstain_count`, null choice percentages, null `candidates[].votes` and no
+      per-korda choice field at all, in single candidate mode and in multi-candidate mode;
       participation figures (`eligible_count`, `used_count`, `unused_count`,
       `turnout_percentage`, `participation_count`, `ballot_count`, `count_matches`,
       `tidak_memilih_count`, per-korda eligible/used/turnout) keep their values.
@@ -33,7 +33,11 @@ truth: the deltas in `specs/` of this change. No migration; the schema is unchan
 - [x] 2.2 Implement the sealed panel and sealed korda cell in
       `src/pages/admin/dasbor.astro` (design D5), keeping stage, countdown, participation
       cards, count check, Uji Coba block and the Hitung Abstain warning untouched.
-- [x] 2.3 Keep the audit entry unchanged: one `admin_tally_viewed` per load with the stage
+- [x] 2.3 Hide the Setuju / Tidak Setuju / Abstain columns (and the candidate column)
+      entirely while sealed — no header, no empty cell — keep Korda, Hak pilih, Digunakan
+      and Partisipasi, and add the note that the per-korda figures appear after the
+      announcement (owner addition 2026-11-21).
+- [x] 2.4 Keep the audit entry unchanged: one `admin_tally_viewed` per load with the stage
       in the detail (audit-log delta), no new action.
 
 ## 3. Tests and verification

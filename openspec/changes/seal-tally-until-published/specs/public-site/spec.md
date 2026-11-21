@@ -13,11 +13,14 @@ Diumumkan, candidate vote counts SHALL be visible only to Admin Voting" in
 ### Requirement: No choice count in any payload before Diumumkan
 
 The results payload that `/api/dashboard`, the landing page and the Hasil page read SHALL
-carry `null` for every choice figure while the stage is not Diumumkan, in single candidate
-mode and in multi-candidate mode, overall and per korda: Setuju, Tidak Setuju and Abstain
-answers cast, the Abstain total, the candidate vote counts and every choice percentage.
-The server SHALL be the only place that decides this, so no page or future client can
-render a sealed figure.
+carry `null` for every overall choice figure while the stage is not Diumumkan, in single
+candidate mode and in multi-candidate mode: Setuju, Tidak Setuju and Abstain answers cast,
+the Abstain total, the candidate vote counts and every choice percentage.
+
+#### Scenario: Server decides the seal
+
+- **WHEN** any page or future client reads the payload before Diumumkan
+- **THEN** the seal is already applied by the server, so there is no figure for a client to render
 
 #### Scenario: Seal flag in the payload
 
@@ -33,7 +36,7 @@ render a sealed figure.
 #### Scenario: Dashboard payload in multi-candidate mode while voting is open
 
 - **WHEN** an Admin Voting requests `/api/dashboard` in multi-candidate mode while voting is Dibuka
-- **THEN** every `candidates[].votes` and every `korda[].candidates` is null while the candidate number, nickname and color stay in the payload
+- **THEN** every `candidates[].votes` is null while the candidate number, nickname and color stay in the payload, and no korda row carries a `candidates` key
 
 #### Scenario: Public results before Diumumkan
 
@@ -44,6 +47,28 @@ render a sealed figure.
 
 - **WHEN** anyone requests `/api/results` after Diumumkan
 - **THEN** the choice counts, percentages and permitted per-korda breakdowns are present as today
+
+### Requirement: No per-korda choice field before Diumumkan
+
+Before Diumumkan the payload SHALL NOT carry any per-korda choice field on any korda row:
+`candidates`, `setuju_count`, `tidak_setuju_count`, `abstain_cast_count`, `abstain_count`,
+`setuju_percentage`, `tidak_setuju_percentage` and `abstain_percentage`. They SHALL be
+absent, not present with a `null` value.
+
+#### Scenario: Participation columns only in the row
+
+- **WHEN** a sealed korda row is inspected
+- **THEN** it still carries its key, name, `eligible_count`, `used_count`, `turnout_percentage`, `ballot_count`, `suppressed` and `tidak_memilih_count`
+
+#### Scenario: Per-korda payload while sealed
+
+- **WHEN** an Admin Voting requests `/api/dashboard` before Diumumkan
+- **THEN** no korda row has a `setuju_count`, `tidak_setuju_count`, `abstain_cast_count`, `abstain_count`, `candidates` or choice percentage key
+
+#### Scenario: Per-korda payload after Diumumkan
+
+- **WHEN** the same election is Diumumkan and the payload is read again
+- **THEN** every korda row carries those keys again and a korda under ten ballots has `candidates: null`
 
 ### Requirement: Participation figures stay in the payload
 
