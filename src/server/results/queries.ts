@@ -41,20 +41,23 @@ export interface KordaResult {
   turnout_percentage: number | null;
   ballot_count: number;
   suppressed: boolean;
-  /** Null while suppressed (fewer than KORDA_MIN_BALLOTS ballots) atau selama angka disegel. */
-  candidates: CandidateTally[] | null;
-  /** Mode kandidat tunggal; null saat mode mati, baris disembunyikan, atau angka disegel. */
-  setuju_count: number | null;
-  tidak_setuju_count: number | null;
+  /**
+   * Angka pilihan per korda. Sebelum Diumumkan medan ini TIDAK ADA sama sekali
+   * (bukan sekadar null): angka pilihan disegel dari semua orang, Admin Voting
+   * termasuk (keputusan owner 2026-11-21). Sisanya angka partisipasi.
+   */
+  candidates?: CandidateTally[] | null;
+  setuju_count?: number | null;
+  tidak_setuju_count?: number | null;
   /** Jawaban Abstain yang diberikan Pemilih korda ini. */
-  abstain_cast_count: number | null;
+  abstain_cast_count?: number | null;
   /** Hak pilih korda minus partisipasi korda; null sampai Hitung Abstain dijalankan. */
   tidak_memilih_count: number | null;
   /** Total Abstain: jawaban Abstain diberikan ditambah tidak memilih. */
-  abstain_count: number | null;
-  setuju_percentage: number | null;
-  tidak_setuju_percentage: number | null;
-  abstain_percentage: number | null;
+  abstain_count?: number | null;
+  setuju_percentage?: number | null;
+  tidak_setuju_percentage?: number | null;
+  abstain_percentage?: number | null;
 }
 
 export interface ResultsPayload {
@@ -324,7 +327,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     // Rincian tidak memilih per korda hanya muncul setelah Hitung Abstain dijalankan.
     const kordaTidakMemilih = single && !suppressed && abstainCounted ? Math.max(0, eligible - used) : null;
     const kordaAbstain = kordaAbstainCast === null ? null : kordaAbstainCast + (kordaTidakMemilih ?? 0);
-    return {
+    const row = {
       key,
       name: names.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : formatUnitPath(key)),
       eligible_count: eligible,
@@ -332,13 +335,19 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
       turnout_percentage: eligible > 0 ? Math.round(((used / eligible) * 100) * 10) / 10 : null,
       ballot_count: ballots,
       suppressed,
-      candidates: sealed || suppressed
+      // Tidak memilih = angka partisipasi, jadi tetap ada walau angka pilihan disegel.
+      tidak_memilih_count: kordaTidakMemilih,
+    };
+    // Sebelum Diumumkan medan pilihan tidak dikirim sama sekali, bukan bernilai null.
+    if (sealed) return row as KordaResult;
+    return {
+      ...row,
+      candidates: suppressed
         ? null
         : candidateRows.map((candidate) => ({ ...candidate, votes: perCandidate?.get(candidate.id) ?? 0 })),
       setuju_count: kordaSetuju,
       tidak_setuju_count: kordaTidak,
       abstain_cast_count: kordaAbstainCast,
-      tidak_memilih_count: kordaTidakMemilih,
       abstain_count: kordaAbstain,
       // Bagian dari Hak pilih korda, sama seperti angka yang ditampilkan.
       setuju_percentage: kordaSetuju === null ? null : percentage(kordaSetuju, eligible),
