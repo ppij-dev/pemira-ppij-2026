@@ -26,7 +26,8 @@ export interface CandidateTally {
   number: number;
   nickname: string;
   color: string | null;
-  votes: number;
+  /** Null sebelum Diumumkan: perolehan suara disegel dari semua orang (keputusan owner 2026-11-21). */
+  votes: number | null;
 }
 
 export interface KordaResult {
@@ -40,9 +41,9 @@ export interface KordaResult {
   turnout_percentage: number | null;
   ballot_count: number;
   suppressed: boolean;
-  /** Null while suppressed (fewer than KORDA_MIN_BALLOTS ballots). */
+  /** Null while suppressed (fewer than KORDA_MIN_BALLOTS ballots) atau selama angka disegel. */
   candidates: CandidateTally[] | null;
-  /** Mode kandidat tunggal; null saat mode mati atau baris disembunyikan. */
+  /** Mode kandidat tunggal; null saat mode mati, baris disembunyikan, atau angka disegel. */
   setuju_count: number | null;
   tidak_setuju_count: number | null;
   /** Jawaban Abstain yang diberikan Pemilih korda ini. */
@@ -76,6 +77,12 @@ export interface ResultsPayload {
   single_candidate_mode: boolean;
   /** True saat mode "Tidak Membekukan DPT" menyala (dibekukan di Kunci). */
   live_voter_roll: boolean;
+  /**
+   * True selama tahap belum Diumumkan: setiap angka pilihan (Setuju, Tidak Setuju,
+   * Abstain diberikan, total Abstain, perolehan kandidat, per korda) bernilai null.
+   * Angka partisipasi tetap terbuka (keputusan owner 2026-11-21).
+   */
+  tally_sealed: boolean;
   /**
    * Hanya angka, tanpa keputusan: sistem tidak pernah menyatakan terpilih,
    * tidak terpilih, atau seri (keputusan owner 2026-11-16). Null saat mode mati.
@@ -154,6 +161,10 @@ function bucketByRegion(rows: { path: string; n: number }[]): Map<string, number
 async function computeResults(db: D1Database, election: ElectionRow, currentStage: Stage, nowIso: string, portal?: ServiceApiConfig) {
   // Test rows stay visible (and labeled) while Draf; later stages count is_test=0 only.
   const realOnly = currentStage !== "draft";
+  // Segel angka pilihan (keputusan owner 2026-11-21): sebelum Diumumkan setiap angka
+  // cara orang memilih dibuang dari payload, untuk semua orang termasuk Admin Voting.
+  // Angka partisipasi (Hak pilih, digunakan, tidak memilih, surat suara) tetap terbuka.
+  const sealed = currentStage !== "published";
   const testOn = (alias: string) => (realOnly ? `AND ${alias}.is_test = 0` : "");
   // Draf fallback roll and per-region denominators mirror the frozen count rule:
   // only roll rows the portal marks can_vote = 1 may vote, so only they are
@@ -304,10 +315,12 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     const suppressed = ballots < KORDA_MIN_BALLOTS;
     const perCandidate = votesByRegionCandidate.get(key);
     const perChoice = choiceByRegionRows.get(key);
-    // Rincian pilihan mengikuti aturan penyembunyian korda yang sama.
-    const kordaSetuju = single && !suppressed ? perChoice?.get("setuju") ?? 0 : null;
-    const kordaTidak = single && !suppressed ? perChoice?.get("tidak_setuju") ?? 0 : null;
-    const kordaAbstainCast = single && !suppressed ? perChoice?.get("abstain") ?? 0 : null;
+    // Rincian pilihan mengikuti aturan penyembunyian korda yang sama, dan tetap null
+    // selama angka pilihan disegel sebelum Diumumkan.
+    const showChoice = single && !sealed && !suppressed;
+    const kordaSetuju = showChoice ? perChoice?.get("setuju") ?? 0 : null;
+    const kordaTidak = showChoice ? perChoice?.get("tidak_setuju") ?? 0 : null;
+    const kordaAbstainCast = showChoice ? perChoice?.get("abstain") ?? 0 : null;
     // Rincian tidak memilih per korda hanya muncul setelah Hitung Abstain dijalankan.
     const kordaTidakMemilih = single && !suppressed && abstainCounted ? Math.max(0, eligible - used) : null;
     const kordaAbstain = kordaAbstainCast === null ? null : kordaAbstainCast + (kordaTidakMemilih ?? 0);
@@ -319,7 +332,7 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
       turnout_percentage: eligible > 0 ? Math.round(((used / eligible) * 100) * 10) / 10 : null,
       ballot_count: ballots,
       suppressed,
-      candidates: suppressed
+      candidates: sealed || suppressed
         ? null
         : candidateRows.map((candidate) => ({ ...candidate, votes: perCandidate?.get(candidate.id) ?? 0 })),
       setuju_count: kordaSetuju,
@@ -347,21 +360,26 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     participation_count: participationCount,
     ballot_count: ballotCount,
     count_matches: participationCount === ballotCount,
-    candidates: candidateRows,
+    // Segel: perolehan kandidat per baris biarkan bentuknya, angkanya null sebelum Diumumkan.
+    candidates: sealed ? candidateRows.map((candidate) => ({ ...candidate, votes: null })) : candidateRows,
     korda,
     single_candidate_mode: single,
     live_voter_roll: election.live_voter_roll === 1,
-    setuju_count: single ? setuju : null,
-    tidak_setuju_count: single ? tidakSetuju : null,
-    abstain_cast_count: single ? abstainCast : null,
+    tally_sealed: sealed,
+    setuju_count: single && !sealed ? setuju : null,
+    tidak_setuju_count: single && !sealed ? tidakSetuju : null,
+    abstain_cast_count: single && !sealed ? abstainCast : null,
+    // Tidak memilih = angka partisipasi (Hak pilih minus yang sudah memilih), bukan
+    // angka pilihan, jadi tetap terlihat selama angka pilihan disegel.
     tidak_memilih_count: single ? tidakMemilih : null,
     abstain_counted: single ? abstainCounted : null,
     abstain_counted_at: single ? election.abstain_counted_at : null,
-    abstain_count: single ? abstainTotal : null,
+    // Total Abstain memuat jawaban Abstain yang diberikan, jadi ikut disegel.
+    abstain_count: single && !sealed ? abstainTotal : null,
     // Semua bagian dihitung dari Hak pilih yang sama, jadi jumlahnya 100.
-    setuju_percentage: single ? percentage(setuju, eligibleCount) : null,
-    tidak_setuju_percentage: single ? percentage(tidakSetuju, eligibleCount) : null,
-    abstain_percentage: single ? percentage(abstainTotal, eligibleCount) : null,
+    setuju_percentage: single && !sealed ? percentage(setuju, eligibleCount) : null,
+    tidak_setuju_percentage: single && !sealed ? percentage(tidakSetuju, eligibleCount) : null,
+    abstain_percentage: single && !sealed ? percentage(abstainTotal, eligibleCount) : null,
   };
   return {
     base,
