@@ -5,8 +5,9 @@
 While "Tidak Membekukan DPT" is on, the roll stored in the `voters` table becomes a live
 view of the portal: refreshed on demand from the Service API `changed_since` watermark by
 any check or read that needs it, tolerant of portal outages by serving the last known
-view, and never audited per automatic refresh. With the switch off, the roll is today's
-frozen roll.
+view, and never audited per automatic refresh. Turning the switch off mid-vote freezes
+that view into an ordinary frozen roll (owner decision 2026-11-22). With the switch off
+from the start, the roll is today's frozen roll.
 
 ## ADDED Requirements
 
@@ -102,3 +103,21 @@ stale-while-unavailable, short wait), so the rows and the shown time agree.
 
 - **WHEN** an Admin Voting opens the Pemilih page during a live-mode election
 - **THEN** the page shows the roll with its usual filters plus the last refresh time, and no claim that the roll is frozen
+
+### Requirement: A mid-vote freeze ends every portal refresh
+
+Once the roll is frozen — at Kunci & Jadwalkan with the switch off, or mid-vote by
+turning the switch off (owner decision 2026-11-22) — no automatic refresh SHALL run for
+the rest of the election while it stays locked: the frozen roll decides who may vote, and
+reads that show Hak pilih use `frozen_hak_pilih`. The Pemilih page SHALL name the freeze
+time in JST instead of presenting the roll as live.
+
+#### Scenario: No refresh after the mid-vote freeze
+
+- **WHEN** the roll was frozen mid-vote and a member registers on the portal afterwards, then any vote check or Hak pilih read happens
+- **THEN** no refresh runs, the member is absent from the frozen roll, and a vote attempt is refused with the existing not-on-the-roll message
+
+#### Scenario: Pemilih page names the freeze
+
+- **WHEN** an Admin Voting opens the Pemilih page after a mid-vote freeze while the election is still locked
+- **THEN** the page shows the roll as frozen and names the freeze time in JST, instead of the live-view note

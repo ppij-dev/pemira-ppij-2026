@@ -182,6 +182,24 @@ command). Spec source of truth: the deltas in `specs/` of this change.
       tahap"; Dasbor, Hasil and the landing card show "N tidak memilih (belum dihitung)"
       before and the split after; page-source tests.
 
+## 9c. Dua jawaban (keputusan owner 2026-11-22)
+
+- [x] 9.10 `src/server/voting/choice.ts`: `VOTE_CHOICES` is `setuju` and `tidak_setuju`
+      only, so the member path, the invitation path and Uji Coba refuse `abstain` with 400
+      `invalid_choice`. No migration: the CHECK from `0013` stays for legacy rows.
+- [x] 9.11 Ballot UI: `src/pages/pilih-suara.astro` and
+      `src/pages/undangan/[kode]/surat-suara.astro` offer the two answers and no Abstain
+      radio, with the confirmation sheet unchanged; the mode helper text in Pengaturan
+      names the two answers.
+- [x] 9.12 Results: Abstain is the non-voters only. Dasbor, Hasil and the landing card show
+      one Abstain figure (no "Abstain diberikan" part), keep the "N tidak memilih (belum
+      dihitung)" line before Hitung Abstain, and the per-korda cell drops the split.
+- [x] 9.13 Tests: vote API accepts the two answers and refuses `abstain`, the invitation
+      path does the same, Uji Coba refuses it, and the page-source tests assert two answers
+      on both ballot pages and no cast-Abstain line anywhere.
+- [x] 9.14 Re-read the change for consistency (proposal, design D10, these deltas) and run
+      `openspec validate add-single-candidate-mode --strict`.
+
 ## 10. Verification
 
 - [x] 10.1 Worker tier: build + the focused tests of every group above green.

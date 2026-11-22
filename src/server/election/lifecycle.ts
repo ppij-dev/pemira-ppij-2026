@@ -71,27 +71,112 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
  return {enabled};
 }
 /**
- * Saklar "Tidak Membekukan DPT" (keputusan owner 2026-11-19): nilainya hanya
- * dapat diubah saat Draf dan dibekukan saat Kunci & Jadwalkan, mirip mode
- * kandidat tunggal. Saat menyala, roll mengikuti portal selama pemungutan
- * suara dan Hak pilih ditetapkan saat penutupan; surat suara tak terpengaruh,
- * jadi tidak ada syarat suara tersimpan di sini.
+ * Saklar "Tidak Membekukan DPT" (keputusan owner 2026-11-19): saat menyala, roll
+ * mengikuti portal selama pemungutan suara dan Hak pilih ditetapkan saat
+ * penutupan; surat suara tak terpengaruh, jadi tidak ada syarat suara tersimpan
+ * di sini. Saat Draf saklar bebas diubah (dibekukan nilainya oleh Kunci &
+ * Jadwalkan). Selama pemilihan terkunci dan sedang berjalan (Terjadwal atau
+ * Dibuka) saklar yang menyala dapat dimatikan untuk membekukan DPT sekarang
+ * (keputusan owner 2026-11-22): satu arah, tidak ada pembukaan kembali.
  */
-export async function getLiveVoterRollMode(db:D1Database):Promise<{enabled:boolean;editable:boolean;reason:string|null}> {
- const row=await db.prepare("SELECT status_lock,live_voter_roll FROM elections ORDER BY id LIMIT 1").first<{status_lock:string;live_voter_roll:number}>();
- const draft=row?.status_lock==="draft";
- return {enabled:row?.live_voter_roll===1,editable:draft,reason:draft?null:"Nilai ini dibekukan setelah Kunci & Jadwalkan."};
+export interface LiveVoterRollState {
+ /** Posisi saklar: bernilai true selama roll mengikuti portal. */
+ enabled:boolean;
+ /** Hanya Draf; menyalakan kembali hanya mungkin di Draf. */
+ editable:boolean;
+ /** Terkunci, Terjadwal/Dibuka, saklar menyala: mematikan saklar = bekukan DPT sekarang. */
+ can_freeze:boolean;
+ stage:Stage|null;
+ /** Waktu DPT dibekukan (Kunci & Jadwalkan atau Bekukan DPT sekarang). */
+ frozen_at:string|null;
+ frozen_hak_pilih:number|null;
+ /** Hak pilih saat ini: angka yang disebut dialog pembekuan. */
+ hak_pilih:number;
+ reason:string|null;
+ /** Kalimat bantuan saat saklar dapat dimatikan untuk membekukan DPT. */
+ freeze_hint:string|null;
 }
-export async function setLiveVoterRollMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor) {
+interface LiveVoterRollRow {status_lock:string;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;live_voter_roll:number;preview_mode:number;frozen_at:string|null;frozen_hak_pilih:number|null}
+export const FREEZE_HINT="Pemilihan sedang berjalan dengan daftar Pemilih yang mengikuti portal. Matikan saklar ini untuk membekukan DPT sekarang.";
+export async function getLiveVoterRollMode(db:D1Database,now:Date=new Date(),portal?:ServiceApiConfig):Promise<LiveVoterRollState> {
+ const row=await db.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at,live_voter_roll,preview_mode,frozen_at,frozen_hak_pilih FROM elections ORDER BY id LIMIT 1").first<LiveVoterRollRow>();
+ const enabled=row?.live_voter_roll===1;
+ const draft=row?.status_lock==="draft";
+ const st=row&&row.opens_at&&row.closes_at?stage({status_lock:row.status_lock as ElectionStatusLock,opens_at:row.opens_at,closes_at:row.closes_at,closed_early_at:row.closed_early_at},now.toISOString()):null;
+ const running=st==="scheduled"||st==="open";
+ const canFreeze=Boolean(row&&!draft&&row.status_lock!=="published"&&running&&enabled&&row.preview_mode!==1&&row.frozen_at==null);
+ const frozenAt=row?.frozen_at??null;
+ const reason=draft?null
+  :canFreeze?null
+  :row?.preview_mode===1?"Mode Pratinjau: daftar Pemilih tidak dibekukan."
+  :enabled?"Pemungutan suara sudah ditutup; daftar Pemilih tidak dapat dibekukan lagi."
+  :frozenAt!=null?"Daftar Pemilih sudah dibekukan dan tidak dapat dibuka kembali; saklar hanya dapat diaktifkan lagi dari Draf."
+  :"Daftar Pemilih dibekukan saat Kunci & Jadwalkan; saklar hanya dapat diaktifkan lagi dari Draf.";
+ const hakPilih=row?(await resolveHakPilih(db,now,portal)).hakPilih:0;
+ return {enabled,editable:draft,can_freeze:canFreeze,stage:st,frozen_at:frozenAt,frozen_hak_pilih:row?.frozen_hak_pilih??null,hak_pilih:hakPilih,reason,freeze_hint:canFreeze?FREEZE_HINT:null};
+}
+/**
+ * Bekukan DPT sekarang (keputusan owner 2026-11-22), dipicu dengan mematikan
+ * saklar "Tidak Membekukan DPT" saat pemilihan terkunci dan sedang berjalan.
+ * Satu segarkan final portal lewat jalur yang sama dengan Kunci & Jadwalkan
+ * (sync penuh); bila portal gagal tindakan ditolak dengan galat jelas dan tidak
+ * ada yang dibekukan dari data usang. Lalu satu D1 batch bergerbang menulis
+ * frozen_at, frozen_hak_pilih dan live_voter_roll=0 persis seperti pembekuan
+ * Kunci, dengan entri audit yang menyebut angka dan waktunya. Satu arah: tidak
+ * ada pembukaan kembali, dan roll beku tidak pernah disegarkan dari portal lagi.
+ */
+export interface FreezeVoterRollResult {frozen_hak_pilih:number;frozen_at:string;hak_pilih:number}
+async function freezeVoterRollInternal(db:D1Database,cfg:ServiceApiConfig|undefined,now:Date,fetchImpl?:typeof fetch,actor?:AdminActor):Promise<FreezeVoterRollResult> {
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,allow_admin_voting,preview_mode,live_voter_roll,frozen_at FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;allow_admin_voting:number;preview_mode:number;live_voter_roll:number;frozen_at:string|null}>();
+ if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
+ if(row.status_lock==="draft") throw new ElectionError("Daftar Pemilih baru dapat dibekukan setelah pemilihan dikunci.",409);
+ if(row.status_lock==="published") throw new ElectionError("Hasil sudah diumumkan; daftar Pemilih tidak dapat dibekukan lagi.",409);
+ if(row.live_voter_roll!==1) throw new ElectionError("Daftar Pemilih sudah dibekukan dan tidak dapat dibekukan dua kali.",409);
+ if(row.frozen_at!==null) throw new ElectionError("Daftar Pemilih sudah dibekukan.",409);
+ if(row.preview_mode===1) throw new ElectionError("Mode Pratinjau: daftar Pemilih tidak dibekukan.",409);
+ if(!row.opens_at||!row.closes_at) throw new ElectionError("Jadwal pemilihan belum lengkap",409);
+ const st=stage({status_lock:row.status_lock as ElectionStatusLock,opens_at:row.opens_at,closes_at:row.closes_at,closed_early_at:row.closed_early_at},now.toISOString());
+ if(st!=="scheduled"&&st!=="open") throw new ElectionError("Daftar Pemilih tidak dapat dibekukan setelah pemungutan suara ditutup.",409);
+ // Segarkan final portal: jalur yang sama dengan Kunci & Jadwalkan. Gagal berarti
+ // tindakan ditolak; DPT tidak pernah dibekukan dari view yang usang.
+ if(!cfg?.serviceApiUrl) throw new ElectionError("Sinkronisasi final gagal: Service API belum dikonfigurasi sehingga daftar Pemilih tidak dapat dipastikan terbaru.",503);
+ try { await syncPemilih(db,cfg,now,fetchImpl,{full:true}); }
+ catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); }
+ // Angka beku dihitung dengan rumus yang sama persis dengan Kunci: baris roll
+ // yang boleh memilih, dikurangi Admin Voting saat mereka tidak ikut memilih.
+ const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
+ const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
+ const frozen=count-(row.allow_admin_voting===0?admins:0);
+ const at=now.toISOString();
+ const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"DPT dibekukan",target:String(row.id),komsat_path:null,detail_json:JSON.stringify({frozen_hak_pilih:frozen,frozen_at:at,stage_before:st})});
+ const results=await db.batch([
+  db.prepare("UPDATE elections SET live_voter_roll=0,frozen_at=?,frozen_hak_pilih=? WHERE id=? AND status_lock='locked' AND live_voter_roll=1 AND frozen_at IS NULL AND preview_mode=0 AND closed_early_at IS NULL AND julianday(opens_at) <= julianday(?) AND julianday(closes_at) > julianday(?)").bind(at,frozen,row.id,at,at),
+  auditEntry,
+ ]);
+ if(!results[0]?.meta.changes) throw new ElectionError("Daftar Pemilih sudah dibekukan atau pemungutan suara telah ditutup.",409);
+ return {frozen_hak_pilih:frozen,frozen_at:at,hak_pilih:frozen+await directInviteTerm(db)};
+}
+export async function freezeVoterRoll(db:D1Database,now:Date,cfg?:ServiceApiConfig,fetchImpl?:typeof fetch,actor?:AdminActor):Promise<FreezeVoterRollResult> {
+ return freezeVoterRollInternal(db,cfg,now,fetchImpl,actor);
+}
+/**
+ * Ubah saklar Tidak Membekukan DPT. Di Draf: bebas dinyalakan/dimatikan seperti
+ * semula. Setelah Kunci: hanya mematikan saklar yang menyala, dan itu berarti
+ * Bekukan DPT sekarang (satu arah). Menyalakan kembali hanya mungkin di Draf.
+ */
+export async function setLiveVoterRollMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor,opts?:{cfg?:ServiceApiConfig;fetchImpl?:typeof fetch}):Promise<{enabled:boolean}&Partial<FreezeVoterRollResult>> {
  if(typeof enabled!=="boolean") throw new ElectionError("Nilai saklar Tidak Membekukan DPT tidak valid",400);
  const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
- if(row.status_lock!=="draft") throw new ElectionError("Tidak Membekukan DPT hanya dapat diubah saat Draf",409);
- await db.batch([
-  db.prepare("UPDATE elections SET live_voter_roll=? WHERE status_lock='draft'").bind(enabled?1:0),
-  await audit(db,now,enabled?"Tidak Membekukan DPT diaktifkan":"Tidak Membekukan DPT dinonaktifkan",null,JSON.stringify({live_voter_roll:enabled}),actor),
- ]);
- return {enabled};
+ if(row.status_lock==="draft") {
+  await db.batch([
+   db.prepare("UPDATE elections SET live_voter_roll=? WHERE status_lock='draft'").bind(enabled?1:0),
+   await audit(db,now,enabled?"Tidak Membekukan DPT diaktifkan":"Tidak Membekukan DPT dinonaktifkan",null,JSON.stringify({live_voter_roll:enabled}),actor),
+  ]);
+  return {enabled};
+ }
+ if(enabled) throw new ElectionError("Tidak Membekukan DPT hanya dapat diaktifkan saat Draf.",409);
+ return {enabled:false,...await freezeVoterRollInternal(db,opts?.cfg,now,opts?.fetchImpl,actor)};
 }
 /** Frasa konfirmasi "Kembali ke Draf"; dibandingkan seperti konfirmasi nickname. */
 export const RETURN_TO_DRAFT_PHRASE="KEMBALI KE DRAF";
@@ -139,7 +224,7 @@ export async function returnToDraft(db:D1Database,now:Date,phrase:unknown,actor?
  const detail=JSON.stringify({stage_before:stageBefore,preview_mode:row.preview_mode===1,kept_ballots:keptBallots,kept_participation:keptParticipation});
  const auditEntry=await buildGuardedAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Pemilihan dikembalikan ke Draf",target:null,komsat_path:null,detail_json:detail});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL,closing_hak_pilih=NULL,closing_hak_pilih_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
+  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL,recap_at=NULL,recap_abstain_count=NULL,closing_hak_pilih=NULL,closing_hak_pilih_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
   auditEntry,
  ]);
  if(!results[0]?.meta.changes) {
@@ -228,62 +313,80 @@ export async function closeEarly(db:D1Database,now:Date,reason:string) {
  const results=await db.batch(statements);
  if(!results[0]?.meta?.changes) throw new ElectionError("Pemilihan sudah ditutup");
 }
-/** Pesan penolakan Umumkan selama Hitung Abstain belum dijalankan (mode kandidat tunggal). */
-export const ABSTAIN_NOT_COUNTED_MESSAGE="Hasil belum dapat diumumkan: jalankan Hitung Abstain terlebih dahulu agar Pemilih yang tidak memilih dihitung Abstain.";
-export interface AbstainCountState {
+/** Pesan penolakan Umumkan selama Rekapitulasi Suara belum dijalankan (mode kandidat tunggal). */
+export const RECAP_NOT_DONE_MESSAGE="Hasil belum dapat diumumkan: jalankan Rekapitulasi Suara terlebih dahulu di halaman Rekapitulasi agar Pemilih yang tidak memilih dihitung Abstain.";
+/**
+ * Rekapitulasi Suara (keputusan owner Q232–Q234, 2026-11-22; tautan per putusan
+ * lanjutan 2026-11-22): pengganti Hitung Abstain. Setelah pemungutan suara
+ * ditutup, satu tindakan Admin Voting sekali jalan menyimpan angka Pemilih yang
+ * tidak memilih sebagai Abstain (hanya anggota roll — tautan undangan tidak
+ * dihitung Abstain), MEMBATALKAN setiap tautan yang belum dipakai di batch yang
+ * sama (DPT final menjadi roll + tautan terpakai saja), menandai rekap selesai
+ * (membuka segel angka bagi Admin Voting), dan menjadi gerbang Umumkan Hasil.
+ * Angkanya agregat, tidak pernah per orang.
+ */
+export interface RecapState {
  single_candidate_mode:boolean; stage:Stage;
- /** Sudah dijalankan; angkanya tetap dan tidak dapat dibatalkan. */
- counted:boolean; counted_at:string|null; counted_count:number|null;
- /** Hak pilih beku dikurangi partisipasi (bukan Uji Coba); hanya agregat. */
+ /** Sudah direkap; angkanya tetap dan tidak dapat dibatalkan. */
+ done:boolean; done_at:string|null; abstain_count:number|null;
+ /** Anggota roll yang tidak memilih: angka yang akan disimpan sebagai Abstain. */
  pending_count:number;
+ /** Tautan yang belum dipakai dan belum dibatalkan: akan dibatalkan oleh rekap. */
+ unused_links:number;
  can_run:boolean; reason:string|null;
 }
-interface AbstainRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;abstain_counted_at:string|null;abstain_counted_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
-/** Keadaan tombol Hitung Abstain: alasan penolakan (atau null) dan angka yang akan ditambahkan. */
-export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCountState> {
- const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,abstain_counted_at,abstain_counted_count,live_voter_roll,closing_hak_pilih FROM elections ORDER BY id LIMIT 1").first<AbstainRow>();
+interface RecapRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;recap_at:string|null;recap_abstain_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
+/** Keadaan tombol Rekapitulasi Suara: alasan penolakan (atau null) dan angka yang akan disimpan. */
+export async function getRecapState(db:D1Database,now:Date):Promise<RecapState> {
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,recap_at,recap_abstain_count,live_voter_roll,closing_hak_pilih FROM elections ORDER BY id LIMIT 1").first<RecapRow>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
  const st=stage({status_lock:row.status_lock,opens_at:row.opens_at??"",closes_at:row.closes_at??"",closed_early_at:row.closed_early_at},now.toISOString());
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
+ // Tautan yang belum dipakai dan belum dibatalkan: rekap akan membatalkannya.
+ const unusedLinks=(await db.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE used_at IS NULL AND cancelled_at IS NULL").first<{n:number}>())?.n??0;
  // Mode Tidak Membekukan DPT: angka dasarnya Hak pilih akhir yang tersimpan
  // (penetapan dijalankan di pembacaan ini bila belum ada), bukan hitungan live.
  // Satu penyelesai yang sama dengan hasil/Dasbor, termasuk tautan Undangan
- // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live.
- const eligible=(await resolveHakPilih(db,now)).hakPilih;
- const pending=Math.max(0,eligible-participation);
- const counted=row.abstain_counted_at!==null;
- const reason=row.single_candidate_mode!==1?"Hitung Abstain hanya berlaku pada mode kandidat tunggal."
-  :counted?"Hitung Abstain sudah dijalankan dan tidak dapat diulang."
-  :st!=="closed"?"Hitung Abstain baru tersedia setelah pemungutan suara ditutup.":null;
- return {single_candidate_mode:row.single_candidate_mode===1,stage:st,counted,counted_at:row.abstain_counted_at,counted_count:row.abstain_counted_count,pending_count:pending,can_run:reason===null,reason};
+ // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live. Tautan
+ // yang akan dibatalkan rekap tidak masuk Abstain, jadi dikurangkan di sini.
+ const hakPilih=(await resolveHakPilih(db,now)).hakPilih;
+ const pending=Math.max(0,hakPilih-unusedLinks-participation);
+ const done=row.recap_at!==null;
+ const reason=row.single_candidate_mode!==1?"Rekapitulasi Suara hanya berlaku pada mode kandidat tunggal."
+  :done?"Rekapitulasi Suara sudah dijalankan dan tidak dapat diulang."
+  :st!=="closed"?"Rekapitulasi Suara baru tersedia setelah pemungutan suara ditutup.":null;
+ return {single_candidate_mode:row.single_candidate_mode===1,stage:st,done,done_at:row.recap_at,abstain_count:row.recap_abstain_count,pending_count:pending,unused_links:unusedLinks,can_run:reason===null,reason};
 }
 /**
- * Hitung Abstain (keputusan owner 2026-11-16, Q193): Pemilih yang tidak memilih
- * baru ditambahkan ke Abstain setelah Admin Voting menjalankannya, sekali dan
- * tidak dapat dibatalkan. Hanya menyimpan angka agregat (Hak pilih beku dikurangi
- * partisipasi) dan waktunya; tidak pernah per orang. UPDATE bergerbang dan entri
- * audit dalam satu D1 batch, sehingga permintaan ganda hanya berhasil sekali.
+ * Jalankan Rekapitulasi Suara, sekali dan tidak dapat dibatalkan. Satu D1 batch:
+ * UPDATE bergerbang menyimpan angka agregat, menyesuaikan Hak pilih akhir mode
+ * live dengan jumlah tautan yang dibatalkan, lalu entri audit bergerbang
+ * (changes() dari UPDATE pemilihan), dan pembatalan tautan yang dibergerbang
+ * oleh EXISTS(recap_at). Urutan ini membuat permintaan ganda hanya berhasil
+ * sekali dan tindakan yang ditolak tidak mengubah apa pun. Pembatalan tautan
+ * dicatat sebagai SATU entri audit ringkasan (tanpa rujukan per tautan).
  */
-export async function countAbstain(db:D1Database,now:Date,actor?:AdminActor):Promise<{counted_count:number;counted_at:string}> {
- const state=await getAbstainCount(db,now);
- if(!state.can_run) throw new ElectionError(state.reason??"Hitung Abstain tidak dapat dijalankan",409);
+export async function runRecap(db:D1Database,now:Date,actor?:AdminActor):Promise<{recap_at:string;abstain_count:number;links_cancelled:number}> {
+ const state=await getRecapState(db,now);
+ if(!state.can_run) throw new ElectionError(state.reason??"Rekapitulasi Suara tidak dapat dijalankan",409);
  const row=await db.prepare("SELECT id FROM elections ORDER BY id LIMIT 1").first<{id:number}>();
- const at=now.toISOString(),count=state.pending_count;
- const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Hitung Abstain dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count})});
+ const at=now.toISOString(),count=state.pending_count,unused=state.unused_links;
+ const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Rekapitulasi Suara dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count,tautan_dibatalkan:unused})});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET abstain_counted_at=?,abstain_counted_count=? WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND abstain_counted_at IS NULL").bind(at,count,row!.id),
+  db.prepare("UPDATE elections SET recap_at=?,recap_abstain_count=?,closing_hak_pilih=CASE WHEN closing_hak_pilih IS NULL THEN NULL ELSE MAX(closing_hak_pilih - ?, 0) END WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND recap_at IS NULL").bind(at,count,unused,row!.id),
   auditEntry,
+  db.prepare("UPDATE direct_invitations SET cancelled_at=?,cancelled_by=?,cancelled_by_name=? WHERE used_at IS NULL AND cancelled_at IS NULL AND EXISTS (SELECT 1 FROM elections WHERE id=? AND recap_at = ?)").bind(at,actor?.member_id??null,actor?.name??"Rekapitulasi Suara",row!.id,at),
  ]);
- if(!results[0]?.meta.changes) throw new ElectionError("Hitung Abstain sudah dijalankan",409);
- return {counted_count:count,counted_at:at};
+ if(!results[0]?.meta.changes) throw new ElectionError("Rekapitulasi Suara sudah dijalankan",409);
+ return {recap_at:at,abstain_count:count,links_cancelled:results[2]?.meta.changes??0};
 }
 export async function publishResults(db:D1Database,now:Date) {
  const row=await requireStage(db,now,"closed");
- // Mode kandidat tunggal: hasil baru boleh diumumkan setelah Hitung Abstain dijalankan.
- const gate=await db.prepare("SELECT single_candidate_mode,abstain_counted_at FROM elections WHERE id=?").bind(row.id).first<{single_candidate_mode:number;abstain_counted_at:string|null}>();
- if(gate?.single_candidate_mode===1&&gate.abstain_counted_at===null) throw new ElectionError(ABSTAIN_NOT_COUNTED_MESSAGE,409);
+ // Mode kandidat tunggal: hasil baru boleh diumumkan setelah Rekapitulasi Suara dijalankan.
+ const gate=await db.prepare("SELECT single_candidate_mode,recap_at FROM elections WHERE id=?").bind(row.id).first<{single_candidate_mode:number;recap_at:string|null}>();
+ if(gate?.single_candidate_mode===1&&gate.recap_at===null) throw new ElectionError(RECAP_NOT_DONE_MESSAGE,409);
  // Gerbang diulang di UPDATE agar tidak ada celah antara pemeriksaan dan penulisan.
- const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked' AND (single_candidate_mode=0 OR abstain_counted_at IS NOT NULL)"),await audit(db,now,"Hasil pemilihan diumumkan",null)]);
+ const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked' AND (single_candidate_mode=0 OR recap_at IS NOT NULL)"),await audit(db,now,"Hasil pemilihan diumumkan",null)]);
  if(!result[0]?.meta.changes) throw new ElectionError("Hasil telah diumumkan");
 }
 export async function castTestVote(db:D1Database,now:Date,candidateId:number,adminMemberId:string,choiceInput?:unknown) {

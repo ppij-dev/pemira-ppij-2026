@@ -149,10 +149,13 @@ describe("surat suara undangan", () => {
     const { session } = await readyLink();
     await expect(castInviteVote(env.DB, session, { candidate_id: 2, confirmation_text: "Budi", choice: "setuju" })).rejects.toMatchObject({ reason: "candidate_mismatch" });
     await expect(castInviteVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi" })).rejects.toMatchObject({ reason: "invalid_choice" });
-    await castInviteVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" });
+    // Abstain tidak dapat dipilih lagi (keputusan owner 2026-11-22).
+    await expect(castInviteVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" })).rejects.toMatchObject({ status: 400, reason: "invalid_choice" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first<{ n: number }>())!.n).toBe(0);
+    await castInviteVote(env.DB, session, { candidate_id: 1, confirmation_text: "Budi", choice: "tidak_setuju" });
     const ballot = await env.DB.prepare("SELECT candidate_id, choice FROM ballots").first<{ candidate_id: number; choice: string | null }>();
     expect(ballot!.candidate_id).toBe(1);
-    expect(ballot!.choice).toBe("abstain");
+    expect(ballot!.choice).toBe("tidak_setuju");
   });
 
   it("membuka tautan dan mengisi klaim tidak menandai tautan terpakai; hanya suara yang terkirim", async () => {

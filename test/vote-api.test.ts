@@ -22,6 +22,7 @@ import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
+import recapSql from "../migrations/0019_election_recap.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -99,7 +100,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...memberNumberSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";"), ...liveRollSql.split(";"), ...closingHakPilihSql.split(";"), ...directInvitationsSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...memberNumberSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";"), ...liveRollSql.split(";"), ...closingHakPilihSql.split(";"), ...directInvitationsSql.split(";"), ...recapSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();
@@ -376,8 +377,8 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
     await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
   }
-  // Tiga jawaban; Abstain jawaban nyata (keputusan owner 2026-11-16).
-  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
+  // Dua jawaban (keputusan owner 2026-11-22): Abstain tidak dapat dipilih lagi.
+  const choices = ["setuju", "tidak_setuju"] as const;
 
   it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
     await enableSingleMode();
@@ -395,7 +396,7 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
   });
 
-  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
+  it("menolak permintaan tanpa pilihan atau pilihan di luar dua jawaban tanpa menulis baris", async () => {
     await enableSingleMode();
     const cookie = await sessionCookie("voter-1");
     // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
@@ -404,6 +405,16 @@ describe("POST /api/votes mode kandidat tunggal", () => {
       expect(res.status).toBe(400);
       expect((await res.json() as { error: string }).error).toBe("invalid_choice");
     }
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak jawaban abstain dari surat suara dengan 400 invalid_choice", async () => {
+    await enableSingleMode();
+    // Keputusan owner 2026-11-22: Abstain bukan pilihan Pemilih. CHECK kolom
+    // ballots.choice tetap menerima nilai lama, jadi penolakannya di server.
+    const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toBe("invalid_choice");
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
   });
 

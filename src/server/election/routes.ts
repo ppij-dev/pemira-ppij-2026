@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../app";
 import { createCandidate, deleteCandidate, ElectionError, listCandidates, updateCandidate } from "./candidates";
-import { castTestVote, clearSchedule, closeEarly, countAbstain, getAbstainCount, extendClosing, getLiveVoterRollMode, getReadiness, getSingleCandidateMode, lockElection, publishResults, returnToDraft, setLiveVoterRollMode, setSchedule, setSingleCandidateMode } from "./lifecycle";
+import { castTestVote, clearSchedule, closeEarly, extendClosing, getLiveVoterRollMode, getReadiness, getRecapState, getSingleCandidateMode, lockElection, publishResults, returnToDraft, runRecap, setLiveVoterRollMode, setSchedule, setSingleCandidateMode } from "./lifecycle";
 import type { ServiceApiConfig } from "../serviceapi/client";
 
 type Env={Bindings:Bindings & { ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string };Variables:{adminAuth?:{session:{member_id:string;name:string};admin:{member_id:string};displayName:string}}};
@@ -17,15 +17,17 @@ electionRoutes.delete("/election/candidates/:id",async c=>{try{await deleteCandi
 electionRoutes.get("/election/readiness",async c=>c.json({checks:await getReadiness(c.env.DB,now(c))}));
 electionRoutes.get("/election/single-candidate-mode",async c=>c.json(await getSingleCandidateMode(c.env.DB)));
 electionRoutes.put("/election/single-candidate-mode",async c=>{try{const body=await c.req.json();const auth=c.get("adminAuth");return c.json(await setSingleCandidateMode(c.env.DB,now(c),body?.enabled,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined));}catch(e){return fail(c,e);}});
-electionRoutes.get("/election/live-voter-roll",async c=>c.json(await getLiveVoterRollMode(c.env.DB)));
-electionRoutes.put("/election/live-voter-roll",async c=>{try{const body=await c.req.json();const auth=c.get("adminAuth");return c.json(await setLiveVoterRollMode(c.env.DB,now(c),body?.enabled,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined));}catch(e){return fail(c,e);}});
+electionRoutes.get("/election/live-voter-roll",async c=>c.json(await getLiveVoterRollMode(c.env.DB,now(c),serviceConfig(c.env))));
+// Mematikan saklar setelah Kunci berarti Bekukan DPT sekarang: segarkan final
+// portal lewat jalur Kunci, lalu tulis angka beku + entri audit dalam satu batch.
+electionRoutes.put("/election/live-voter-roll",async c=>{try{const body=await c.req.json();const auth=c.get("adminAuth");return c.json(await setLiveVoterRollMode(c.env.DB,now(c),body?.enabled,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined,{cfg:serviceConfig(c.env)}));}catch(e){return fail(c,e);}});
 electionRoutes.put("/election/schedule",async c=>{try{await setSchedule(c.env.DB,now(c),await c.req.json());return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.delete("/election/schedule",async c=>{try{await clearSchedule(c.env.DB,now(c));return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/lock",async c=>{try{return c.json(await lockElection(c.env.DB,serviceConfig(c.env),now(c)));}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/extend",async c=>{try{const body=await c.req.json();await extendClosing(c.env.DB,now(c),body.closes_at,body.reason);return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/close",async c=>{try{const body=await c.req.json();await closeEarly(c.env.DB,now(c),body.reason);return c.json({ok:true});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/publish",async c=>{try{await publishResults(c.env.DB,now(c));return c.json({ok:true});}catch(e){return fail(c,e);}});
-electionRoutes.get("/election/abstain-count",async c=>{try{return c.json(await getAbstainCount(c.env.DB,now(c)));}catch(e){return fail(c,e);}});
-electionRoutes.post("/election/abstain-count",async c=>{try{const auth=c.get("adminAuth");return c.json({ok:true,...await countAbstain(c.env.DB,now(c),auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined)});}catch(e){return fail(c,e);}});
+electionRoutes.get("/election/recap",async c=>{try{return c.json(await getRecapState(c.env.DB,now(c)));}catch(e){return fail(c,e);}});
+electionRoutes.post("/election/recap",async c=>{try{const auth=c.get("adminAuth");return c.json({ok:true,...await runRecap(c.env.DB,now(c),auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined)});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/return-to-draft",async c=>{try{const body=await c.req.json().catch(()=>null);const auth=c.get("adminAuth");return c.json({ok:true,...await returnToDraft(c.env.DB,now(c),body?.phrase,auth?{member_id:auth.session.member_id,name:auth.displayName}:undefined)});}catch(e){return fail(c,e);}});
 electionRoutes.post("/election/test-vote",async c=>{try{const body=await c.req.json();const memberId=c.get("adminAuth")?.admin.member_id;if(!memberId) throw new ElectionError("Admin tidak terautentikasi",403);return c.json(await castTestVote(c.env.DB,now(c),body.candidate_id,memberId,body.choice),201);}catch(e){return fail(c,e);}});

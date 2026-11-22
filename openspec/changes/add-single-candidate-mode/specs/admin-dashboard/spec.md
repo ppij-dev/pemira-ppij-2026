@@ -5,9 +5,10 @@
 While single candidate mode is on, Dasbor presents the Setuju, Tidak Setuju and Abstain
 counts and their shares of Hak pilih overall and per korda, with the existing refresh,
 suppression and audit rules unchanged. The system never states an outcome: no terpilih,
-tidak terpilih or seri line exists. Members of the frozen Hak pilih who did not vote by
-the deadline count as Abstain only after Admin Voting runs "Hitung Abstain" by hand
-(owner decisions 2026-11-16, superseding W7 Q37/Q38, and Q193: never automatic).
+tidak terpilih or seri line exists. Abstain on Dasbor means only a member of Hak pilih who
+did not vote: owner decision 2026-11-22 removed Abstain as a ballot answer, so it is
+counted solely by "Hitung Abstain", run by hand after voting closes (owner decisions
+2026-11-16, superseding W7 Q37/Q38, and Q193: never automatic).
 
 ## ADDED Requirements
 
@@ -17,13 +18,13 @@ While single candidate mode is on, Dasbor SHALL show to Admin Voting in every st
 
 #### Scenario: Single candidate tally during voting
 
-- **WHEN** an Admin Voting refreshes Dasbor in single candidate mode with Hak pilih 100, 50 Setuju ballots, 30 Tidak Setuju ballots, 5 Abstain ballots and 15 eligible members who did not vote
-- **THEN** Setuju 50 (50%), Tidak Setuju 30 (30%) and Abstain 5 (5%) appear with the line "15 tidak memilih (belum dihitung)", and no outcome line is shown
+- **WHEN** an Admin Voting refreshes Dasbor in single candidate mode with Hak pilih 100, 50 Setuju ballots, 30 Tidak Setuju ballots and 20 eligible members who did not vote before Hitung Abstain has run
+- **THEN** Setuju 50 (50%), Tidak Setuju 30 (30%) and Abstain 0 appear with the line "20 tidak memilih (belum dihitung)", and no outcome line is shown
 
-#### Scenario: Abstain parts shown after Hitung Abstain
+#### Scenario: Abstain total after Hitung Abstain
 
-- **WHEN** Hitung Abstain has run and an Admin Voting reads the Abstain figure in single candidate mode
-- **THEN** the Abstain answers cast and "tidak memilih (dihitung Abstain)" appear as separate parts of the total
+- **WHEN** Hitung Abstain has run with 20 stored and an Admin Voting reads the Abstain figure in single candidate mode
+- **THEN** Abstain reads 20 (20%) as one figure, with no separate "Abstain diberikan" part
 
 #### Scenario: No outcome line
 
@@ -40,14 +41,14 @@ While single candidate mode is on, Dasbor SHALL show to Admin Voting in every st
 - **WHEN** an Admin Voting refreshes Dasbor during a multi-candidate election
 - **THEN** candidate counts with numbers appear exactly as today and no Abstain figure is shown
 
-### Requirement: Abstain broken into cast and tidak memilih
+### Requirement: Abstain means tidak memilih
 
-Until Hitung Abstain has run, Abstain on Dasbor SHALL be the Abstain answers cast only, with the line "N tidak memilih (belum dihitung)" where N is the frozen Hak pilih minus participation. After it has run, the total Abstain SHALL be the Abstain answers cast plus "tidak memilih (dihitung Abstain)", the stored count, with both parts shown separately. Counts SHALL be aggregates, never per person.
+Abstain on Dasbor SHALL mean only the members of Hak pilih who did not vote: 0 with the line "N tidak memilih (belum dihitung)" until Hitung Abstain runs, then the stored count as one figure with no "Abstain diberikan" part. Legacy ballots holding the removed answer still count in the total and SHALL never be broken out. Counts SHALL be aggregates, never per person.
 
 #### Scenario: Before Hitung Abstain
 
-- **WHEN** Hak pilih is 100 with 85 members having voted, 5 of them Abstain, and Hitung Abstain has not run
-- **THEN** Abstain reads 5 (5%) and the line reads "15 tidak memilih (belum dihitung)"
+- **WHEN** Hak pilih is 100 with 80 members having voted and Hitung Abstain has not run
+- **THEN** Abstain reads 0 and the line reads "20 tidak memilih (belum dihitung)"
 
 #### Scenario: Closed and not yet counted
 
@@ -56,8 +57,8 @@ Until Hitung Abstain has run, Abstain on Dasbor SHALL be the Abstain answers cas
 
 #### Scenario: After Hitung Abstain
 
-- **WHEN** Hitung Abstain has run with 15 stored
-- **THEN** the parts read 5 cast and 15 tidak memilih and the total Abstain is 20 (20%)
+- **WHEN** Hitung Abstain has run with 20 stored
+- **THEN** Abstain reads 20 (20%) as one figure
 
 ### Requirement: Per-korda single-candidate results
 
@@ -75,12 +76,12 @@ While single candidate mode is on, each korda row above the suppression threshol
 
 ### Requirement: Per-korda Abstain follows Hitung Abstain
 
-Until Hitung Abstain has run, a korda row SHALL show Abstain as the answers cast only with no "tidak memilih" split. After it has run, the row SHALL split Abstain into cast and "tidak memilih (dihitung Abstain)", derived from that korda's Hak pilih minus participation, under the same suppression.
+Until Hitung Abstain has run, a korda row SHALL show Abstain as 0 with no "tidak memilih" split. After it has run, the row SHALL show Abstain as that korda's Hak pilih minus participation, as one figure, under the same suppression.
 
 #### Scenario: Korda before and after
 
-- **WHEN** a korda with 20 eligible members, 10 ballots and 2 Abstain answers is viewed before and after Hitung Abstain
-- **THEN** before it shows Abstain 2 without a split, and after it shows Abstain 12 as 2 cast and 10 tidak memilih
+- **WHEN** a korda with 20 eligible members and 10 ballots is viewed before and after Hitung Abstain
+- **THEN** before it shows Abstain 0 without a split, and after it shows Abstain 10
 
 ### Requirement: No outcome decided by the system
 
@@ -94,4 +95,4 @@ In single candidate mode the system SHALL NOT compute, store or display whether 
 #### Scenario: No ballots cast
 
 - **WHEN** voting has closed in single candidate mode and no ballots were cast at all
-- **THEN** until Hitung Abstain runs Abstain is 0 with the line "N tidak memilih (belum dihitung)", after it runs every eligible member counts as "tidak memilih (dihitung Abstain)", the Abstain total equals Hak pilih, and no outcome wording appears
+- **THEN** until Hitung Abstain runs Abstain is 0 with the line "N tidak memilih (belum dihitung)", after it runs every eligible member counts as Abstain, the Abstain total equals Hak pilih, and no outcome wording appears

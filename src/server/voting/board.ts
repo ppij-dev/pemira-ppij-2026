@@ -5,9 +5,9 @@ import { AUDIT_GENESIS_HASH, canonicalRow, sha256Hex, type AuditEntry } from "..
 import { stage } from "../lib/stage";
 import { directInviteTerm, liveHakPilih, withDirectInvites } from "../election/hakPilih";
 import type { ServiceApiConfig } from "../serviceapi/client";
-import { refreshPortalViewForRead } from "../serviceapi/sync";
+import { refreshPortalViewForRead, serviceApiConfig, type ServiceApiEnv } from "../serviceapi/sync";
 
-type Env = { Bindings: Bindings };
+type Env = { Bindings: Bindings & ServiceApiEnv };
 
 export interface ElectionRow {
   id: number;
@@ -315,22 +315,43 @@ export async function checkReceipt(db: D1Database, receiptHash: string): Promise
   return { found: !!found };
 }
 
-export async function getPublicBoard(db: D1Database, now: Date) {
+export interface PublicBoard {
+  /** Hash kode bukti, bukan kode mentah atau pilihan kandidat (aturan keras 3). */
+  receipt_hashes: string[];
+  participation_count: number;
+  ballot_count: number;
+  closing_snapshot_hash: string | null;
+  updated_at: string;
+  /** Hak pilih akhir: snapshot penutupan atau angka beku (penyelesai tunggal). */
+  hak_pilih: number;
+  hak_pilih_source: HakPilihResolution["source"];
+  /** Satu desimal, aturan yang sama dengan persentase partisipasi hasil. */
+  turnout_percentage: number;
+  /** Waktu penutupan: Tutup Sekarang atau jadwal closes_at. */
+  closed_at: string | null;
+}
+
+export async function getPublicBoard(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<PublicBoard | null> {
   const election = await db.prepare("SELECT * FROM elections ORDER BY id LIMIT 1").first<ElectionRow>();
   if (!election || (stage(election, now.toISOString()) !== "closed" && election.status_lock !== "published")) return null;
   const snapshotHash = await ensureClosingSnapshot(db, now);
   // Mode Tidak Membekukan DPT: penetapan Hak pilih akhir ikut dibaca di sini
   // supaya tidak ada pembaca yang melihat "Ditutup tapi belum disimpan".
-  await ensureClosingHakPilih(db, now);
+  const hakPilih = await resolveHakPilih(db, now, portal);
   const ballots = await db.prepare("SELECT receipt_hash FROM ballots WHERE election_id=? ORDER BY id").bind(election.id).all<{ receipt_hash: string }>();
   const participation = await db.prepare("SELECT COUNT(*) AS count FROM participation WHERE election_id=? AND is_test=0").bind(election.id).first<{ count: number }>();
   const updatedElection = await db.prepare("SELECT closing_snapshot_at FROM elections WHERE id=?").bind(election.id).first<{ closing_snapshot_at: string | null }>();
+  const participationCount = participation?.count ?? 0;
   return {
     receipt_hashes: ballots.results.map((row) => row.receipt_hash),
-    participation_count: participation?.count ?? 0,
+    participation_count: participationCount,
     ballot_count: ballots.results.length,
     closing_snapshot_hash: snapshotHash,
     updated_at: updatedElection?.closing_snapshot_at ?? election.closing_snapshot_at ?? now.toISOString(),
+    hak_pilih: hakPilih.hakPilih,
+    hak_pilih_source: hakPilih.source,
+    turnout_percentage: hakPilih.hakPilih > 0 ? Math.round((participationCount / hakPilih.hakPilih) * 1000) / 10 : 0,
+    closed_at: election.closed_early_at ?? election.closes_at,
   };
 }
 
@@ -347,7 +368,7 @@ async function handleReceiptCheck(c: import("hono").Context<Env>) {
 }
 
 async function handleBoard(c: import("hono").Context<Env>) {
-  const board = await getPublicBoard(c.env.DB, new Date());
+  const board = await getPublicBoard(c.env.DB, new Date(), serviceApiConfig(c.env));
   return board ? c.json(board) : c.json({ error: "pemilihan_belum_ditutup" }, 409);
 }
 

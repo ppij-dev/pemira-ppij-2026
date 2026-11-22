@@ -70,3 +70,15 @@ not appear in frozen-roll elections or outside the open stage.
 
 - **WHEN** an Admin Voting opens Dasbor in a frozen-roll election, or in live mode while Terjadwal
 - **THEN** no stale-view banner appears
+
+### Requirement: Frozen-roll notes after a mid-vote freeze
+
+Once the roll has been frozen — at Kunci & Jadwalkan with the switch off, or mid-vote by
+turning the switch off (owner decision 2026-11-22) — Dasbor SHALL show a note that the
+roll is frozen, naming the freeze time in JST and the frozen Hak pilih, and every Dasbor
+figure SHALL come from the frozen number as in any frozen-roll election.
+
+#### Scenario: Dasbor names the freeze after a mid-vote freeze
+
+- **WHEN** the roll was frozen mid-vote and an Admin Voting opens Dasbor while the election is still locked
+- **THEN** the live-mode note is replaced by a frozen-roll note naming the freeze time and the frozen Hak pilih, and Hak pilih no longer follows the portal
