@@ -18,10 +18,16 @@ plus a `choice` column, and Bahasa Indonesia copy with no emoji.
 
 **Superseded by the owner's decision of 2026-11-16.** The earlier W7 Q37 (two answers, no
 Abstain) and W7 Q38 (non-voters count as Tidak Setuju; terpilih / tidak terpilih / seri
-outcome, "Menunggu penutupan" before close) no longer hold. The new decisions: the ballot
-has three answers (Setuju, Tidak Setuju, Abstain); a member of the frozen Hak pilih who has
-not voted by the deadline counts as Abstain; and the system does not decide the outcome —
-it shows only counts and shares of Hak pilih.
+outcome, "Menunggu penutupan" before close) no longer hold from that date. The new
+decisions: the ballot has three answers (Setuju, Tidak Setuju, Abstain); a member of the
+frozen Hak pilih who has not voted by the deadline counts as Abstain; and the system does
+not decide the outcome — it shows only counts and shares of Hak pilih.
+
+**Superseded again on 2026-11-22 for the ballot only.** The owner restored W7 Q37's ballot:
+Abstain is not an answer a voter can pick, on the member path or the invitation path, and
+the server refuses it with 400 `invalid_choice`. What Abstain means (a member of Hak pilih
+who did not vote, counted by Hitung Abstain after close) and the no-outcome rule of
+2026-11-16 still hold. See D10.
 
 ## Goals / Non-goals
 
@@ -118,7 +124,7 @@ are shares of Hak pilih per scope (overall and per korda).
 
 While the mode is on, the vote request still carries `candidate_id` (it MUST equal the one
 registered candidate — kept so the storage contract does not fork) and additionally the
-answer as `choice` ∈ `setuju | tidak_setuju | abstain`. A request without a valid choice
+answer as `choice` ∈ `setuju | tidak_setuju` (D10 removed `abstain`). A request without a valid choice
 is refused with HTTP 400 and records nothing, mirroring the existing confirmation-text
 refusal. While the mode is off, a request that carries a non-null `choice` is refused the
 same way, so multi-candidate behavior stays unchanged. The confirmation sheet is
@@ -142,8 +148,9 @@ counts are null there).
 ### D6: Uji Coba and preview mode
 
 In Draf, Uji Coba is the committee's rehearsal of the real ballot, so while the mode is on
-the test-vote flow lets the Admin Voting pick any of the three answers, Setuju, Tidak Setuju
-or Abstain (owner decisions 2026-11-13 and 2026-11-16) and stores it on the test ballot (still deleted at Kunci,
+the test-vote flow lets the Admin Voting pick either answer, Setuju or Tidak Setuju (owner
+decisions 2026-11-13 and 2026-11-22, which removed Abstain from every ballot path) and
+stores it on the test ballot (still deleted at Kunci,
 still marked as test data on Dasbor). Preview mode and single candidate mode are
 independent switches in Pengaturan: preview still auto-registers voters and skips the
 final sync at Kunci; single candidate mode still demands exactly one candidate at Kunci.
@@ -152,11 +159,12 @@ final sync at Kunci; single candidate mode still demands exactly one candidate a
 
 - Switch: "Mode kandidat tunggal" with helper text that it can only be changed while Draf
   and demands exactly one candidate at Kunci & Jadwalkan.
-- Ballot answers: "Setuju", "Tidak Setuju" and "Abstain" (the owner's exact words).
+- Ballot answers: "Setuju" and "Tidak Setuju" (the owner's exact words on 2026-11-22).
+  "Abstain" stays only as the result label for members who did not vote.
 - No outcome lines: the system never says Terpilih, Tidak terpilih, Seri or "Menunggu
   penutupan pemungutan suara".
-- Result labels: "Setuju", "Tidak Setuju", "Abstain" (total), with the parts "Abstain
-  diberikan" (cast) and "Tidak memilih (dihitung Abstain)".
+- Result labels: "Setuju", "Tidak Setuju", "Abstain" — Abstain shown as one figure that
+  means the members who did not vote; no "Abstain diberikan" part (D10).
 - Refusal to add a second candidate: names the mode, e.g. "Mode kandidat tunggal aktif:
   hanya satu kandidat yang dapat didaftarkan."
 - Toggle audit actions: "Mode kandidat tunggal diaktifkan" / "Mode kandidat tunggal
@@ -186,9 +194,8 @@ and every link to the profile — cards, landing page, ballot — uses that numb
 the numbered URL is not generated in single mode.
 
 **Confirmation sheet copy.** Per the owner's exact wording, the sheet states the chosen
-answer: "Pilihan Anda: Setuju terhadap <nickname>", "Pilihan Anda: Tidak Setuju terhadap
-<nickname>" or "Pilihan Anda: Abstain terhadap <nickname>" (the Abstain wording is back
-by the owner decision of 2026-11-16).
+answer: "Pilihan Anda: Setuju terhadap <nickname>" or "Pilihan Anda: Tidak Setuju terhadap
+<nickname>". The Abstain wording of 2026-11-16 is gone again with the 2026-11-22 decision.
 
 ### D9: Hitung Abstain, a manual once-only action (owner decision Q193)
 
@@ -219,6 +226,26 @@ there while the action is pending. The dialog states the number that will be add
 - **Reset:** Kembali ke Draf clears both columns together with the other closing data.
   Uji Coba (Draf only) never touches them. Kunci & Jadwalkan leaves them NULL.
 
+### D10: Abstain is removed from the ballot (owner decision 2026-11-22)
+
+The ballot has two answers again. `VOTE_CHOICES` in `src/server/voting/choice.ts` is the
+single list behind the member path (`voting/vote.ts`), the invitation path
+(`direct/vote.ts`) and Uji Coba (`lifecycle.ts`), so removing `abstain` there refuses it in
+all three with 400 `invalid_choice`, writes no participation row, no ballot and no audit
+entry, and removes the radio from both ballot pages including the confirmation sheet.
+
+- **No migration.** Migration `0013` widened the CHECK to accept `abstain`; a row written
+  before this decision may hold it, and SQLite cannot narrow a CHECK in place without
+  rebuilding the table on a live election. The CHECK therefore stays as it is and the
+  server alone refuses the value. Every reader treats `choice = 'abstain'` as legacy data.
+- **Abstain stays as a result number only.** It is the members of Hak pilih who did not
+  vote, counted by Hitung Abstain after close (D9). The results payload keeps
+  `abstain_cast_count` for completeness but no page renders an "Abstain diberikan" line:
+  Dasbor, Hasil and the landing card show a single Abstain figure with the line "N tidak
+  memilih (belum dihitung)" before Hitung Abstain runs.
+- **Secrecy and receipts are untouched:** fewer values in the column changes nothing about
+  the batch, the random ballot id, the missing timestamp or the receipt hash.
+
 ## Risks / Trade-offs
 
 - **Mode mishandled between Draf and Kunci** — mitigated by the mode-aware readiness check
@@ -248,6 +275,6 @@ backfill is needed (no election has run in this mode before).
 
 _None._ Q35 (the switch refuses to turn on with 2+ candidates) still holds. W7 Q37 (no
 Abstain) and W7 Q38 (non-voters count as Tidak Setuju, outcome after close) are superseded
-by the owner's decision of 2026-11-16 (three answers, non-voters count as Abstain, the
+by the owner's decision of 2026-11-16 (three answers then; two answers and no Abstain on the ballot since 2026-11-22, non-voters count as Abstain, the
 system decides no outcome). Owner decision Q193 refines when non-voters join Abstain: only
 after Admin Voting runs Hitung Abstain by hand (D9).

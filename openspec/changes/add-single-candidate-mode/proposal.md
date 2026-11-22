@@ -1,4 +1,4 @@
-# Proposal: Single candidate mode (Setuju / Tidak Setuju / Abstain)
+# Proposal: Single candidate mode (Setuju / Tidak Setuju)
 
 ## Why
 
@@ -8,15 +8,20 @@ cannot run such an election at all: Kunci & Jadwalkan requires 2–10 candidates
 ballot is a pick between candidate cards. Owner decision (2026-11-13): add an explicit
 **single candidate mode** that Admin Voting turns on in Pengaturan while Draf; while it is
 on, Kunci & Jadwalkan demands exactly one candidate, and the ballot asks
-Setuju, Tidak Setuju or Abstain about that candidate. A member of the frozen Hak pilih who
-did not vote by the deadline counts as Abstain. The system does not decide the outcome: it
+Setuju or Tidak Setuju about that candidate. A member of the Hak pilih who did not vote by
+the deadline counts as Abstain. The system does not decide the outcome: it
 shows only the counts and their shares of Hak pilih, and the committee draws the
 conclusion. Ballot secrecy, receipts, eligibility and participation rules are unchanged.
 
-> **Superseded decisions.** The owner's decision of 2026-11-16 replaces the earlier W7
+> **Superseded decisions.** The owner's decision of 2026-11-16 replaced the earlier W7
 > Q37 (no Abstain) and W7 Q38 (non-voters count as Tidak Setuju, with a terpilih / tidak
-> terpilih / seri outcome). Where this change still mentions the old rules they are marked
-> as superseded; the 2026-11-16 decision is the one that holds.
+> terpilih / seri outcome). The owner's decision of **2026-11-22** then restored W7 Q37's
+> ballot: Abstain is no longer an answer a voter can pick, in the ballot, the confirmation
+> sheet, the member vote path or the invitation vote path, and the server refuses it with
+> 400 `invalid_choice`. Abstain now means only the members of Hak pilih who did not vote,
+> counted by Hitung Abstain after voting closes, which is the part of the 2026-11-16
+> decision that holds. Where this change still mentions the older rules they are marked as
+> superseded; the 2026-11-22 decision is the one that holds.
 
 ## What Changes
 
@@ -34,14 +39,14 @@ conclusion. Ballot secrecy, receipts, eligibility and participation rules are un
   only be turned on while 0 or 1 candidate is registered; with 2+ candidates Pengaturan
   refuses the switch with a clear message naming the candidate count (owner decision
   2026-11-13, Q35).
-- **Ballot with three answers.** While the mode is on and voting is open, the eligible
-  voter sees the single candidate and chooses exactly one of Setuju, Tidak Setuju or
-  Abstain before the same confirmation sheet (typing the candidate's nickname) and the
-  same "Kirim Suara". Abstain is a real answer and follows the same confirmation sheet,
-  receipt and secrecy rules as the other two. Same eligibility (frozen roll +
-  `can_vote`), same one-vote-per-member, same one-time receipt code, same receipt board,
-  same ballot secrecy. Multi-candidate elections have no Abstain. (Owner decision
-  2026-11-16; supersedes "no Abstain", W7 Q37.)
+- **Ballot with two answers.** While the mode is on and voting is open, the eligible
+  voter sees the single candidate and chooses exactly one of Setuju or Tidak Setuju before
+  the same confirmation sheet (typing the candidate's nickname) and the same "Kirim Suara",
+  on the member path and the invitation path alike. The server refuses `abstain` (and any
+  other value) with 400 `invalid_choice` and records nothing. Same eligibility (frozen or
+  live roll + `can_vote`), same one-vote-per-member, same one-time receipt code, same
+  receipt board, same ballot secrecy. Multi-candidate elections have no answer choice at
+  all. (Owner decision 2026-11-22; supersedes the three-answer ballot of 2026-11-16.)
 - **Storage.** Ballots keep `candidate_id` pointing at the single candidate and gain a
   `choice` column (migration `0012_ballot_choice.sql` allowed `setuju` and `tidak_setuju`;
   migration `0013_ballot_choice_abstain.sql` rebuilds the column CHECK to `setuju`,
@@ -65,9 +70,10 @@ conclusion. Ballot secrecy, receipts, eligibility and participation rules are un
   while the mode is on is stored with a fixed internal nomor (1) that is never rendered,
   and the profile URL drops the number segment (`/kandidat/<nickname>`).
 - **Results and Dasbor.** Setuju, Tidak Setuju and Abstain counts with their shares of
-  Hak pilih — overall and per korda. The total Abstain is shown together with its two
-  parts, the Abstain answers cast and "tidak memilih (dihitung Abstain)", so a reader can
-  tell them apart. No outcome line. Participation statistics unchanged; the
+  Hak pilih — overall and per korda. Abstain is the non-voters only (Hak pilih minus
+  participation, stored by Hitung Abstain) and is shown as one figure; the "Abstain
+  diberikan" part is gone because no ballot carries that answer any more. Legacy ballots
+  that still hold it count inside the total and are never broken out. No outcome line. Participation statistics unchanged; the
   under-10-ballots per-korda suppression unchanged. "Tidak memilih" is derived from the
   frozen Hak pilih minus participation, never per person, so ballot secrecy is untouched.
   Public results after Diumumkan show the same presentation.
@@ -82,16 +88,15 @@ _None — the mode lives inside existing capabilities._
 
 ### Modified Capabilities
 
-- `voting-and-receipts`: the single-candidate ballot with the three answers, the extended
+- `voting-and-receipts`: the single-candidate ballot with the two answers, the extended
   ballot storage (`choice`), unchanged receipts/board/confirmation, and Uji Coba with a
   choice.
 - `election-lifecycle`: the Draf-only switch in Pengaturan, the mode-aware readiness check,
   and the frozen mode value at Kunci & Jadwalkan.
 - `candidate-management`: refusing a second candidate while the mode is on; the number-free
   candidate form with the stored internal nomor; the nickname-only profile URL.
-- `admin-dashboard`: Dasbor choice tallies with their shares of Hak pilih (Abstain split
-  into cast and "tidak memilih"), no outcome line, and the per-korda breakdown in single
-  candidate mode.
+- `admin-dashboard`: Dasbor choice tallies with their shares of Hak pilih (Abstain = tidak
+  memilih), no outcome line, and the per-korda breakdown in single candidate mode.
 - `public-site`: published results show the same tallies and no outcome line, including
   non-voters counted as Abstain.
 - `audit-log`: audit entries for the toggles and the frozen mode value.
@@ -105,7 +110,7 @@ _None — the mode lives inside existing capabilities._
   `election/candidates.ts` (second-candidate refusal), `voting/vote.ts` (choice
   validation and storage), `voting/routes.ts`, `voting/choice.ts`, `results/queries.ts` (choice tallies, no
   outcome), admin routes for the toggle.
-- **UI:** `admin/pemilihan.astro` (switch in Pengaturan), `pilih-suara.astro` (three
+- **UI:** `admin/pemilihan.astro` (switch in Pengaturan), `pilih-suara.astro` (two
   answers before the confirmation sheet, no nomor urut), `admin/dasbor.astro` and
   `hasil.astro` and `index.astro` (counts, percentages, no outcome line, no nomor urut),
   `admin/kandidat.astro` (form without nomor urut while the mode is on),
@@ -113,8 +118,8 @@ _None — the mode lives inside existing capabilities._
   (nickname-only profile URL `/kandidat/<nickname>` and number-free cards).
 - **Tests:** `test/schema.test.ts` (migrations), `test/election-lifecycle.test.ts`
   (switch, readiness, lock freeze), `test/candidates.test.ts` (second-candidate refusal),
-  `test/vote-api.test.ts` (three answers, unknown choice refused, secrecy, refusal when mode
-  off), `test/results-api.test.ts` (tallies, non-voters as Abstain, no outcome,
+  `test/vote-api.test.ts` (two answers, `abstain` and unknown choices refused, secrecy,
+  refusal when mode off), `test/invite-vote.test.ts` (invitation path), `test/results-api.test.ts` (tallies, non-voters as Abstain, no outcome,
   suppression),
   `test/receipt-board.test.ts` (verification unchanged).
 - **Risk:** a mode toggled late or misread between Draf and Kunci. Mitigated by the
