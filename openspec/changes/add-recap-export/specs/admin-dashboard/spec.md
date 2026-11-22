@@ -31,18 +31,19 @@ icons only, Bahasa Indonesia, no polling, 44px minimum controls.
 #### Scenario: Tabs after the recap
 
 - **WHEN** the recap is done and an Admin Voting opens the page
-- **THEN** the five tabs Ringkasan, Korda, Komsat, Kotak suara and Abstain render the recap data, the Unduh Excel button builds the .xlsx in the browser from the loaded JSON, and a link points to Umumkan Hasil in Pengaturan
+- **THEN** the five tabs Ringkasan, Korda, Komsat, Kotak suara and Abstain render the recap data, the Abstain tab shows anonymised counts per komsat with no name or member number, the Unduh Excel button builds the .xlsx in the browser from the loaded JSON, and a link points to Umumkan Hasil in Pengaturan
 
 ### Requirement: The recap confirmation dialog is one-way
 
 After the close and before the recap, the page SHALL show the heading, a short
 explanation, and the "Rekapitulasi Suara" button with a confirmation dialog that
-states the non-voter count that will become Abstain and that the action is one-way.
+states the non-voter count that will become Abstain, the count of unused invite links
+that will be cancelled, and that the action is one-way.
 
-#### Scenario: Dialog states the count
+#### Scenario: Dialog states the counts
 
 - **WHEN** an Admin Voting opens the confirmation dialog before the recap has run
-- **THEN** the dialog names the pending non-voter count that will become Abstain and says the action cannot be undone
+- **THEN** the dialog names the pending non-voter count that will become Abstain, states how many unused links will be cancelled, and says the action cannot be undone
 
 #### Scenario: Excel is built in the browser
 

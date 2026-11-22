@@ -20,6 +20,15 @@ site still sees nothing until Diumumkan, and every recap view and download is au
   recap not done) and `recap_abstain_count` (the non-voter count stored as Abstain,
   >= 0), following the `abstain_counted_*` pattern. They are the single source of truth
   for "recap done" and for the stored Abstain figure.
+
+- **Unused invite links are cancelled by the recap (owner decision 2026-11-22,
+  follow-up).** Unused links are NOT Abstain. In the same guarded batch, every link
+  that is still unused (not used, not cancelled) is cancelled (Dibatalkan,
+  `cancelled_at` = the recap time). After the recap DPT final is the roll plus USED
+  links only, and Abstain is only roll members who did not vote. Before the recap
+  (live Hak pilih during voting) unused links still add +1 as today; only the recap
+  cancels them. The recap audit entry's detail carries the count of cancelled links
+  (ONE summary entry, no per-link entries and no references).
 - **Rekapitulasi Suara replaces Hitung Abstain.** One guarded D1 batch (UPDATE gate +
   hash-chained audit entry, exactly the Hitung Abstain pattern) stores the non-voter
   count (Hak pilih minus participation, via the existing Hak pilih resolver) in
@@ -61,9 +70,11 @@ site still sees nothing until Diumumkan, and every recap view and download is au
   - **Kotak suara:** one row per ballot with ONLY the receipt hash and the choice
     (Setuju / Tidak Setuju), ordered by receipt hash (already random). No komsat, no
     time, no member (owner decision Q229).
-  - **Abstain:** members who did not vote with name, member number, korda and komsat
-    (owner decision Q230); never-used invite links appear as rows "Tautan undangan
-    <reference> (tidak dipakai)".
+  - **Abstain:** ANONYMISED counts per komsat (owner decision 2026-11-22, replacing
+    Q230): Korda, Komsat, the count of members who did not vote, and the share of
+    that komsat's Hak pilih — never any per-member data (no name, no member number,
+    never sent from the server). Every komsat is listed, including those with 0, and
+    the total row equals the Abstain count.
 - **Audit.** Every recap-data load appends a hash-chained "Rekapitulasi dilihat" entry
   and every Excel download a "Rekapitulasi diunduh" entry, with no data in the detail —
   the same pattern as the existing tally-view entries.

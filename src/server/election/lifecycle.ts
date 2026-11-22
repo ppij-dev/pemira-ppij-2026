@@ -316,19 +316,23 @@ export async function closeEarly(db:D1Database,now:Date,reason:string) {
 /** Pesan penolakan Umumkan selama Rekapitulasi Suara belum dijalankan (mode kandidat tunggal). */
 export const RECAP_NOT_DONE_MESSAGE="Hasil belum dapat diumumkan: jalankan Rekapitulasi Suara terlebih dahulu di halaman Rekapitulasi agar Pemilih yang tidak memilih dihitung Abstain.";
 /**
- * Rekapitulasi Suara (keputusan owner Q232–Q234, 2026-11-22): pengganti Hitung
- * Abstain. Setelah pemungutan suara ditutup, satu tindakan Admin Voting sekali
- * jalan menyimpan angka Pemilih yang tidak memilih sebagai Abstain, menandai
- * rekap selesai (membuka segel angka bagi Admin Voting), dan menjadi gerbang
- * Umumkan Hasil. Angkanya agregat yang sama: Hak pilih dikurangi partisipasi,
- * tidak pernah per orang.
+ * Rekapitulasi Suara (keputusan owner Q232–Q234, 2026-11-22; tautan per putusan
+ * lanjutan 2026-11-22): pengganti Hitung Abstain. Setelah pemungutan suara
+ * ditutup, satu tindakan Admin Voting sekali jalan menyimpan angka Pemilih yang
+ * tidak memilih sebagai Abstain (hanya anggota roll — tautan undangan tidak
+ * dihitung Abstain), MEMBATALKAN setiap tautan yang belum dipakai di batch yang
+ * sama (DPT final menjadi roll + tautan terpakai saja), menandai rekap selesai
+ * (membuka segel angka bagi Admin Voting), dan menjadi gerbang Umumkan Hasil.
+ * Angkanya agregat, tidak pernah per orang.
  */
 export interface RecapState {
  single_candidate_mode:boolean; stage:Stage;
  /** Sudah direkap; angkanya tetap dan tidak dapat dibatalkan. */
  done:boolean; done_at:string|null; abstain_count:number|null;
- /** Hak pilih dikurangi partisipasi (bukan Uji Coba); hanya agregat. */
+ /** Anggota roll yang tidak memilih: angka yang akan disimpan sebagai Abstain. */
  pending_count:number;
+ /** Tautan yang belum dipakai dan belum dibatalkan: akan dibatalkan oleh rekap. */
+ unused_links:number;
  can_run:boolean; reason:string|null;
 }
 interface RecapRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;recap_at:string|null;recap_abstain_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
@@ -338,36 +342,43 @@ export async function getRecapState(db:D1Database,now:Date):Promise<RecapState> 
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
  const st=stage({status_lock:row.status_lock,opens_at:row.opens_at??"",closes_at:row.closes_at??"",closed_early_at:row.closed_early_at},now.toISOString());
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
+ // Tautan yang belum dipakai dan belum dibatalkan: rekap akan membatalkannya.
+ const unusedLinks=(await db.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE used_at IS NULL AND cancelled_at IS NULL").first<{n:number}>())?.n??0;
  // Mode Tidak Membekukan DPT: angka dasarnya Hak pilih akhir yang tersimpan
  // (penetapan dijalankan di pembacaan ini bila belum ada), bukan hitungan live.
  // Satu penyelesai yang sama dengan hasil/Dasbor, termasuk tautan Undangan
- // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live.
- const eligible=(await resolveHakPilih(db,now)).hakPilih;
- const pending=Math.max(0,eligible-participation);
+ // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live. Tautan
+ // yang akan dibatalkan rekap tidak masuk Abstain, jadi dikurangkan di sini.
+ const hakPilih=(await resolveHakPilih(db,now)).hakPilih;
+ const pending=Math.max(0,hakPilih-unusedLinks-participation);
  const done=row.recap_at!==null;
  const reason=row.single_candidate_mode!==1?"Rekapitulasi Suara hanya berlaku pada mode kandidat tunggal."
   :done?"Rekapitulasi Suara sudah dijalankan dan tidak dapat diulang."
   :st!=="closed"?"Rekapitulasi Suara baru tersedia setelah pemungutan suara ditutup.":null;
- return {single_candidate_mode:row.single_candidate_mode===1,stage:st,done,done_at:row.recap_at,abstain_count:row.recap_abstain_count,pending_count:pending,can_run:reason===null,reason};
+ return {single_candidate_mode:row.single_candidate_mode===1,stage:st,done,done_at:row.recap_at,abstain_count:row.recap_abstain_count,pending_count:pending,unused_links:unusedLinks,can_run:reason===null,reason};
 }
 /**
  * Jalankan Rekapitulasi Suara, sekali dan tidak dapat dibatalkan. Satu D1 batch:
- * UPDATE bergerbang menyimpan angka agregat dan waktunya, lalu entri audit
- * bergerbang yang hanya tertulis bila UPDATE itu berhasil, sehingga permintaan
- * ganda hanya berhasil sekali dan tindakan yang ditolak tidak meninggalkan jejak.
+ * UPDATE bergerbang menyimpan angka agregat, menyesuaikan Hak pilih akhir mode
+ * live dengan jumlah tautan yang dibatalkan, lalu entri audit bergerbang
+ * (changes() dari UPDATE pemilihan), dan pembatalan tautan yang dibergerbang
+ * oleh EXISTS(recap_at). Urutan ini membuat permintaan ganda hanya berhasil
+ * sekali dan tindakan yang ditolak tidak mengubah apa pun. Pembatalan tautan
+ * dicatat sebagai SATU entri audit ringkasan (tanpa rujukan per tautan).
  */
-export async function runRecap(db:D1Database,now:Date,actor?:AdminActor):Promise<{recap_at:string;abstain_count:number}> {
+export async function runRecap(db:D1Database,now:Date,actor?:AdminActor):Promise<{recap_at:string;abstain_count:number;links_cancelled:number}> {
  const state=await getRecapState(db,now);
  if(!state.can_run) throw new ElectionError(state.reason??"Rekapitulasi Suara tidak dapat dijalankan",409);
  const row=await db.prepare("SELECT id FROM elections ORDER BY id LIMIT 1").first<{id:number}>();
- const at=now.toISOString(),count=state.pending_count;
- const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Rekapitulasi Suara dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count})});
+ const at=now.toISOString(),count=state.pending_count,unused=state.unused_links;
+ const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Rekapitulasi Suara dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count,tautan_dibatalkan:unused})});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET recap_at=?,recap_abstain_count=? WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND recap_at IS NULL").bind(at,count,row!.id),
+  db.prepare("UPDATE elections SET recap_at=?,recap_abstain_count=?,closing_hak_pilih=CASE WHEN closing_hak_pilih IS NULL THEN NULL ELSE MAX(closing_hak_pilih - ?, 0) END WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND recap_at IS NULL").bind(at,count,unused,row!.id),
   auditEntry,
+  db.prepare("UPDATE direct_invitations SET cancelled_at=?,cancelled_by=?,cancelled_by_name=? WHERE used_at IS NULL AND cancelled_at IS NULL AND EXISTS (SELECT 1 FROM elections WHERE id=? AND recap_at = ?)").bind(at,actor?.member_id??null,actor?.name??"Rekapitulasi Suara",row!.id,at),
  ]);
  if(!results[0]?.meta.changes) throw new ElectionError("Rekapitulasi Suara sudah dijalankan",409);
- return {recap_at:at,abstain_count:count};
+ return {recap_at:at,abstain_count:count,links_cancelled:results[2]?.meta.changes??0};
 }
 export async function publishResults(db:D1Database,now:Date) {
  const row=await requireStage(db,now,"closed");

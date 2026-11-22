@@ -136,14 +136,18 @@ export function referenceCalculator({ units, members, votes, invites, closedAt }
     return parts.length >= 2 ? `/${parts[0]}/${parts[1]}` : `/${parts[0]}`;
   };
   const roll = members.length;
-  const active = invites.filter((i) => !i.cancelled);
-  const used = active.filter((i) => i.used);
-  const unused = active.filter((i) => !i.used);
-  const hakPilih = roll + active.length;
+  // Keputusan pemilik 2026-11-22: tautan yang belum dipakai dibatalkan oleh
+  // rekap dan tidak dihitung Abstain. Angka di bawah adalah keadaan SETELAH
+  // rekap: aktif = terpakai saja, Abstain hanya anggota roll yang tidak memilih.
+  const manualCancelled = invites.filter((i) => i.cancelled);
+  const used = invites.filter((i) => i.used);
+  const unused = [];
+  const cancelled = [...manualCancelled, ...invites.filter((i) => !i.used && !i.cancelled)];
+  const hakPilih = roll + used.length;
   const participation = votes.length + used.length;
   const setuju = votes.filter((v) => v.choice === "setuju").length + used.filter((i) => i.choice === "setuju").length;
   const tidak = votes.filter((v) => v.choice === "tidak_setuju").length + used.filter((i) => i.choice === "tidak_setuju").length;
-  const abstain = hakPilih - participation;
+  const abstain = roll - votes.length;
   const pct = (n) => Math.round((n / hakPilih) * 1000) / 10;
   const kordaRows = new Map();
   for (const unit of units.filter((u) => u.type === "korda")) kordaRows.set(unit.path, { name: unit.name, hak: 0, used: 0 });
@@ -169,15 +173,29 @@ export function referenceCalculator({ units, members, votes, invites, closedAt }
     bump(kordaRows, regionKey(path), "used", n);
     bump(komsatRows, path, "used", n);
   }
-  if (unused.length > 0) {
-    kordaRows.set("_tautan", { name: "Tautan undangan belum dipakai", hak: unused.length, used: 0, remainder: true });
-    komsatRows.set("_tautan", { korda: "—", name: "Tautan undangan belum dipakai", hak: unused.length, used: 0, remainder: true });
-  }
+  // Tidak ada baris tautan lagi: rekap membatalkan yang belum dipakai, jadi
+  // jumlah kolom sudah sama dengan DPT final (roll + tautan terpakai).
   const share = (row) => (row.hak > 0 && !row.remainder ? Math.round((row.used / row.hak) * 1000) / 10 : null);
+  const votedMembers = new Set(votes.map((v) => v.member));
+  // Abstain dianonimkan (putusan 2026-11-22): hitungan per komsat, tanpa nama.
+  const perKomsat = new Map();
+  for (const unit of units.filter((u) => u.type === "komsat")) {
+    perKomsat.set(unit.path, {
+      korda: unitNames.get(unit.parent),
+      name: unit.name,
+      hak: komsatRows.get(unit.path)?.hak ?? 0,
+      abstain: 0,
+    });
+  }
+  for (const member of members) {
+    if (votedMembers.has(member.member_id)) continue;
+    const row = perKomsat.get(member.komsat_path);
+    if (row) row.abstain += 1;
+  }
   return {
     closedAt,
     total_dpt: roll,
-    invites: { created: invites.length, cancelled: invites.filter((i) => i.cancelled).length, used: used.length, unused: unused.length },
+    invites: { created: invites.length, cancelled: cancelled.length, used: used.length, unused: unused.length },
     dpt_final: hakPilih,
     votes_used: participation,
     setuju,
@@ -188,6 +206,10 @@ export function referenceCalculator({ units, members, votes, invites, closedAt }
     abstain_pct: pct(abstain),
     korda: [...kordaRows.values()].map((row) => ({ ...row, pct: share(row) })),
     komsat: [...komsatRows.values()].map((row) => ({ ...row, pct: share(row) })),
+    abstain_per_komsat: [...perKomsat.values()].map((row) => ({
+      ...row,
+      share: row.hak > 0 ? Math.round((row.abstain / row.hak) * 1000) / 10 : null,
+    })),
   };
 }
 
@@ -238,7 +260,7 @@ function runWrangler(args, database) {
 function printExpected(expected) {
   console.log("\nAngka harapan (kalkulator rujukan) untuk diperbandingkan dengan halaman Rekapitulasi:");
   console.log(`  DPT final (Hak pilih hasil) : ${expected.dpt_final} (roll ${expected.total_dpt} + tautan aktif ${expected.invites.created - expected.invites.cancelled})`);
-  console.log(`  Tautan undangan             : ${expected.invites.created} dibuat · ${expected.invites.used} dipakai · ${expected.invites.unused} belum · ${expected.invites.cancelled} batal`);
+  console.log(`  Tautan undangan             : ${expected.invites.created} dibuat · ${expected.invites.used} dipakai · ${expected.invites.cancelled} dibatalkan (yang belum dipakai dibatalkan otomatis saat Rekapitulasi)`);
   console.log(`  Total suara digunakan       : ${expected.votes_used}`);
   console.log(`  Setuju                      : ${expected.setuju} (${expected.setuju_pct}%)`);
   console.log(`  Tidak Setuju                : ${expected.tidak_setuju} (${expected.tidak_setuju_pct}%)`);
@@ -248,6 +270,10 @@ function printExpected(expected) {
   for (const row of expected.korda) console.log(`  ${row.name.padEnd(34)} ${String(row.hak).padStart(4)} · ${String(row.used).padStart(4)} · ${row.pct === null ? "—" : row.pct + "%"}`);
   console.log("\nPer komsat (Korda · Komsat · Hak pilih · Suara digunakan · Partisipasi):");
   for (const row of expected.komsat) console.log(`  ${String(row.korda).padEnd(16)} ${row.name.padEnd(28)} ${String(row.hak).padStart(4)} · ${String(row.used).padStart(4)} · ${row.pct === null ? "—" : row.pct + "%"}`);
+  console.log("\nAbstain per komsat (Korda · Komsat · Abstain · Bagian Hak pilih komsat):")
+  for (const row of expected.abstain_per_komsat) console.log(`  ${String(row.korda).padEnd(16)} ${row.name.padEnd(28)} ${String(row.abstain).padStart(4)} · ${row.share === null ? "—" : row.share + "%"}`);
+  const abstainSum = expected.abstain_per_komsat.reduce((sum, row) => sum + row.abstain, 0);
+  console.log(`  Jumlah Abstain per komsat = ${abstainSum}`);
 }
 
 async function main() {

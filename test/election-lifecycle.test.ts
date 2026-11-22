@@ -506,12 +506,12 @@ describe("Rekapitulasi Suara",()=>{
   const before=await getRecapState(env.DB,CLOSED_NOW);
   expect(before).toMatchObject({can_run:true,done:false,pending_count:frozen-2,reason:null});
   const result=await runRecap(env.DB,CLOSED_NOW,ACTOR);
-  expect(result).toEqual({recap_at:CLOSED_NOW.toISOString(),abstain_count:frozen-2});
+  expect(result).toEqual({recap_at:CLOSED_NOW.toISOString(),abstain_count:frozen-2,links_cancelled:0});
   expect(await electionRow()).toMatchObject({recap_at:CLOSED_NOW.toISOString(),recap_abstain_count:frozen-2});
   const entry=await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name,action,target,detail_json FROM audit_log WHERE action='Rekapitulasi Suara dijalankan'").all<Record<string,unknown>>();
   expect(entry.results).toHaveLength(1);
   expect(entry.results[0]).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"Admin",target:null});
-  expect(JSON.parse(String(entry.results[0]!.detail_json))).toEqual({tidak_memilih_ditambahkan:frozen-2});
+  expect(JSON.parse(String(entry.results[0]!.detail_json))).toEqual({tidak_memilih_ditambahkan:frozen-2,tautan_dibatalkan:0});
   // Aggregate only: no member id, ballot reference or choice in the audit entry.
   expect(String(entry.results[0]!.detail_json)).not.toMatch(/member|ballot|setuju|abstain"/i);
   expect(await verifyChain((await env.DB.prepare("SELECT * FROM audit_log ORDER BY seq").all<AuditRow>()).results)).toBeNull();
@@ -529,6 +529,34 @@ describe("Rekapitulasi Suara",()=>{
   await env.DB.prepare("UPDATE elections SET recap_at=NULL,recap_abstain_count=NULL").run();
   const results=await Promise.allSettled([runRecap(env.DB,CLOSED_NOW,ACTOR),runRecap(env.DB,CLOSED_NOW,ACTOR)]);
   expect(results.filter(x=>x.status==="fulfilled")).toHaveLength(1);
+ });
+ it("membatalkan tautan yang belum dipakai di batch yang sama, dengan satu entri audit ringkasan",async()=>{
+  await lockSingle();
+  await castTwoReal();
+  await env.DB.prepare("INSERT INTO direct_invitations(reference,token_hash,token_enc,created_at,created_by,created_by_name,komsat_path,used_at,cancelled_at) VALUES('AAA001','h1','v1:s',?,'member-8','Admin','/u',?,NULL),('AAA002','h2','v1:s',?,'member-8','Admin',NULL,NULL,NULL),('AAA003','h3','v1:s',?,'member-8','Admin','/u',?,NULL),('AAA004','h4','v1:s',?,'member-8','Admin',NULL,NULL,NULL)").bind(CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString()).run();
+  // Tautan terpakai selalu berpasangan dengan partisipasi tamu (pola aplikasi).
+  await env.DB.prepare("INSERT INTO participation(election_id,member_id,member_name,voted_at,is_test) VALUES(1,'undangan:AAA001','Tamu AAA001',?,0),(1,'undangan:AAA003','Tamu AAA003',?,0)").bind(CLOSED_NOW.toISOString(),CLOSED_NOW.toISOString()).run();
+  // Hak pilih saat ini masih memuat tautan aktif (2 terpakai + 2 belum).
+  const frozen=(await electionRow())!.frozen_hak_pilih as number;
+  const unused=(await env.DB.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE used_at IS NULL AND cancelled_at IS NULL").first<{n:number}>())!.n;
+  const before=(await getRecapState(env.DB,CLOSED_NOW));
+  // Abstain baru hanya anggota roll: Hak pilih dikurangi tautan yang akan dibatalkan.
+  expect(before.pending_count).toBe(frozen-2);
+  expect(before.unused_links).toBe(unused);
+  const result=await runRecap(env.DB,CLOSED_NOW,ACTOR);
+  expect(result.links_cancelled).toBe(unused);
+  const cancelled=(await env.DB.prepare("SELECT reference,cancelled_at,cancelled_by,cancelled_by_name FROM direct_invitations WHERE cancelled_at IS NOT NULL ORDER BY reference").all<{reference:string;cancelled_at:string;cancelled_by:string|null;cancelled_by_name:string}>()).results;
+  // Hanya tautan yang belum dipakai yang dibatalkan; yang dipakai dan yang sudah
+  // dibatalkan manual tidak berubah. Waktu pembatalan = waktu rekap.
+  expect(cancelled.map(c=>c.reference)).toEqual(["AAA002","AAA004"]);
+  for(const c of cancelled){expect(c.cancelled_at).toBe(CLOSED_NOW.toISOString());expect(c.cancelled_by).toBe("member-8");}
+  // Tautan dipakai tetap aktif: DPT final = roll + tautan terpakai.
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL").first<{n:number}>())!.n).toBe(2);
+  // SATU entri audit ringkasan untuk seluruh pembatalan, tanpa rujukan per tautan.
+  const entry=await env.DB.prepare("SELECT detail_json FROM audit_log WHERE action='Rekapitulasi Suara dijalankan'").first<{detail_json:string}>();
+  expect(JSON.parse(String(entry!.detail_json))).toEqual({tidak_memilih_ditambahkan:frozen-2,tautan_dibatalkan:unused});
+  expect(String(entry!.detail_json)).not.toContain("AAA00");
+  expect(await verifyChain((await env.DB.prepare("SELECT * FROM audit_log ORDER BY seq").all<AuditRow>()).results)).toBeNull();
  });
  it("berlaku juga setelah Tutup Sekarang",async()=>{
   await lockSingle();

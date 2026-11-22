@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { stage, type Stage } from "../lib/stage";
 import { ResultsError, regionKey, UNKNOWN_REGION_KEY } from "./queries";
 import { resolveHakPilih } from "../voting/board";
-import { formatUnitPath, unitNameOf, unitPathLabel } from "../../lib/formatKomsat";
+import { formatUnitPath, unitNameOf } from "../../lib/formatKomsat";
 import { VOTE_CHOICE_LABELS } from "../voting/choice";
 import { getRecapState } from "../election/lifecycle";
 
@@ -20,7 +20,6 @@ function percentage(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 1000) / 10 : 0;
 }
 
-export const RECAP_LINK_REMAINDER_LABEL = "Tautan undangan belum dipakai";
 export const RECAP_UNMATCHED_KOMSAT_LABEL = "Di luar daftar komsat";
 
 export interface RecapSummary {
@@ -76,13 +75,19 @@ export interface RecapBallotRow {
   choice: string;
 }
 
+/**
+ * Abstain dianonimkan (putusan owner 2026-11-22, menggantikan Q230): bukan
+ * daftar per anggota, melainkan hitungan per komsat tanpa nama dan tanpa nomor
+ * kartu. Setiap komsat tampil, termasuk yang Abstainnya nol.
+ */
 export interface RecapAbstainRow {
-  name: string;
-  member_number: string | null;
   korda: string;
-  komsat: string;
-  /** True untuk baris tautan undangan yang tidak dipakai (bukan anggota). */
-  is_link: boolean;
+  name: string;
+  abstain: number;
+  hak_pilih: number;
+  /** Bagian Hak pilih komsat: null saat komsat tidak punya Hak pilih. */
+  share: number | null;
+  remainder: boolean;
 }
 
 export interface RecapPayload {
@@ -177,11 +182,10 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
     db.prepare("SELECT komsat_path AS path, COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL AND used_at IS NOT NULL GROUP BY komsat_path"),
     // 7: daftar unit dari portal.
     db.prepare("SELECT path, name, parent_path, type FROM units ORDER BY path"),
-    // 8: anggota roll yang tidak memilih (Q230), tanpa pernah per surat suara.
-    db.prepare(`SELECT member_id, name, member_number, komsat_path FROM voters WHERE can_vote = 1${rollFilter} AND member_id NOT IN (SELECT member_id FROM participation WHERE election_id = ? AND is_test = 0) ORDER BY name, member_id`).bind(election.id),
-    // 9: tautan yang tidak dipakai dan tidak dibatalkan — baris Abstain palsu.
-    db.prepare("SELECT reference FROM direct_invitations WHERE used_at IS NULL AND cancelled_at IS NULL ORDER BY reference"),
-    // 10: nama kandidat untuk label surat suara tanpa kolom pilihan.
+    // 8: hitungan anggota roll yang tidak memilih per komsat, hanya agregat
+    // (putusan 2026-11-22, menggantikan Q230): tidak pernah per orang.
+    db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters WHERE can_vote = 1${rollFilter} AND member_id NOT IN (SELECT member_id FROM participation WHERE election_id = ? AND is_test = 0) GROUP BY komsat_path`).bind(election.id),
+    // 9: nama kandidat untuk label surat suara tanpa kolom pilihan.
     db.prepare("SELECT id, nickname FROM candidates"),
   ];
   const batch = await db.batch(statements);
@@ -193,9 +197,8 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
   const inviteTotals = batch[5] as { results: { created: number; cancelled: number | null; used: number | null; unused: number | null }[] };
   const usedInvitesByPath = batch[6] as { results: { path: string; n: number }[] };
   const unitRows = batch[7] as { results: { path: string; name: string; parent_path: string | null; type: string }[] };
-  const nonVoterRows = batch[8] as { results: { member_id: string; name: string; member_number: string | null; komsat_path: string }[] };
-  const unusedLinkRows = batch[9] as { results: { reference: string }[] };
-  const candidateRows = batch[10] as { results: { id: number; nickname: string }[] };
+  const nonVotersByPath = batch[8] as { results: { path: string; n: number }[] };
+  const candidateRows = batch[9] as { results: { id: number; nickname: string }[] };
 
   const names = new Map(unitRows.results.map((unit) => [unit.path, unit.name]));
   const kordaUnits = unitRows.results.filter((unit) => unit.type === "korda");
@@ -216,13 +219,12 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
   // Hak pilih (DPT final) dari satu penyelesai yang sama dengan Dasbor/hasil.
   const resolution = await resolveHakPilih(db, now);
   const dptFinal = resolution.hakPilih;
-  const activeLinks = (inviteTotals.results[0]?.created ?? 0) - (inviteTotals.results[0]?.cancelled ?? 0);
   // Suku roll saja. Roll beku menyimpan suku roll apa adanya; snapshot penutupan
   // memuat istilah tautan, dan tautan tidak dapat berubah setelah penutupan,
   // jadi selisihnya tepat suku roll saat rekap dijalankan.
   const totalDptRoll = resolution.source === "frozen"
     ? election.frozen_hak_pilih ?? totalVoters(votersByPath.results)
-    : Math.max(0, dptFinal - activeLinks);
+    : Math.max(0, dptFinal - (inviteTotals.results[0]?.used ?? 0));
 
   const participationCount = totals.results[0]?.participation ?? 0;
   const ballotCount = totals.results[0]?.ballots ?? 0;
@@ -296,9 +298,8 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
       participation_pct: bucket.hakPilih > 0 ? percentage(bucket.used, bucket.hakPilih) : null,
       remainder: false,
     }));
-  if (summary.invites_unused > 0) {
-    kordaRows.push({ key: "_tautan_belum_dipakai", name: RECAP_LINK_REMAINDER_LABEL, hak_pilih: summary.invites_unused, used: 0, participation_pct: null, remainder: true });
-  }
+  // Tautan yang belum dipakai dibatalkan oleh rekap, jadi tidak ada baris sisa
+  // tautan di sini: jumlah kolom sudah sama dengan DPT final (roll + terpakai).
 
   // Komsat: kecocokan jalur eksak dengan unit komsat; jalur di luar daftar
   // digulokkan menjadi satu baris sisa agar total tetap menambah dengan benar.
@@ -337,9 +338,6 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
       participation_pct: bucket.hakPilih > 0 ? percentage(bucket.used, bucket.hakPilih) : null,
       remainder: false,
     }));
-  if (summary.invites_unused > 0) {
-    komsatRows.push({ path: "_tautan_belum_dipakai", name: RECAP_LINK_REMAINDER_LABEL, korda: "—", hak_pilih: summary.invites_unused, used: 0, participation_pct: null, remainder: true });
-  }
   if (unmatchedHakPilih > 0 || unmatchedUsed > 0) {
     komsatRows.push({ path: "_di_luar_daftar", name: RECAP_UNMATCHED_KOMSAT_LABEL, korda: "—", hak_pilih: unmatchedHakPilih, used: unmatchedUsed, participation_pct: unmatchedHakPilih > 0 ? percentage(unmatchedUsed, unmatchedHakPilih) : null, remainder: true });
   }
@@ -350,19 +348,39 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
     choice: choiceLabel(row.choice, candidateNames, row.candidate_id),
   }));
 
-  // Abstain: anggota roll yang tidak memilih (Q230) + tautan yang tidak dipakai.
-  const abstainRows: RecapAbstainRow[] = nonVoterRows.results.map((row) => {
-    const key = regionKey(row.komsat_path);
-    return {
-      name: row.name,
-      member_number: row.member_number,
-      korda: kordaNameOf.get(key) ?? (key === UNKNOWN_REGION_KEY ? "Tidak diketahui" : formatUnitPath(key)),
-      komsat: unitPathLabel(row.komsat_path, Object.fromEntries(names)),
-      is_link: false,
-    };
-  });
-  for (const row of unusedLinkRows.results) {
-    abstainRows.push({ name: `Tautan undangan ${row.reference} (tidak dipakai)`, member_number: null, korda: "—", komsat: "—", is_link: true });
+  // Abstain dianonimkan (putusan 2026-11-22, menggantikan Q230): hitungan per
+  // komsat saja, tanpa nama dan tanpa nomor kartu — server tidak pernah mengirim
+  // data per anggota yang tidak memilih. Setiap komsat tampil, termasuk nol;
+  // jalur di luar daftar komsat digulokkan menjadi satu baris sisa agar jumlah
+  // barisnya tetap sama dengan angka Abstain.
+  const abstainMap = new Map<string, { korda: string; name: string; abstain: number; hakPilih: number }>();
+  for (const unit of komsatUnits) {
+    abstainMap.set(unit.path, {
+      korda: unit.parent_path ? names.get(unit.parent_path) ?? formatUnitPath(unit.parent_path) : formatUnitPath(unit.path),
+      name: unitNameOf(unit.path, Object.fromEntries(names)),
+      abstain: 0,
+      hakPilih: komsatMap.get(unit.path)?.hakPilih ?? 0,
+    });
+  }
+  let unmatchedAbstain = 0;
+  for (const row of nonVotersByPath.results) {
+    const bucket = abstainMap.get(row.path);
+    if (bucket) bucket.abstain += row.n;
+    else unmatchedAbstain += row.n;
+  }
+  const abstainRows: RecapAbstainRow[] = [...abstainMap.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, bucket]) => ({
+      korda: bucket.korda,
+      name: bucket.name,
+      abstain: bucket.abstain,
+      hak_pilih: bucket.hakPilih,
+      share: bucket.hakPilih > 0 ? percentage(bucket.abstain, bucket.hakPilih) : null,
+      remainder: false,
+    }));
+  if (unmatchedAbstain > 0) {
+    const unmatchedHak = unmatchedHakPilih;
+    abstainRows.push({ korda: "—", name: RECAP_UNMATCHED_KOMSAT_LABEL, abstain: unmatchedAbstain, hak_pilih: unmatchedHak, share: unmatchedHak > 0 ? percentage(unmatchedAbstain, unmatchedHak) : null, remainder: true });
   }
 
   return {

@@ -50,7 +50,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
   <section id="recap-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="recap-dialog-title" class="fixed inset-x-0 bottom-0 z-40 mx-auto max-h-[85dvh] w-full max-w-lg overflow-auto rounded-t-xl border border-brand-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
     <div class="mx-auto mb-4 h-1 w-10 rounded-full bg-border" aria-hidden="true"></div>
     <h2 id="recap-dialog-title" class="text-xl font-bold tracking-tight text-brand-ink">Rekapitulasi Suara</h2>
-    <p class="mt-2 text-sm leading-6 text-brand-muted"><strong id="recap-number" class="text-brand-ink tabular-nums">0</strong> Pemilih yang tidak memilih akan dihitung sebagai Abstain. Angkanya Hak pilih dikurangi yang sudah memilih, hanya jumlah dan tidak pernah per orang. Tindakan ini hanya dapat dijalankan sekali dan tidak dapat dibatalkan.</p>
+    <p class="mt-2 text-sm leading-6 text-brand-muted"><strong id="recap-number" class="text-brand-ink tabular-nums">0</strong> Pemilih yang tidak memilih akan dihitung sebagai Abstain. Angkanya Hak pilih dikurangi yang sudah memilih, hanya jumlah dan tidak pernah per orang. <span id="recap-links" hidden></span> Tindakan ini hanya dapat dijalankan sekali dan tidak dapat dibatalkan.</p>
     <Callout id="recap-dialog-error" tone="danger" class="mt-3" hidden></Callout>
     <p id="recap-dialog-status" role="status" aria-live="polite" class="mt-2 text-[13px] text-brand-muted"></p>
     <div class="mt-4 flex flex-wrap gap-3 border-t border-brand-border pt-4">
@@ -64,7 +64,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
     type RegionRow = { key: string; name: string; hak_pilih: number; used: number; participation_pct: number | null; remainder: boolean };
     type KomsatRow = { path: string; name: string; korda: string; hak_pilih: number; used: number; participation_pct: number | null; remainder: boolean };
     type BallotRow = { receipt_hash: string; choice: string };
-    type AbstainRow = { name: string; member_number: string | null; korda: string; komsat: string; is_link: boolean };
+    type AbstainRow = { korda: string; name: string; abstain: number; hak_pilih: number; share: number | null; remainder: boolean };
     type Summary = {
       title: string; opens_at: string | null; closes_at: string | null; recap_at: string | null; exported_at: string;
       dpt_source: "frozen" | "closing" | "live"; dpt_source_label: string; total_dpt: number;
@@ -79,6 +79,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
       recap_done: boolean;
       recap_at: string | null;
       pending_count: number;
+      unused_links: number;
       can_run: boolean;
       reason: string | null;
       summary?: Summary;
@@ -171,7 +172,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
               row("Waktu rekapitulasi", esc(jst(s.recap_at))) +
               row("Waktu ekspor", esc(jst(s.exported_at))) +
               row("Total DPT (daftar anggota)", num(s.total_dpt) + ' <span class="text-[13px] font-normal text-brand-muted">' + esc(s.dpt_source_label) + "</span>") +
-              row("Tautan undangan", num(s.invites_created) + " dibuat · " + num(s.invites_used) + " dipakai · " + num(s.invites_unused) + " belum dipakai · " + num(s.invites_cancelled) + " dibatalkan") +
+              row("Tautan undangan", num(s.invites_created) + " dibuat · " + num(s.invites_used) + " dipakai · " + num(s.invites_cancelled) + " dibatalkan" + ' <span class="text-[13px] font-normal text-brand-muted">tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi</span>') +
               row("DPT final (Hak pilih hasil)", num(s.dpt_final)) +
               row("Total suara digunakan", num(s.votes_used) + ' <span class="text-[13px] font-normal text-brand-muted">surat suara ' + num(s.ballot_count) + "</span>") +
               choiceRow("Setuju", s.setuju, s.setuju_pct) +
@@ -217,11 +218,15 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
           id: "abstain",
           label: "Abstain",
           render: () => {
+            // Dianonimkan (putusan 2026-11-22): hitungan per komsat saja, tanpa
+            // nama dan tanpa nomor kartu; server tidak pernah mengirim per anggota.
             const rows = data!.abstain!;
-            const body = rows.map((r) => '<tr class="border-b border-brand-border last:border-b-0"><th scope="row" class="p-2 text-left align-middle text-[13px] font-semibold text-brand-ink">' + esc(r.name) + '</th><td class="p-2 align-middle text-[13px] tabular-nums">' + esc(r.member_number ?? "—") + '</td><td class="p-2 align-middle text-[13px]">' + esc(r.korda) + '</td><td class="p-2 align-middle text-[13px]">' + esc(r.komsat) + "</td></tr>").join("");
-            return '<section class="' + panelClass + '"><h2 class="' + titleClass + '">Abstain</h2><p class="mt-1 mb-0 ' + muted + '">Anggota Hak pilih yang tidak memilih, ditambah tautan undangan yang tidak dipakai. Hanya jumlah yang pernah disimpan, bukan per orang di surat suara.</p>' +
-              tableWrap('<th class="' + th + '">Nama</th><th class="' + th + '">Nomor anggota</th><th class="' + th + '">Korda</th><th class="' + th + '">Komsat</th>') + body + "</tbody></table></div>" +
-              '<p class="mt-3 mb-0 ' + muted + '">' + num(rows.length) + " baris, sama dengan angka Abstain di Ringkasan.</p></section>";
+            const total = rows.reduce((sum, r) => sum + r.abstain, 0);
+            const body = rows.map((r) => '<tr class="border-b border-brand-border last:border-b-0"><td class="p-2 align-middle text-[13px] text-brand-ink">' + esc(r.korda) + '</td><th scope="row" class="p-2 text-left align-middle text-[13px] font-semibold text-brand-ink">' + esc(r.name) + (r.remainder ? ' <span class="font-normal text-brand-muted">(di luar daftar komsat)</span>' : "") + '</th><td class="p-2 align-middle text-[13px] tabular-nums">' + num(r.abstain) + '</td><td class="p-2 align-middle text-[13px] tabular-nums">' + (r.share === null ? "—" : pct(r.share)) + "</td></tr>").join("");
+            const totalRow = '<tr><th scope="row" colspan="2" class="p-2 text-left align-middle text-[13px] font-bold text-brand-ink">Jumlah</th><td class="p-2 align-middle text-[13px] font-bold tabular-nums">' + num(total) + '</td><td class="p-2 align-middle"></td></tr>';
+            return '<section class="' + panelClass + '"><h2 class="' + titleClass + '">Abstain</h2><p class="mt-1 mb-0 ' + muted + '">Dianonimkan: hitungan Pemilih yang tidak memilih per komsat, tanpa nama dan tanpa nomor kartu. Tautan undangan tidak dihitung Abstain — yang belum dipakai dibatalkan saat Rekapitulasi.</p>' +
+              tableWrap('<th class="' + th + '">Korda</th><th class="' + th + '">Komsat</th><th class="' + th + '">Abstain</th><th class="' + th + '">Bagian Hak pilih komsat</th>') + body + totalRow + "</tbody></table></div>" +
+              '<p class="mt-3 mb-0 ' + muted + '">' + num(rows.length) + " komsat · jumlah Abstain sama dengan angka di Ringkasan.</p></section>";
           },
         },
       ];
@@ -280,6 +285,13 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
       dialogStatus.textContent = "";
       confirmButton.disabled = false;
       dialogNumber.textContent = num(data.pending_count);
+      const linksNote = document.querySelector<HTMLElement>("#recap-links")!;
+      if (data.unused_links > 0) {
+        linksNote.textContent = `Selain itu, ${num(data.unused_links)} tautan undangan yang belum dipakai akan dibatalkan otomatis dan tidak lagi menambah Hak pilih.`;
+        linksNote.removeAttribute("hidden");
+      } else {
+        linksNote.setAttribute("hidden", "");
+      }
       dialog.hidden = false;
       backdrop.hidden = false;
       document.body.style.overflow = "hidden";
@@ -334,9 +346,9 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
             kv("Sumber Total DPT", s.dpt_source_label),
             kv("Total DPT (daftar anggota)", s.total_dpt),
             kv("Tautan undangan dibuat", s.invites_created),
-            kv("Tautan undangan dibatalkan", s.invites_cancelled),
             kv("Tautan undangan dipakai", s.invites_used),
-            kv("Tautan undangan belum dipakai", s.invites_unused),
+            kv("Tautan undangan dibatalkan", s.invites_cancelled),
+            kv("Catatan tautan", "Tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi"),
             kv("DPT final (Hak pilih hasil)", s.dpt_final),
             kv("Total suara digunakan", s.votes_used),
             kv("Surat suara di kotak", s.ballot_count),
@@ -366,8 +378,12 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
             },
             {
               sheet: "Abstain",
-              data: [["Nama", "Nomor anggota", "Korda", "Komsat"], ...data.abstain!.map((r) => [r.name, r.member_number ?? "", r.korda, r.komsat] as (string | number)[])],
-              columns: [{ width: 34 }, { width: 14 }, { width: 22 }, { width: 26 }],
+              data: [
+                ["Korda", "Komsat", "Abstain", "Bagian Hak pilih komsat (%)"],
+                ...data.abstain!.map((r) => [r.korda, r.name, r.abstain, r.share ?? ""] as (string | number)[]),
+                ["Jumlah", "", data.summary!.abstain, ""],
+              ],
+              columns: [{ width: 24 }, { width: 32 }, { width: 10 }, { width: 26 }],
             },
           ];
           await writeExcelFile(sheets).toFile("rekapitulasi-suara.xlsx");

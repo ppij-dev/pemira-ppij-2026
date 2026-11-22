@@ -956,13 +956,17 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(data.unused_count).toBe(11);
   });
 
-  it("includes unused links in the recap pending count", async () => {
+  it("excludes unused links from the recap pending count; the recap will cancel them", async () => {
+    // Keputusan pemilik 2026-11-22: tautan tidak dihitung Abstain. Angka yang
+    // disimpan rekap hanya anggota roll yang tidak memilih; tautan yang belum
+    // dipakai akan dibatalkan oleh rekap dan tidak lagi menambah Hak pilih.
     await seedElection({ status: "locked", frozen: 10 });
     await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1 WHERE id = 1").run();
     await inviteRow("INV001");
     await inviteRow("INV002");
     const count = await getRecapState(env.DB, new Date());
-    expect(count.pending_count).toBe(12);
+    expect(count.pending_count).toBe(10); // Hak pilih 12 (10 + 2 aktif) - 2 tautan yang akan dibatalkan - 0 partisipasi
+    expect(count.unused_links).toBe(2);
   });
 });
 

@@ -3,9 +3,17 @@
 ## D1. One guarded batch, one source of truth
 
 The recap action mirrors the Hitung Abstain batch it replaces: the non-voter count is
-read from the same helper chain (the existing Hak pilih resolver minus participation),
-then one D1 batch writes a gated UPDATE and a hash-chained audit entry that is only
-appended when the UPDATE changed a row. The gate is
+read from the same helper chain (the existing Hak pilih resolver minus participation
+minus the unused links that will be cancelled), then one D1 batch writes a gated
+UPDATE, a hash-chained audit entry appended only when that UPDATE changed a row, and
+the cancellation of every still-unused invite link. The audit guard reads `changes()`
+from the elections UPDATE, and the link cancellation is itself gated by
+`EXISTS(elections.recap_at = this batch's time)`, so the statements can never land
+half-done: a lost race cancels nothing and records nothing. Cancellation is recorded
+as ONE summary audit entry (the cancelled count in the recap entry's detail, no
+references), not one entry per link. For a live roll, the stored closing Hak pilih is
+adjusted inside the same UPDATE by the cancelled count, so every consumer of the
+resolver reads the same post-recap DPT final (roll + used links). The gate is
 `status_lock='locked' AND single_candidate_mode=1 AND recap_at IS NULL`, and the stage
 (Ditutup, by clock or Tutup Sekarang) is checked in the state read first, exactly as
 Hitung Abstain did. A second request, a concurrent request, or a request after
@@ -49,16 +57,19 @@ Korda/Komsat sheets list every unit row plus a remainder row per data path outsi
 unit list and, when unused links exist, a "Tautan undangan belum dipakai" row, so each
 column sums to the national figure without an unexplained gap.
 
-## D4. Sheet contents follow the owner's Q229/Q230 decisions
+## D4. Sheet contents follow the owner's Q229 and the anonymised Abstain decision
 
 Kotak suara carries only `receipt_hash` and the choice label (Setuju / Tidak Setuju; a
 legacy Abstain ballot keeps its label, a multi-candidate ballot would show the
 candidate nickname — unreachable while recap is single-candidate-only). No komsat, no
-time, no member column. Abstain lists non-voting roll members with name, member number,
-korda and komsat, and appends one row per unused non-cancelled link ("Tautan undangan
-<reference> (tidak dipakai)"), so the row count equals the stored Abstain count by
-construction: Hak pilih − participation = non-voting members + unused links (used links
-correspond one-to-one to `undangan:<reference>` participation rows).
+time, no member column (Q229). Abstain is ANONYMISED (owner decision 2026-11-22,
+replacing Q230): counts per komsat only — Korda, Komsat, the non-voter count, and the
+share of that komsat's Hak pilih. The server never sends per-member non-voter data (no
+name, no member number): the query aggregates by `komsat_path` and nothing else. Every
+komsat is listed including those with 0; roll paths outside the komsat list form one
+remainder row so the per-komsat sums still equal the Abstain count. Because the recap
+cancels unused links, no link rows exist anywhere in the recap data: DPT final is the
+roll + used links, and Abstain is roll non-voters only.
 
 ## D5. Percentages and totals
 
@@ -66,8 +77,10 @@ Ringkasan separates the roll term (Total DPT, labelled with its resolver source:
 "Dibekukan", "Snapshot penutupan", or "Portal langsung") from DPT final (roll +
 non-cancelled links, the figure every share divides by). For the closing snapshot,
 whose stored figure already includes the link term, the roll term is recovered as the
-snapshot minus the non-cancelled links (links cannot change after close, so this is
-exact at recap time). Setuju + Tidak Setuju + Abstain = DPT final: Setuju and Tidak
+snapshot minus the links that were active at close (used plus the ones the recap cancels;
+nothing changes between close and recap, so this is exact). After the recap the
+resolver itself returns roll + used links, so the sheet can recover the roll as
+DPT final minus used links in every source case. Setuju + Tidak Setuju + Abstain = DPT final: Setuju and Tidak
 Setuju are the ballot choice totals, Abstain is the stored `recap_abstain_count`.
 
 ## D6. Page states and copy

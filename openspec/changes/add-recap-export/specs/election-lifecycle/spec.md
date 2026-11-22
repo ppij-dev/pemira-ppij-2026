@@ -15,10 +15,10 @@ Diumumkan" scope of `seal-tally-until-published`.
 
 Rekapitulasi Suara SHALL be allowed only while the election is Ditutup (by clock or Tutup
 Sekarang) and only in single candidate mode, and SHALL run at most once per lock. In one
-guarded D1 batch it SHALL store the non-voter count (Hak pilih minus participation, via
-the existing Hak pilih resolver) as the Abstain figure and stamp the recap time, and
-append one hash-chained audit entry naming only that count. A refused run SHALL change
-nothing and append nothing.
+guarded D1 batch it SHALL store the non-voter count as the Abstain figure (following the
+new rule: unused links are NOT Abstain, see the cancellation requirement), stamp the
+recap time, and append one hash-chained audit entry. A refused run SHALL change nothing
+and append nothing.
 
 #### Scenario: Recap after close
 
@@ -34,6 +34,44 @@ nothing and append nothing.
 
 - **WHEN** two Admin Voting run the recap at the same moment
 - **THEN** exactly one succeeds, the stored count and time come from that run, and the other is refused
+
+### Requirement: The recap cancels unused invite links
+
+In the same guarded batch, every invite link that is still unused (not used, not
+cancelled) SHALL be cancelled with `cancelled_at` equal to the recap time. After the
+recap DPT final is the roll plus USED links only, and Abstain counts only roll members
+who did not vote. Before the recap, unused links SHALL still add +1 to the live Hak
+pilih as today; only the recap cancels them.
+
+#### Scenario: Unused links are cancelled by the recap
+
+- **WHEN** an Admin Voting runs the recap while two unused, one used and one manually cancelled link exist
+- **THEN** exactly the two unused links become Dibatalkan with the recap time, the used and manually cancelled links are untouched, and DPT final afterwards is the roll plus the used link count
+
+#### Scenario: Confirmation dialog states the cancellation
+
+- **WHEN** an Admin Voting opens the recap confirmation dialog before the recap
+- **THEN** the dialog states the count of unused links that will be cancelled, and the stated Abstain count excludes those links
+
+#### Scenario: One summary audit entry
+
+- **WHEN** the recap cancels several unused links
+- **THEN** the recap audit entry's detail carries the cancelled-link count next to the Abstain count, with no references and no per-link entries, and the hash chain still verifies
+
+### Requirement: The recap state exposes what will change
+
+The recap state SHALL expose the unused-link count for the confirmation dialog, and the
+stated Abstain count SHALL exclude the links that will be cancelled.
+
+#### Scenario: State carries both counts
+
+- **WHEN** an Admin Voting reads the recap state before the recap
+- **THEN** it carries the non-voter count that will be stored as Abstain (excluding the unused links) and the count of unused links that will be cancelled
+
+#### Scenario: Live roll Hak pilih is adjusted
+
+- **WHEN** a live-roll election is recapped and any page reads Hak pilih afterwards
+- **THEN** the stored closing figure no longer includes the cancelled links, so DPT final equals the roll plus used links
 
 ### Requirement: Umumkan Hasil requires the recap in single candidate mode
 
@@ -105,7 +143,7 @@ page and the Excel need, in five blocks matching the tabs.
 #### Scenario: Ringkasan block
 
 - **WHEN** the recap payload is read
-- **THEN** the Ringkasan block carries the election title, the schedule, the export time, Total DPT with its source named (frozen at Kunci, frozen mid-vote, or the closing snapshot), invite links created / cancelled / used / unused, DPT final (roll plus non-cancelled links), total votes used, and Setuju, Tidak Setuju, Abstain with percentages of DPT final
+- **THEN** the Ringkasan block carries the election title, the schedule, the export time, Total DPT with its source named (frozen at Kunci, frozen mid-vote, or the closing snapshot), invite links created / used / cancelled (the cancellations include those made by the recap) with a note that unused links are cancelled at Rekapitulasi, DPT final (roll plus used links), total votes used, and Setuju, Tidak Setuju, Abstain with percentages of DPT final
 
 #### Scenario: Korda and Komsat blocks
 
@@ -117,10 +155,10 @@ page and the Excel need, in five blocks matching the tabs.
 - **WHEN** the recap payload is read
 - **THEN** the Kotak suara block holds one row per ballot with only the receipt hash and the choice (Setuju or Tidak Setuju) in a random order, with no komsat, time or member column
 
-#### Scenario: Abstain block
+#### Scenario: Abstain block is anonymised per komsat
 
 - **WHEN** the recap payload is read
-- **THEN** the Abstain block lists every member who did not vote with name, member number, korda and komsat, plus one row per never-used invite link, "Tautan undangan <reference> (tidak dipakai)"
+- **THEN** the Abstain block holds one row per komsat — Korda, Komsat, the count of members who did not vote, and the share of that komsat's Hak pilih — lists every komsat including those with 0, and the server returns no per-member non-voter data: no name and no member number anywhere in the payload
 
 ### Requirement: No recap data before the recap and outside the admin guard
 
@@ -130,12 +168,12 @@ public endpoints SHALL NOT expose any of these blocks.
 #### Scenario: Counts add up
 
 - **WHEN** any recap payload is inspected
-- **THEN** Setuju + Tidak Setuju + Abstain equals DPT final, the ballot count equals the participation count and Total suara digunakan, and the Abstain row count equals the Abstain figure
+- **THEN** Setuju + Tidak Setuju + Abstain equals DPT final (the roll plus used links), the ballot count equals the participation count and Total suara digunakan, and the sum of the per-komsat Abstain counts equals the Abstain figure
 
 #### Scenario: Remainder rows keep the regional totals honest
 
-- **WHEN** unused invite links exist or ballots carry paths outside any known unit
-- **THEN** the Korda and Komsat sheets show the remainder as their own rows, so the per-sheet sums equal DPT final and Total suara digunakan
+- **WHEN** ballots or roll members carry paths outside any known unit
+- **THEN** the Korda and Komsat sheets show the remainder as their own rows, so the per-sheet sums equal DPT final and Total suara digunakan, with no unused-link rows because the recap has cancelled them
 
 #### Scenario: Ballot privacy holds in the sheet
 

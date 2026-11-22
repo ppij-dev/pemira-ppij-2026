@@ -19,7 +19,7 @@ import recapSql from "../migrations/0019_election_recap.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
 import { runRecap } from "../src/server/election/lifecycle";
-import { getRecapPayload, RECAP_LINK_REMAINDER_LABEL, RECAP_UNMATCHED_KOMSAT_LABEL } from "../src/server/results/recap";
+import { getRecapPayload, RECAP_UNMATCHED_KOMSAT_LABEL } from "../src/server/results/recap";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
 import type { RecapPayload } from "../src/server/results/recap";
 
@@ -76,7 +76,7 @@ interface RefData {
   korda: { name: string; hak_pilih: number; used: number; participation_pct: number | null }[];
   komsat: { korda: string; name: string; hak_pilih: number; used: number; participation_pct: number | null }[];
   ballots: { receipt_hash: string; choice: string }[];
-  abstain: { name: string; member_number: string | null; korda: string; komsat: string }[];
+  abstain: { korda: string; name: string; abstain: number; hak_pilih: number; share: number | null }[];
 }
 
 async function reference(): Promise<RefData> {
@@ -93,7 +93,9 @@ async function reference(): Promise<RefData> {
   const invites = await db.prepare(
     "SELECT COUNT(*) AS created, SUM(CASE WHEN cancelled_at IS NOT NULL THEN 1 ELSE 0 END) AS cancelled, SUM(CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END) AS used, SUM(CASE WHEN used_at IS NULL AND cancelled_at IS NULL THEN 1 ELSE 0 END) AS unused FROM direct_invitations",
   ).first<{ created: number; cancelled: number | null; used: number | null; unused: number | null }>()!;
-  const activeLinks = invites.created - (invites.cancelled ?? 0);
+  // Setelah rekap tidak ada tautan yang belum dipakai lagi: rekap membatalkannya.
+  expect(invites.unused ?? 0, "rekap membatalkan semua tautan belum dipakai").toBe(0);
+  const activeLinks = invites.used ?? 0;
   let hakPilih: number;
   let source: string;
   if (e.live_voter_roll === 1 && e.closing_hak_pilih != null) {
@@ -112,7 +114,10 @@ async function reference(): Promise<RefData> {
   const setuju = choices.results.find((row) => row.choice === "setuju")?.n ?? 0;
   const tidakSetuju = choices.results.find((row) => row.choice === "tidak_setuju")?.n ?? 0;
   const abstainCast = choices.results.find((row) => row.choice === "abstain")?.n ?? 0;
-  const abstainStored = hakPilih - participation;
+  // Tautan tidak pernah dihitung Abstain (putusan 2026-11-22): Abstain hanya
+  // anggota roll yang tidak memilih, sehingga roll dikurangi partisipasi roll.
+  const rollParticipation = (await db.prepare("SELECT COUNT(*) AS n FROM participation p JOIN voters v ON v.member_id = p.member_id WHERE p.election_id = 1 AND p.is_test = 0").first<{ n: number }>())!.n;
+  const abstainStored = roll - rollParticipation;
   const abstainDisplayed = abstainStored + abstainCast;
 
   const votersByPath = (await db.prepare(`SELECT komsat_path AS path, COUNT(*) AS n FROM voters WHERE can_vote = 1${adminFilter} GROUP BY komsat_path`).all<{ path: string; n: number }>()).results;
@@ -135,7 +140,6 @@ async function reference(): Promise<RefData> {
   bucket(usedInviteByPath, kordaMap, (b, n) => { b.hak_pilih += n; b.used += n; }, (key) => ({ name: unitNames.get(key) ?? "Tidak diketahui", hak_pilih: 0, used: 0 }));
   bucket(participationByPath, kordaMap, (b, n) => (b.used += n), (key) => ({ name: unitNames.get(key) ?? "Tidak diketahui", hak_pilih: 0, used: 0 }));
   const korda = [...kordaMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, b]) => ({ name: b.name, hak_pilih: b.hak_pilih, used: b.used, participation_pct: refPct(b.used, b.hak_pilih) }));
-  if ((invites.unused ?? 0) > 0) korda.push({ name: RECAP_LINK_REMAINDER_LABEL, hak_pilih: invites.unused ?? 0, used: 0, participation_pct: null });
 
   // Komsat: kecocokan jalur eksak; jalur di luar daftar jadi satu baris sisa.
   const komsatMap = new Map<string, { korda: string; name: string; hak_pilih: number; used: number }>();
@@ -166,27 +170,33 @@ async function reference(): Promise<RefData> {
     else { unmatchedHak += row.n; unmatchedUsed += row.n; }
   }
   const komsat = [...komsatMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([path, b]) => ({ korda: b.korda, name: b.name, hak_pilih: b.hak_pilih, used: b.used, participation_pct: refPct(b.used, b.hak_pilih) }));
-  if ((invites.unused ?? 0) > 0) komsat.push({ korda: "—", name: RECAP_LINK_REMAINDER_LABEL, hak_pilih: invites.unused ?? 0, used: 0, participation_pct: null });
   if (unmatchedHak > 0 || unmatchedUsed > 0) komsat.push({ korda: "—", name: RECAP_UNMATCHED_KOMSAT_LABEL, hak_pilih: unmatchedHak, used: unmatchedUsed, participation_pct: refPct(unmatchedUsed, unmatchedHak) });
 
-  const nonVoters = (await db.prepare(
-    `SELECT name, member_number, komsat_path FROM voters WHERE can_vote = 1${adminFilter} AND member_id NOT IN (SELECT member_id FROM participation WHERE election_id = 1 AND is_test = 0) ORDER BY name`,
-  ).all<{ name: string; member_number: string | null; komsat_path: string }>()).results;
-  const unusedLinks = (await db.prepare("SELECT reference FROM direct_invitations WHERE used_at IS NULL AND cancelled_at IS NULL ORDER BY reference").all<{ reference: string }>()).results;
-  const abstain = [
-    ...nonVoters.map((row) => ({
-      name: row.name,
-      member_number: row.member_number,
-      korda: unitNames.get(refRegionKey(row.komsat_path)) ?? refRegionKey(row.komsat_path),
-      komsat: refPathLabel(row.komsat_path, unitNames),
-    })),
-    ...unusedLinks.map((row) => ({ name: `Tautan undangan ${row.reference} (tidak dipakai)`, member_number: null, korda: "—", komsat: "—" })),
-  ];
+  const nonVotersByPath = (await db.prepare(
+    `SELECT komsat_path AS path, COUNT(*) AS n FROM voters WHERE can_vote = 1${adminFilter} AND member_id NOT IN (SELECT member_id FROM participation WHERE election_id = 1 AND is_test = 0) GROUP BY komsat_path`,
+  ).all<{ path: string; n: number }>()).results;
+  const abstainByPath = new Map(nonVotersByPath.map((row) => [row.path, row.n]));
+  const abstain = [...komsatMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([path, b]) => ({
+    korda: b.korda,
+    name: b.name,
+    abstain: abstainByPath.get(path) ?? 0,
+    hak_pilih: b.hak_pilih,
+    share: b.hak_pilih > 0 ? Math.round(((abstainByPath.get(path) ?? 0) / b.hak_pilih) * 1000) / 10 : null,
+    remainder: false,
+  }));
+  // Jalur roll di luar daftar komsat: satu baris sisa agar jumlah tetap sama.
+  const rollPaths = new Set(votersByPath.map((row) => row.path));
+  const unmatchedPaths = [...rollPaths].filter((path) => !komsatMap.has(path));
+  if (unmatchedPaths.length > 0) {
+    const unmatchedHak = unmatchedPaths.reduce((sum, path) => sum + (votersByPath.find((r) => r.path === path)?.n ?? 0), 0);
+    const unmatchedAbstain = unmatchedPaths.reduce((sum, path) => sum + (abstainByPath.get(path) ?? 0), 0);
+    abstain.push({ korda: "—", name: RECAP_UNMATCHED_KOMSAT_LABEL, abstain: unmatchedAbstain, hak_pilih: unmatchedHak, share: unmatchedHak > 0 ? Math.round((unmatchedAbstain / unmatchedHak) * 1000) / 10 : null, remainder: true });
+  }
 
   return {
     summary: {
       dpt_source: source,
-      total_dpt: source === "frozen" ? e.frozen_hak_pilih ?? roll : hakPilih - activeLinks,
+      total_dpt: roll,
       invites_created: invites.created,
       invites_cancelled: invites.cancelled ?? 0,
       invites_used: invites.used ?? 0,
@@ -535,20 +545,27 @@ describe("Rekapitulasi: kalkulasi benar di setiap tab", () => {
       const sortedHashes = payload.ballots!.map((row) => row.receipt_hash);
       expect(sortedHashes).toEqual([...sortedHashes].sort());
 
-      // Abstain: baris = angka tersimpan (anggota + tautan), isi sama dengan rujukan.
-      expectClose(payload.abstain!.map(({ is_link: _isLink, ...rest }) => rest), expected.abstain, "baris abstain");
-      expect(payload.abstain!.length).toBe(expected.summary.abstain_stored);
-      // Tanpa surat suara Abstain lama, angka tampilan = angka tersimpan.
-      expect(s.abstain).toBe(expected.summary.abstain);
-      const unusedReferences = (scenario.invites ?? []).filter((invite) => !invite.used && !invite.cancelled).map((invite) => invite.reference);
-      for (const ref of unusedReferences) {
-        expect(payload.abstain!.some((row) => row.name === `Tautan undangan ${ref} (tidak dipakai)`), `tautan ${ref} di daftar Abstain`).toBe(true);
+      // Abstain dianonimkan (putusan 2026-11-22): hitungan per komsat saja, tanpa
+      // nama dan tanpa nomor kartu; barisnya sama dengan rujukan.
+      expectClose(payload.abstain!, expected.abstain, "baris abstain");
+      // Invariant: jumlah per-komsat Abstain = angka Abstain tersimpan.
+      expect(payload.abstain!.reduce((sum, row) => sum + row.abstain, 0)).toBe(expected.summary.abstain_stored);
+      // Setiap komsat unit tampil, termasuk yang Abstainnya nol.
+      const abstainNames = payload.abstain!.map((row) => row.name);
+      for (const komsatName of ["Komsat A Okayama", "Komsat B Okayama", "Komsat A Tokyo", "Komsat A Kobe"]) {
+        expect(abstainNames, `komsat ${komsatName} ada di Abstain`).toContain(komsatName);
       }
-      for (const row of payload.abstain!.filter((row) => !row.is_link)) {
-        expect(row.member_number).not.toBeNull();
-        expect(row.korda).not.toBe("");
-        expect(row.komsat).not.toBe("");
-      }
+      // Server tidak pernah mengirim data per anggota yang tidak memilih.
+      const text = await (await adminGet()).text();
+      expect(text).not.toContain("member_number");
+      expect(text).not.toContain("KARTU-");
+      expect(text).not.toContain("Tidak Memilih");
+      // Tautan tidak pernah jadi Abstain: tidak ada baris tautan belum dipakai.
+      expect(text).not.toContain("tidak dipakai)");
+      expect(s.invites_unused).toBe(0);
+      const cancelledByRecap = (scenario.invites ?? []).filter((invite) => !invite.used && !invite.cancelled).length;
+      const cancelledManual = (scenario.invites ?? []).filter((invite) => invite.cancelled).length;
+      expect(s.invites_cancelled).toBe(cancelledByRecap + cancelledManual);
     });
   }
 
@@ -559,10 +576,11 @@ describe("Rekapitulasi: kalkulasi benar di setiap tab", () => {
     const payload = (await res.json()) as RecapPayload;
     expect(payload.summary!.dpt_source).toBe("closing");
     expect(payload.summary!.dpt_source_label).toBe("Snapshot penutupan");
+    // Hak pilih akhir tersimpan disesuaikan rekap: tautan yang dibatalkan keluar.
     const closing = (await env.DB.prepare("SELECT closing_hak_pilih FROM elections WHERE id=1").first<{ closing_hak_pilih: number | null }>())!.closing_hak_pilih!;
-    const activeLinks = (await env.DB.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL").first<{ n: number }>())!.n;
+    const usedLinks = (await env.DB.prepare("SELECT COUNT(*) AS n FROM direct_invitations WHERE cancelled_at IS NULL").first<{ n: number }>())!.n;
     expect(payload.summary!.dpt_final).toBe(closing);
-    expect(payload.summary!.total_dpt).toBe(closing - activeLinks);
+    expect(payload.summary!.total_dpt).toBe(closing - usedLinks);
   });
 
   it("menyebut sumber Dibekukan untuk roll beku", async () => {

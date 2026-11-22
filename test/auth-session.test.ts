@@ -533,7 +533,9 @@ describe("Pemulihan masuk (recover-login-session)", () => {
     // Cookie palsu tidak bisa menjadi penanda yang sah.
     expect(await openAuthStage("cookie-palsu", MASTER_KEY)).toBeNull();
 
-    const now = Math.floor(Date.now() / 1000);
+    // Kode bantuan stabil per jam: pakai waktu tetap jauh dari tepi jam agar
+    // deterministik (bucket now/3600), bukan jam sistem yang bisa dekat batas.
+    const now = 7200;
     const first = await helpCode("state", MASTER_KEY, now);
     expect(first).toMatch(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/);
     expect(await helpCode("state", MASTER_KEY, now + 600)).toBe(first);
