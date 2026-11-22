@@ -73,15 +73,28 @@ roll + used links, and Abstain is roll non-voters only.
 
 ## D5. Percentages and totals
 
-Ringkasan separates the roll term (Total DPT, labelled with its resolver source:
-"Dibekukan", "Snapshot penutupan", or "Portal langsung") from DPT final (roll +
-non-cancelled links, the figure every share divides by). For the closing snapshot,
-whose stored figure already includes the link term, the roll term is recovered as the
-snapshot minus the links that were active at close (used plus the ones the recap cancels;
-nothing changes between close and recap, so this is exact). After the recap the
-resolver itself returns roll + used links, so the sheet can recover the roll as
-DPT final minus used links in every source case. Setuju + Tidak Setuju + Abstain = DPT final: Setuju and Tidak
-Setuju are the ballot choice totals, Abstain is the stored `recap_abstain_count`.
+Ringkasan separates the roll term from the link term with an explicit three-line
+breakdown so the two DPT figures cannot be misread as a contradiction (owner decision
+2026-11-22): "DPT anggota (daftar anggota portal)" is the roll, labelled with its
+resolver source ("Dibekukan", "Snapshot penutupan", or "Portal langsung");
+"+ Pemilih undangan (tautan dipakai)" is the used links; "= DPT final (Hak pilih
+hasil)" is their sum, the figure every share of DPT final divides by. The invite
+counts (created / used / cancelled) stay in their own block with one note that unused
+links are cancelled automatically at Rekapitulasi Suara and not counted. For the
+closing snapshot, whose stored figure already includes the link term, the roll term is
+recovered as the snapshot minus the links that were active at close (used plus the ones
+the recap cancels; nothing changes between close and recap, so this is exact). After
+the recap the resolver itself returns roll + used links, so the sheet can recover the
+roll as DPT final minus used links in every source case.
+
+The results table carries two percentage columns: "% dari DPT final" for Setuju,
+Tidak Setuju and Abstain as today, and "% dari suara masuk" for Setuju and Tidak
+Setuju only, based on the votes cast (Setuju + Tidak Setuju); Abstain gets "—" there
+because non-voters are not votes cast, and when no votes were cast the column shows
+"—" (null in the payload, never a division by zero). One note states that the system
+declares no winner and any threshold (DPT or votes cast) is decided by the committee.
+Setuju + Tidak Setuju + Abstain = DPT final: Setuju and Tidak Setuju are the ballot
+choice totals, Abstain is the stored `recap_abstain_count`.
 
 ## D6. Page states and copy
 

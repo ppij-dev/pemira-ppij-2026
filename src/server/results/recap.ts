@@ -47,6 +47,11 @@ export interface RecapSummary {
   setuju_pct: number;
   tidak_setuju_pct: number;
   abstain_pct: number;
+  /** Suara masuk: surat suara berjawaban Setuju atau Tidak Setuju (Abstain bukan suara masuk). */
+  votes_cast: number;
+  /** Persentase dari suara masuk; null saat tidak ada suara masuk sehingga tampil "—" (tanpa pembagian nol). */
+  setuju_pct_cast: number | null;
+  tidak_setuju_pct_cast: number | null;
 }
 
 export interface RecapRegionRow {
@@ -235,6 +240,9 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
   // suara lama (bila ada) ditambah angka tidak memilih yang disimpan rekap.
   const abstainCast = choiceTotals.get("abstain") ?? 0;
   const abstainCount = abstainCast + (election.recap_abstain_count ?? 0);
+  // Suara masuk (keputusan owner 2026-11-22): hanya surat suara Setuju/Tidak
+  // Setuju; Abstain adalah Pemilih yang tidak memilih, bukan suara masuk.
+  const votesCast = setuju + tidakSetuju;
 
   const summary: RecapSummary = {
     title: election.title,
@@ -258,6 +266,9 @@ export async function getRecapPayload(db: D1Database, now: Date): Promise<RecapP
     setuju_pct: percentage(setuju, dptFinal),
     tidak_setuju_pct: percentage(tidakSetuju, dptFinal),
     abstain_pct: percentage(abstainCount, dptFinal),
+    votes_cast: votesCast,
+    setuju_pct_cast: votesCast > 0 ? percentage(setuju, votesCast) : null,
+    tidak_setuju_pct_cast: votesCast > 0 ? percentage(tidakSetuju, votesCast) : null,
   };
 
   // Korda: partisipasi saja (tanpa angka pilihan per korda). Setiap jalur data

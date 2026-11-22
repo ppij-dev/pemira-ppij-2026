@@ -72,6 +72,7 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
       dpt_final: number; votes_used: number; ballot_count: number;
       setuju: number; tidak_setuju: number; abstain: number;
       setuju_pct: number; tidak_setuju_pct: number; abstain_pct: number;
+      votes_cast: number; setuju_pct_cast: number | null; tidak_setuju_pct_cast: number | null;
     };
     type RecapPayload = {
       stage: "draft" | "scheduled" | "open" | "closed" | "published";
@@ -117,6 +118,16 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
     const muted = "text-[13px] text-brand-muted";
     const th = "h-10 px-2 text-left align-middle text-xs font-medium text-brand-muted whitespace-nowrap";
     const tableWrap = (inner: string) => '<div class="mt-3 overflow-x-auto"><table class="w-full caption-bottom text-sm"><thead><tr class="border-b border-brand-border">' + inner + "</tr></thead><tbody>";
+    // Label Ringkasan satu sumber untuk tab dan lembar Excel (keputusan owner
+    // 2026-11-22: breakdown DPT tiga baris dan dua kolom persentase).
+    const LABEL_DPT_ANGGOTA = "DPT anggota (daftar anggota portal)";
+    const LABEL_DPT_UNDANGAN = "+ Pemilih undangan (tautan dipakai)";
+    const LABEL_DPT_FINAL = "= DPT final (Hak pilih hasil)";
+    const LABEL_PCT_DPT = "% dari DPT final";
+    const LABEL_PCT_MASUK = "% dari suara masuk";
+    const CATATAN_TAUTAN = "Tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi Suara dan tidak dihitung.";
+    const CATATAN_HASIL = "Sistem tidak menetapkan pemenang; ketentuan ambang (DPT atau suara masuk) diputuskan panitia.";
+    const GARIS = "—";
 
     let data: RecapPayload | null = null;
 
@@ -164,21 +175,30 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
           id: "ringkasan",
           label: "Ringkasan",
           render: () => {
-            const row = (label: string, value: string) => '<div class="grid min-w-0 gap-0.5 border-t border-brand-border py-2.5 first:border-t-0"><dt class="text-xs text-brand-muted">' + esc(label) + '</dt><dd class="m-0 text-[15px] font-semibold text-brand-ink tabular-nums">' + value + "</dd></div>";
-            const choiceRow = (label: string, count: number, share: number) => '<div class="grid min-w-0 gap-0.5 border-t border-brand-border py-2.5"><dt class="text-xs text-brand-muted">' + esc(label) + '</dt><dd class="m-0 text-[15px] font-semibold text-brand-ink tabular-nums">' + num(count) + ' <span class="text-[13px] font-normal text-brand-muted">' + pct(share) + " dari DPT final</span></dd></div>";
+            // Baris penuh (span dua kolom) untuk cerita hitungan DPT supaya
+            // tiga barisnya terbaca berurutan sebagai satu uraian.
+            const row = (label: string, value: string, full = false) => '<div class="grid min-w-0 gap-0.5 border-t border-brand-border py-2.5 first:border-t-0' + (full ? " min-[601px]:col-span-2" : "") + '"><dt class="text-xs text-brand-muted">' + esc(label) + '</dt><dd class="m-0 text-[15px] font-semibold text-brand-ink tabular-nums">' + value + "</dd></div>";
+            const note = (text: string) => ' <span class="text-[13px] font-normal text-brand-muted">' + esc(text) + "</span>";
+            const castPct = (share: number | null) => (share === null ? GARIS : pct(share));
+            const hasilRow = (label: string, count: number, shareDpt: number, shareMasuk: number | null) => '<tr class="border-b border-brand-border last:border-b-0"><th scope="row" class="px-2 py-2.5 text-left align-middle text-[13px] font-semibold text-brand-ink">' + esc(label) + '</th><td class="px-2 py-2.5 align-middle text-[13px] tabular-nums">' + num(count) + '</td><td class="px-2 py-2.5 align-middle text-[13px] tabular-nums">' + pct(shareDpt) + '</td><td class="px-2 py-2.5 align-middle text-[13px] tabular-nums">' + castPct(shareMasuk) + "</td></tr>";
             return '<section class="' + panelClass + '"><h2 class="' + titleClass + '">Ringkasan</h2><dl class="m-0 grid grid-cols-1 gap-0 pt-1 min-[601px]:grid-cols-2 min-[601px]:gap-x-6">' +
               row("Judul pemilihan", esc(s.title || "Pemilihan")) +
               row("Jadwal", esc(jst(s.opens_at)) + " – " + esc(jst(s.closes_at))) +
               row("Waktu rekapitulasi", esc(jst(s.recap_at))) +
               row("Waktu ekspor", esc(jst(s.exported_at))) +
-              row("Total DPT (daftar anggota)", num(s.total_dpt) + ' <span class="text-[13px] font-normal text-brand-muted">' + esc(s.dpt_source_label) + "</span>") +
-              row("Tautan undangan", num(s.invites_created) + " dibuat · " + num(s.invites_used) + " dipakai · " + num(s.invites_cancelled) + " dibatalkan" + ' <span class="text-[13px] font-normal text-brand-muted">tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi</span>') +
-              row("DPT final (Hak pilih hasil)", num(s.dpt_final)) +
-              row("Total suara digunakan", num(s.votes_used) + ' <span class="text-[13px] font-normal text-brand-muted">surat suara ' + num(s.ballot_count) + "</span>") +
-              choiceRow("Setuju", s.setuju, s.setuju_pct) +
-              choiceRow("Tidak Setuju", s.tidak_setuju, s.tidak_setuju_pct) +
-              choiceRow("Abstain", s.abstain, s.abstain_pct) +
-              "</dl></section>";
+              row(LABEL_DPT_ANGGOTA, num(s.total_dpt) + note(s.dpt_source_label), true) +
+              row(LABEL_DPT_UNDANGAN, num(s.invites_used), true) +
+              row(LABEL_DPT_FINAL, num(s.dpt_final), true) +
+              row("Tautan undangan", num(s.invites_created) + " dibuat · " + num(s.invites_used) + " dipakai · " + num(s.invites_cancelled) + " dibatalkan" + note(CATATAN_TAUTAN), true) +
+              row("Total suara digunakan", num(s.votes_used) + note("surat suara " + num(s.ballot_count)), true) +
+              "</dl>" +
+              '<div class="mt-4 overflow-x-auto"><table class="w-full text-sm"><caption class="sr-only">Hasil pilihan</caption><thead><tr class="border-b border-brand-border"><th class="' + th + '">Pilihan</th><th class="' + th + '">Suara</th><th class="' + th + '">' + esc(LABEL_PCT_DPT) + '</th><th class="' + th + '">' + esc(LABEL_PCT_MASUK) + "</th></tr></thead><tbody>" +
+              hasilRow("Setuju", s.setuju, s.setuju_pct, s.setuju_pct_cast) +
+              hasilRow("Tidak Setuju", s.tidak_setuju, s.tidak_setuju_pct, s.tidak_setuju_pct_cast) +
+              // Abstain bukan suara masuk: sel suara masuknya selalu "—".
+              hasilRow("Abstain", s.abstain, s.abstain_pct, null) +
+              "</tbody></table></div>" +
+              '<p class="mt-3 mb-0 ' + muted + '">' + esc(CATATAN_HASIL) + "</p></section>";
           },
         },
         {
@@ -336,6 +356,9 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
           if (!marker.ok) throw new Error("penanda-unduhan");
           const s = data.summary;
           const kv = (label: string, value: string | number) => [label, value];
+          // Label dan baris yang sama dengan tab Ringkasan (satu sumber label);
+          // persentase suara masuk kosong tampil "—" tanpa pembagian nol.
+          const pctMasuk = (share: number | null) => (share === null ? GARIS : share);
           const ringkasan: (string | number)[][] = [
             ["Keterangan", "Nilai"],
             kv("Judul pemilihan", s.title || "Pemilihan"),
@@ -343,21 +366,26 @@ const panel = "min-w-0 rounded-xl border border-brand-border bg-card p-[22px] ma
             kv("Selesai (JST)", jst(s.closes_at)),
             kv("Waktu rekapitulasi (JST)", jst(s.recap_at)),
             kv("Waktu ekspor (JST)", jst(s.exported_at)),
-            kv("Sumber Total DPT", s.dpt_source_label),
-            kv("Total DPT (daftar anggota)", s.total_dpt),
+            kv("Sumber DPT anggota", s.dpt_source_label),
+            kv(LABEL_DPT_ANGGOTA, s.total_dpt),
+            kv(LABEL_DPT_UNDANGAN, s.invites_used),
+            kv(LABEL_DPT_FINAL, s.dpt_final),
             kv("Tautan undangan dibuat", s.invites_created),
             kv("Tautan undangan dipakai", s.invites_used),
             kv("Tautan undangan dibatalkan", s.invites_cancelled),
-            kv("Catatan tautan", "Tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi"),
-            kv("DPT final (Hak pilih hasil)", s.dpt_final),
+            kv("Catatan tautan", CATATAN_TAUTAN),
             kv("Total suara digunakan", s.votes_used),
             kv("Surat suara di kotak", s.ballot_count),
             kv("Setuju", s.setuju),
-            kv("Setuju (%)", s.setuju_pct),
+            kv("Setuju (" + LABEL_PCT_DPT + ")", s.setuju_pct),
+            kv("Setuju (" + LABEL_PCT_MASUK + ")", pctMasuk(s.setuju_pct_cast)),
             kv("Tidak Setuju", s.tidak_setuju),
-            kv("Tidak Setuju (%)", s.tidak_setuju_pct),
+            kv("Tidak Setuju (" + LABEL_PCT_DPT + ")", s.tidak_setuju_pct),
+            kv("Tidak Setuju (" + LABEL_PCT_MASUK + ")", pctMasuk(s.tidak_setuju_pct_cast)),
             kv("Abstain", s.abstain),
-            kv("Abstain (%)", s.abstain_pct),
+            kv("Abstain (" + LABEL_PCT_DPT + ")", s.abstain_pct),
+            kv("Abstain (" + LABEL_PCT_MASUK + ")", GARIS),
+            kv("Catatan hasil", CATATAN_HASIL),
           ];
           const sheets = [
             { sheet: "Ringkasan", data: ringkasan, columns: [{ width: 34 }, { width: 34 }] },

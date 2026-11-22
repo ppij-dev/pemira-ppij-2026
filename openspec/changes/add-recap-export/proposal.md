@@ -58,11 +58,17 @@ site still sees nothing until Diumumkan, and every recap view and download is au
     sheets (`write-excel-file`, as Undangan Pemilih does; the server returns JSON only),
     and a link to Umumkan Hasil in Pengaturan.
 - **Sheets.**
-  - **Ringkasan:** the election title, the schedule, the export time, Total DPT (the
-    member roll with its source named: frozen at Kunci, frozen mid-vote, or the closing
-    snapshot, via the existing resolver), invite links created / cancelled / used /
-    unused, DPT final (roll + non-cancelled links), total votes used, and Setuju /
-    Tidak Setuju / Abstain with percentages of DPT final.
+  - **Ringkasan:** the election title, the schedule, the export time, an explicit
+    three-line DPT breakdown — "DPT anggota (daftar anggota portal)" (the member roll,
+    with its source named: frozen at Kunci, frozen mid-vote, or the closing snapshot,
+    via the existing resolver), "+ Pemilih undangan (tautan dipakai)" (used invite
+    links), "= DPT final (Hak pilih hasil)" (their sum) — invite links created /
+    cancelled / used as their own block with the note that unused links are cancelled
+    automatically at Rekapitulasi Suara and not counted, total votes used, and
+    Setuju / Tidak Setuju / Abstain with one percentage column of DPT final plus a
+    second column "% dari suara masuk" for Setuju and Tidak Setuju only (Abstain gets
+    "—" there: non-voters are not votes cast), and the note that the system declares
+    no winner — any threshold (DPT or votes cast) is decided by the committee.
   - **Korda:** ALL korda (including 0) with Hak pilih, Suara digunakan and Partisipasi
     % only — no choice counts per korda. Remainder rows (unused links, data outside any
     known korda) keep the totals adding up.

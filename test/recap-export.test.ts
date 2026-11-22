@@ -70,6 +70,8 @@ interface RefSummary {
   abstain: number;
   /** Abstain tersimpan rekap: Hak pilih dikurangi partisipasi. */
   abstain_stored: number;
+  /** Suara masuk: Setuju + Tidak Setuju (Abstain bukan suara masuk). */
+  votes_cast: number;
 }
 interface RefData {
   summary: RefSummary;
@@ -208,6 +210,7 @@ async function reference(): Promise<RefData> {
       tidak_setuju: tidakSetuju,
       abstain: abstainDisplayed,
       abstain_stored: abstainStored,
+      votes_cast: setuju + tidakSetuju,
     },
     korda,
     komsat,
@@ -510,6 +513,16 @@ describe("Rekapitulasi: kalkulasi benar di setiap tab", () => {
       expectClose(s.setuju_pct, pct(expected.summary.setuju, expected.summary.dpt_final), "persentase Setuju");
       expectClose(s.tidak_setuju_pct, pct(expected.summary.tidak_setuju, expected.summary.dpt_final), "persentase Tidak Setuju");
       expectClose(s.abstain_pct, pct(expected.summary.abstain, expected.summary.dpt_final), "persentase Abstain");
+      // Kolom kedua "% dari suara masuk": hanya Setuju dan Tidak Setuju, dasar
+      // suara masuk (Abstain bukan suara masuk dan mendapat "—", bukan 0).
+      const pctMasuk = (n: number, total: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : null);
+      expectClose(s.votes_cast, expected.summary.votes_cast, "suara masuk");
+      expectClose(s.setuju_pct_cast, pctMasuk(expected.summary.setuju, expected.summary.votes_cast), "Setuju (% dari suara masuk)");
+      expectClose(s.tidak_setuju_pct_cast, pctMasuk(expected.summary.tidak_setuju, expected.summary.votes_cast), "Tidak Setuju (% dari suara masuk)");
+      if (expected.summary.votes_cast === 0) {
+        expect(s.setuju_pct_cast, "suara masuk nol: Setuju tanpa pembagian nol").toBeNull();
+        expect(s.tidak_setuju_pct_cast, "suara masuk nol: Tidak Setuju tanpa pembagian nol").toBeNull();
+      }
       expect(s.title).toBe("Pemira PPIJ 2026");
       expect(s.opens_at).not.toBeNull();
       expect(s.closes_at).not.toBeNull();
@@ -568,6 +581,25 @@ describe("Rekapitulasi: kalkulasi benar di setiap tab", () => {
       expect(s.invites_cancelled).toBe(cancelledByRecap + cancelledManual);
     });
   }
+
+  it("suara masuk nol: persentase dari suara masuk kosong tanpa pembagian nol", async () => {
+    await seedScenario(scenarios.zeroVotes);
+    await recapViaApi();
+    const res = await adminGet();
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as RecapPayload;
+    const s = payload.summary!;
+    expect(s.setuju).toBe(0);
+    expect(s.tidak_setuju).toBe(0);
+    expect(s.votes_cast).toBe(0);
+    // Tidak ada suara masuk: kedua kolomnya null (tampil "—" di tab dan Excel).
+    expect(s.setuju_pct_cast).toBeNull();
+    expect(s.tidak_setuju_pct_cast).toBeNull();
+    // Kolom "% dari DPT final" tetap terisi dan tidak ada NaN di payload mana pun.
+    expect(s.setuju_pct).toBe(0);
+    expect(s.tidak_setuju_pct).toBe(0);
+    expect(await (await adminGet()).text()).not.toContain("NaN");
+  });
 
   it("memakai snapshot penutupan sebagai sumber DPT pada roll live tanpa pembekuan", async () => {
     await seedScenario(scenarios.liveNeverFrozen);
@@ -736,6 +768,20 @@ describe("Rekapitulasi: halaman dan navigasi", () => {
     expect(page).toContain('"Komsat"');
     expect(page).toContain('"Kotak suara"');
     expect(page).toContain('"Abstain"');
+    // Breakdown DPT tiga baris dan dua kolom persentase (keputusan owner 2026-11-22),
+    // satu sumber label untuk tab dan lembar Excel.
+    for (const label of [
+      "DPT anggota (daftar anggota portal)",
+      "+ Pemilih undangan (tautan dipakai)",
+      "= DPT final (Hak pilih hasil)",
+      "% dari DPT final",
+      "% dari suara masuk",
+      "Tautan yang belum dipakai dibatalkan otomatis saat Rekapitulasi Suara dan tidak dihitung.",
+      "Sistem tidak menetapkan pemenang; ketentuan ambang (DPT atau suara masuk) diputuskan panitia.",
+    ]) {
+      expect(page).toContain(label);
+    }
+    expect(page).not.toContain("Total DPT (daftar anggota)");
     expect(page).toContain("rekapitulasi-suara.xlsx");
     expect(page).toContain('href="/admin/pemilihan"');
     expect(page).not.toContain("<script src=");

@@ -143,7 +143,7 @@ page and the Excel need, in five blocks matching the tabs.
 #### Scenario: Ringkasan block
 
 - **WHEN** the recap payload is read
-- **THEN** the Ringkasan block carries the election title, the schedule, the export time, Total DPT with its source named (frozen at Kunci, frozen mid-vote, or the closing snapshot), invite links created / used / cancelled (the cancellations include those made by the recap) with a note that unused links are cancelled at Rekapitulasi, DPT final (roll plus used links), total votes used, and Setuju, Tidak Setuju, Abstain with percentages of DPT final
+- **THEN** the Ringkasan block carries the election title, the schedule, the export time, the three-line DPT breakdown ("DPT anggota (daftar anggota portal)" with its source named — frozen at Kunci, frozen mid-vote, or the closing snapshot —, "+ Pemilih undangan (tautan dipakai)" = the used invite links, "= DPT final (Hak pilih hasil)" = their sum), invite links created / used / cancelled (the cancellations include those made by the recap) as their own block with a note that unused links are cancelled automatically at Rekapitulasi Suara and not counted, total votes used, and Setuju, Tidak Setuju, Abstain with percentages of DPT final plus, for Setuju and Tidak Setuju only, percentages of the votes cast ("% dari suara masuk"; null — shown as "—" — when no votes were cast, never a division by zero), and the note that the system declares no winner and any threshold is decided by the committee
 
 #### Scenario: Korda and Komsat blocks
 
