@@ -22,7 +22,18 @@ the update mechanism and records why.
 
 ## What Changes
 
-- **Switch in Pengaturan (Draf only).** A "Tidak Membekukan DPT" switch sits beside the
+- **Mid-vote freeze with the same switch (owner decision 2026-11-22).** While the
+  election is locked and running (Terjadwal or Dibuka, not after close) with the switch
+  on, Admin Voting can turn the existing "Tidak Membekukan DPT" switch in Pengaturan
+  OFF to freeze the roll by hand: a confirmation dialog states the current Hak pilih and
+  that the action is one-way; one final full portal refresh runs through the same sync
+  path as Kunci (a failure refuses the freeze and freezes nothing); then one guarded
+  batch writes `frozen_at`, `frozen_hak_pilih` and `live_voter_roll = 0` exactly like a
+  Kunci freeze, with one audit entry naming the count and the time. Afterwards the
+  switch shows OFF and disabled while locked with a note naming the freeze time in JST;
+  it can be turned back on only in Draf. Eligibility, Hak pilih, Hitung Abstain and the
+  closing snapshot then behave exactly as for a frozen roll.
+- **Switch in Pengaturan (free in Draf).** A "Tidak Membekukan DPT" switch sits beside the
   single-candidate-mode switch. It can be toggled only while Draf; each toggle is recorded
   in the audit log; the value is frozen at Kunci & Jadwalkan and written into the lock
   audit entry's detail. New column `elections.live_voter_roll` (migration

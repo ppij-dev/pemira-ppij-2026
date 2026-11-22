@@ -47,10 +47,13 @@ invite link; copy in Bahasa Indonesia, no emoji.
 `elections.live_voter_roll INTEGER NOT NULL DEFAULT 0 CHECK (live_voter_roll IN (0, 1))`
 (migration `0015_live_voter_roll.sql`) — the same pattern as `preview_mode` and
 `single_candidate_mode`. The lifecycle layer already refuses setting writes when
-`status_lock != 'draft'`, which is the whole "frozen at Kunci" rule; the toggle endpoint
-mirrors the single-candidate-mode toggle (PUT route, Draf-only refusal message, one audit
+`status_lock != 'draft'`, which was the whole "frozen at Kunci" rule; the toggle endpoint
+mirrors the single-candidate-mode toggle (PUT route, one audit
 entry per accepted toggle: "Tidak Membekukan DPT diaktifkan" / "Tidak Membekukan DPT
-dinonaktifkan"). The lock audit detail records `live_voter_roll: true/false` beside
+dinonaktifkan"). Amended by the owner decision of 2026-11-22 (D10 below): after Kunci
+the switch is no longer strictly read-only — it can be turned off while the election is
+locked and running, which freezes the roll. The lock audit detail records
+`live_voter_roll: true/false` beside
 `single_candidate_mode`, so the frozen value is provable from the audit chain. The switch
 is independent of `single_candidate_mode` and `preview_mode`; combinations are allowed.
 
@@ -269,15 +272,52 @@ count function this design leaves as the documented extension point.
   keep their audited `pemilih_sync` entry. (Silent refreshes accepted by the owner,
   2026-11-19.)
 
+### D10: Freeze mid-vote with the same switch (owner decision 2026-11-22)
+
+The committee may need to stop following the portal in the middle of voting (the owner's
+case: voting 23–25 Nov with the switch on, frozen by hand on the 24th). No new button:
+while the election is locked and running (stage Terjadwal or Dibuka, never after close,
+never in Mode Pratinjau), turning the existing "Tidak Membekukan DPT" switch in
+Pengaturan OFF means *Bekukan DPT sekarang*:
+
+- **Confirmation dialog.** The page opens a dialog that states the current Hak pilih
+  (the live count from the same `resolveHakPilih` helper every other consumer uses) and
+  that the action is one-way. Nothing is sent until the Admin Voting confirms.
+- **Final portal refresh.** The freeze first runs one full `syncPemilih` through the same
+  path as Kunci & Jadwalkan. A failed sync refuses the freeze with a clear error and
+  leaves the roll live — a freeze from a stale view is exactly the dependency the mode
+  exists to avoid, so the portal must be reachable and current at freeze time.
+- **One guarded batch.** Success writes `frozen_at`, `frozen_hak_pilih` (the Kunci
+  formula: eligible roll rows minus excluded Admin Voting) and `live_voter_roll = 0` in
+  one UPDATE guarded on stage, switch state, NULL `frozen_at` and preview-off, plus a
+  tip-guarded audit entry "DPT dibekukan" with detail `{frozen_hak_pilih, frozen_at,
+  stage_before}` — the same CAS + guarded-audit pattern as `countAbstain`, so a refused
+  request records nothing and a concurrent double-freeze happens exactly once.
+- **One-way.** There is no unfreeze: `live_voter_roll = 0` ends automatic refreshes for
+  the rest of the election (D3's guard already skips non-live elections), Hak pilih comes
+  from `frozen_hak_pilih` through the existing frozen branch of `resolveHakPilih`,
+  `authorizeVoter` checks the frozen roll with no refresh, and invite links keep flowing
+  through the same `directInviteTerm` helper as any frozen roll. Kembali ke Draf already
+  clears `frozen_at`/`frozen_hak_pilih`, so the switch is usable again after a return.
+- **UI state.** While locked after the freeze, the switch shows OFF and disabled with the
+  note "Daftar Pemilih dibekukan pada <waktu JST>"; turning it back on is only possible
+  in Draf, as before. Dasbor swaps its live note for a frozen-roll note; the Pemilih page
+  names the freeze time.
+
 ### D9: Copy (Bahasa Indonesia, no emoji)
 
-- Switch: "Tidak Membekukan DPT" (the owner's exact words), helper text: only editable
-  while Draf; while on, the roll follows the portal during voting (new eligible members
-  can vote at once, lost eligibility blocks voting) and Hak pilih is fixed when voting
-  closes.
+- Switch: "Tidak Membekukan DPT" (the owner's exact words), helper text: only switchable
+  on while Draf; while on, the roll follows the portal during voting (new eligible members
+  can vote at once, lost eligibility blocks voting), Hak pilih is fixed when voting
+  closes, and turning the switch off mid-vote freezes the DPT now, one-way (D10).
 - Toggle audit actions: "Tidak Membekukan DPT diaktifkan" / "Tidak Membekukan DPT
-  dinonaktifkan".
-- Refusal outside Draf: "Pengaturan ini hanya dapat diubah saat Draf."
+  dinonaktifkan"; mid-vote freeze audit action: "DPT dibekukan" (D10).
+- Freeze dialog: title "Bekukan DPT sekarang"; body states the current Hak pilih, the one
+  final portal refresh, and that the action is one-way and cannot be undone; confirm
+  button "Bekukan DPT sekarang" (D10).
+- Frozen switch note in Pengaturan: "Daftar Pemilih dibekukan pada <waktu JST>." (D10).
+- Final-sync refusal: "Sinkronisasi final gagal: <penyebab>" — the same wording as a
+  failed Kunci, so the committee reads one familiar message (D10).
 - Landing strip labels: "Jumlah Pemilih" and "Suara Masuk", with a subline "Diperbarui
   otomatis setiap 15 detik." while Dibuka.
 - Dasbor note: "Roll mengikuti portal (tidak dibekukan). Hak pilih ditetapkan saat

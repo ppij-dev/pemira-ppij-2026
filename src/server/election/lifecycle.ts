@@ -71,27 +71,112 @@ export async function setSingleCandidateMode(db:D1Database,now:Date,enabled:bool
  return {enabled};
 }
 /**
- * Saklar "Tidak Membekukan DPT" (keputusan owner 2026-11-19): nilainya hanya
- * dapat diubah saat Draf dan dibekukan saat Kunci & Jadwalkan, mirip mode
- * kandidat tunggal. Saat menyala, roll mengikuti portal selama pemungutan
- * suara dan Hak pilih ditetapkan saat penutupan; surat suara tak terpengaruh,
- * jadi tidak ada syarat suara tersimpan di sini.
+ * Saklar "Tidak Membekukan DPT" (keputusan owner 2026-11-19): saat menyala, roll
+ * mengikuti portal selama pemungutan suara dan Hak pilih ditetapkan saat
+ * penutupan; surat suara tak terpengaruh, jadi tidak ada syarat suara tersimpan
+ * di sini. Saat Draf saklar bebas diubah (dibekukan nilainya oleh Kunci &
+ * Jadwalkan). Selama pemilihan terkunci dan sedang berjalan (Terjadwal atau
+ * Dibuka) saklar yang menyala dapat dimatikan untuk membekukan DPT sekarang
+ * (keputusan owner 2026-11-22): satu arah, tidak ada pembukaan kembali.
  */
-export async function getLiveVoterRollMode(db:D1Database):Promise<{enabled:boolean;editable:boolean;reason:string|null}> {
- const row=await db.prepare("SELECT status_lock,live_voter_roll FROM elections ORDER BY id LIMIT 1").first<{status_lock:string;live_voter_roll:number}>();
- const draft=row?.status_lock==="draft";
- return {enabled:row?.live_voter_roll===1,editable:draft,reason:draft?null:"Nilai ini dibekukan setelah Kunci & Jadwalkan."};
+export interface LiveVoterRollState {
+ /** Posisi saklar: bernilai true selama roll mengikuti portal. */
+ enabled:boolean;
+ /** Hanya Draf; menyalakan kembali hanya mungkin di Draf. */
+ editable:boolean;
+ /** Terkunci, Terjadwal/Dibuka, saklar menyala: mematikan saklar = bekukan DPT sekarang. */
+ can_freeze:boolean;
+ stage:Stage|null;
+ /** Waktu DPT dibekukan (Kunci & Jadwalkan atau Bekukan DPT sekarang). */
+ frozen_at:string|null;
+ frozen_hak_pilih:number|null;
+ /** Hak pilih saat ini: angka yang disebut dialog pembekuan. */
+ hak_pilih:number;
+ reason:string|null;
+ /** Kalimat bantuan saat saklar dapat dimatikan untuk membekukan DPT. */
+ freeze_hint:string|null;
 }
-export async function setLiveVoterRollMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor) {
+interface LiveVoterRollRow {status_lock:string;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;live_voter_roll:number;preview_mode:number;frozen_at:string|null;frozen_hak_pilih:number|null}
+export const FREEZE_HINT="Pemilihan sedang berjalan dengan daftar Pemilih yang mengikuti portal. Matikan saklar ini untuk membekukan DPT sekarang.";
+export async function getLiveVoterRollMode(db:D1Database,now:Date=new Date(),portal?:ServiceApiConfig):Promise<LiveVoterRollState> {
+ const row=await db.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at,live_voter_roll,preview_mode,frozen_at,frozen_hak_pilih FROM elections ORDER BY id LIMIT 1").first<LiveVoterRollRow>();
+ const enabled=row?.live_voter_roll===1;
+ const draft=row?.status_lock==="draft";
+ const st=row&&row.opens_at&&row.closes_at?stage({status_lock:row.status_lock as ElectionStatusLock,opens_at:row.opens_at,closes_at:row.closes_at,closed_early_at:row.closed_early_at},now.toISOString()):null;
+ const running=st==="scheduled"||st==="open";
+ const canFreeze=Boolean(row&&!draft&&row.status_lock!=="published"&&running&&enabled&&row.preview_mode!==1&&row.frozen_at==null);
+ const frozenAt=row?.frozen_at??null;
+ const reason=draft?null
+  :canFreeze?null
+  :row?.preview_mode===1?"Mode Pratinjau: daftar Pemilih tidak dibekukan."
+  :enabled?"Pemungutan suara sudah ditutup; daftar Pemilih tidak dapat dibekukan lagi."
+  :frozenAt!=null?"Daftar Pemilih sudah dibekukan dan tidak dapat dibuka kembali; saklar hanya dapat diaktifkan lagi dari Draf."
+  :"Daftar Pemilih dibekukan saat Kunci & Jadwalkan; saklar hanya dapat diaktifkan lagi dari Draf.";
+ const hakPilih=row?(await resolveHakPilih(db,now,portal)).hakPilih:0;
+ return {enabled,editable:draft,can_freeze:canFreeze,stage:st,frozen_at:frozenAt,frozen_hak_pilih:row?.frozen_hak_pilih??null,hak_pilih:hakPilih,reason,freeze_hint:canFreeze?FREEZE_HINT:null};
+}
+/**
+ * Bekukan DPT sekarang (keputusan owner 2026-11-22), dipicu dengan mematikan
+ * saklar "Tidak Membekukan DPT" saat pemilihan terkunci dan sedang berjalan.
+ * Satu segarkan final portal lewat jalur yang sama dengan Kunci & Jadwalkan
+ * (sync penuh); bila portal gagal tindakan ditolak dengan galat jelas dan tidak
+ * ada yang dibekukan dari data usang. Lalu satu D1 batch bergerbang menulis
+ * frozen_at, frozen_hak_pilih dan live_voter_roll=0 persis seperti pembekuan
+ * Kunci, dengan entri audit yang menyebut angka dan waktunya. Satu arah: tidak
+ * ada pembukaan kembali, dan roll beku tidak pernah disegarkan dari portal lagi.
+ */
+export interface FreezeVoterRollResult {frozen_hak_pilih:number;frozen_at:string;hak_pilih:number}
+async function freezeVoterRollInternal(db:D1Database,cfg:ServiceApiConfig|undefined,now:Date,fetchImpl?:typeof fetch,actor?:AdminActor):Promise<FreezeVoterRollResult> {
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,allow_admin_voting,preview_mode,live_voter_roll,frozen_at FROM elections ORDER BY id LIMIT 1").first<{id:number;status_lock:string;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;allow_admin_voting:number;preview_mode:number;live_voter_roll:number;frozen_at:string|null}>();
+ if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
+ if(row.status_lock==="draft") throw new ElectionError("Daftar Pemilih baru dapat dibekukan setelah pemilihan dikunci.",409);
+ if(row.status_lock==="published") throw new ElectionError("Hasil sudah diumumkan; daftar Pemilih tidak dapat dibekukan lagi.",409);
+ if(row.live_voter_roll!==1) throw new ElectionError("Daftar Pemilih sudah dibekukan dan tidak dapat dibekukan dua kali.",409);
+ if(row.frozen_at!==null) throw new ElectionError("Daftar Pemilih sudah dibekukan.",409);
+ if(row.preview_mode===1) throw new ElectionError("Mode Pratinjau: daftar Pemilih tidak dibekukan.",409);
+ if(!row.opens_at||!row.closes_at) throw new ElectionError("Jadwal pemilihan belum lengkap",409);
+ const st=stage({status_lock:row.status_lock as ElectionStatusLock,opens_at:row.opens_at,closes_at:row.closes_at,closed_early_at:row.closed_early_at},now.toISOString());
+ if(st!=="scheduled"&&st!=="open") throw new ElectionError("Daftar Pemilih tidak dapat dibekukan setelah pemungutan suara ditutup.",409);
+ // Segarkan final portal: jalur yang sama dengan Kunci & Jadwalkan. Gagal berarti
+ // tindakan ditolak; DPT tidak pernah dibekukan dari view yang usang.
+ if(!cfg?.serviceApiUrl) throw new ElectionError("Sinkronisasi final gagal: Service API belum dikonfigurasi sehingga daftar Pemilih tidak dapat dipastikan terbaru.",503);
+ try { await syncPemilih(db,cfg,now,fetchImpl,{full:true}); }
+ catch(error) { throw new ElectionError(`Sinkronisasi final gagal: ${error instanceof Error?error.message:String(error)}`,503); }
+ // Angka beku dihitung dengan rumus yang sama persis dengan Kunci: baris roll
+ // yang boleh memilih, dikurangi Admin Voting saat mereka tidak ikut memilih.
+ const count=(await db.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote = 1").first<{n:number}>())?.n??0;
+ const admins=(await db.prepare("SELECT COUNT(*) AS n FROM voters v JOIN admin_voting a ON a.member_id=v.member_id WHERE v.can_vote = 1").first<{n:number}>())?.n??0;
+ const frozen=count-(row.allow_admin_voting===0?admins:0);
+ const at=now.toISOString();
+ const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"DPT dibekukan",target:String(row.id),komsat_path:null,detail_json:JSON.stringify({frozen_hak_pilih:frozen,frozen_at:at,stage_before:st})});
+ const results=await db.batch([
+  db.prepare("UPDATE elections SET live_voter_roll=0,frozen_at=?,frozen_hak_pilih=? WHERE id=? AND status_lock='locked' AND live_voter_roll=1 AND frozen_at IS NULL AND preview_mode=0 AND closed_early_at IS NULL AND julianday(opens_at) <= julianday(?) AND julianday(closes_at) > julianday(?)").bind(at,frozen,row.id,at,at),
+  auditEntry,
+ ]);
+ if(!results[0]?.meta.changes) throw new ElectionError("Daftar Pemilih sudah dibekukan atau pemungutan suara telah ditutup.",409);
+ return {frozen_hak_pilih:frozen,frozen_at:at,hak_pilih:frozen+await directInviteTerm(db)};
+}
+export async function freezeVoterRoll(db:D1Database,now:Date,cfg?:ServiceApiConfig,fetchImpl?:typeof fetch,actor?:AdminActor):Promise<FreezeVoterRollResult> {
+ return freezeVoterRollInternal(db,cfg,now,fetchImpl,actor);
+}
+/**
+ * Ubah saklar Tidak Membekukan DPT. Di Draf: bebas dinyalakan/dimatikan seperti
+ * semula. Setelah Kunci: hanya mematikan saklar yang menyala, dan itu berarti
+ * Bekukan DPT sekarang (satu arah). Menyalakan kembali hanya mungkin di Draf.
+ */
+export async function setLiveVoterRollMode(db:D1Database,now:Date,enabled:boolean,actor?:AdminActor,opts?:{cfg?:ServiceApiConfig;fetchImpl?:typeof fetch}):Promise<{enabled:boolean}&Partial<FreezeVoterRollResult>> {
  if(typeof enabled!=="boolean") throw new ElectionError("Nilai saklar Tidak Membekukan DPT tidak valid",400);
  const row=await db.prepare("SELECT status_lock FROM elections ORDER BY id LIMIT 1").first<{status_lock:string}>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
- if(row.status_lock!=="draft") throw new ElectionError("Tidak Membekukan DPT hanya dapat diubah saat Draf",409);
- await db.batch([
-  db.prepare("UPDATE elections SET live_voter_roll=? WHERE status_lock='draft'").bind(enabled?1:0),
-  await audit(db,now,enabled?"Tidak Membekukan DPT diaktifkan":"Tidak Membekukan DPT dinonaktifkan",null,JSON.stringify({live_voter_roll:enabled}),actor),
- ]);
- return {enabled};
+ if(row.status_lock==="draft") {
+  await db.batch([
+   db.prepare("UPDATE elections SET live_voter_roll=? WHERE status_lock='draft'").bind(enabled?1:0),
+   await audit(db,now,enabled?"Tidak Membekukan DPT diaktifkan":"Tidak Membekukan DPT dinonaktifkan",null,JSON.stringify({live_voter_roll:enabled}),actor),
+  ]);
+  return {enabled};
+ }
+ if(enabled) throw new ElectionError("Tidak Membekukan DPT hanya dapat diaktifkan saat Draf.",409);
+ return {enabled:false,...await freezeVoterRollInternal(db,opts?.cfg,now,opts?.fetchImpl,actor)};
 }
 /** Frasa konfirmasi "Kembali ke Draf"; dibandingkan seperti konfirmasi nickname. */
 export const RETURN_TO_DRAFT_PHRASE="KEMBALI KE DRAF";

@@ -6,10 +6,14 @@ import intro from "../migrations/0007_candidate_short_intro.sql?raw";import sing
 import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
+import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import campaignUrlSql from "../migrations/0018_candidate_campaign_url.sql?raw";
-import {ABSTAIN_NOT_COUNTED_MESSAGE,canReturnToDraft,castTestVote,closeEarly,countAbstain,getAbstainCount,extendClosing,getLiveVoterRollMode,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setLiveVoterRollMode,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
+import {ABSTAIN_NOT_COUNTED_MESSAGE,canReturnToDraft,castTestVote,closeEarly,countAbstain,freezeVoterRoll,FREEZE_HINT,getAbstainCount,extendClosing,getLiveVoterRollMode,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setLiveVoterRollMode,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
+import {getTurnout} from "../src/server/results/queries";
+import {allPortalMembers} from "./lib/serviceapi-fixture";
+import {castVote,type VoteSession} from "../src/server/voting/vote";
 import {getPublicBoard} from "../src/server/voting/board";
 import {stage} from "../src/server/lib/stage";
 import {verifyChain,type AuditRow} from "../src/server/lib/audit";
@@ -598,12 +602,12 @@ describe("Tidak Membekukan DPT",()=>{
   expect(actions.results.map(row=>row.action)).toEqual(["Tidak Membekukan DPT diaktifkan","Tidak Membekukan DPT dinonaktifkan"]);
   expect((await env.DB.prepare("SELECT detail_json FROM audit_log ORDER BY seq").all<{detail_json:string}>()).results[1]!.detail_json).toBe(JSON.stringify({live_voter_roll:false}));
  });
- it("menolak perubahan saklar setelah Kunci tanpa entri audit",async()=>{
-  await env.DB.prepare("UPDATE elections SET status_lock='locked',live_voter_roll=1").run();
-  await expect(setLiveVoterRollMode(env.DB,NOW,false)).rejects.toThrow("saat Draf");
-  expect(await env.DB.prepare("SELECT live_voter_roll FROM elections").first()).toEqual({live_voter_roll:1});
+ it("menolak menyalakan saklar setelah Kunci tanpa entri audit",async()=>{
+  await env.DB.prepare("UPDATE elections SET status_lock='locked',live_voter_roll=0").run();
+  await expect(setLiveVoterRollMode(env.DB,NOW,true)).rejects.toThrow("hanya dapat diaktifkan saat Draf");
+  expect(await env.DB.prepare("SELECT live_voter_roll FROM elections").first()).toEqual({live_voter_roll:0});
   expect(await auditCount()).toBe(0);
-  expect(await getLiveVoterRollMode(env.DB)).toMatchObject({enabled:true,editable:false,reason:"Nilai ini dibekukan setelah Kunci & Jadwalkan."});
+  expect(await getLiveVoterRollMode(env.DB)).toMatchObject({enabled:false,editable:false});
  });
  it("mengunci tanpa membekukan roll saat saklar menyala dan mencatat nilai beku plus jumlah view di audit Kunci",async()=>{
   await readySingle();
@@ -724,6 +728,105 @@ describe("Tidak Membekukan DPT",()=>{
 
 // Undangan Langsung di siklus pemilihan: tautan tidak pernah masuk angka beku,
 // dicatat terpisah di audit Kunci, dan bertahan melewati Kembali ke Draf.
+// Bekukan DPT sekarang (keputusan owner 2026-11-22): mematikan saklar
+// "Tidak Membekukan DPT" saat pemilihan terkunci dan berjalan (Terjadwal/Dibuka)
+// membekukan DPT satu arah dengan segarkan final portal dan entri audit.
+describe("Bekukan DPT sekarang",()=>{
+ beforeEach(async()=>{await setup();await env.DB.batch(limitsSql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s)));});
+ const AFTER_CLOSE=new Date("2026-10-21T03:00:00Z");
+ async function liveOpen(){await readySingle();await setLiveVoterRollMode(env.DB,NOW,true);await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);}
+ const eligibleCount=async()=>(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote=1").first<{n:number}>())!.n;
+ const freezeEntries=async()=>(await env.DB.prepare("SELECT * FROM audit_log WHERE action='DPT dibekukan' ORDER BY seq").all<AuditRow>()).results;
+ const realOpen=(()=>{const d=new Date(Date.now()-60_000);return d.toISOString()})();
+ const realClose=(()=>{const d=new Date(Date.now()+2*3_600_000);return d.toISOString()})();
+ async function shiftToRealClock(){await env.DB.prepare("UPDATE elections SET opens_at=?,closes_at=?").bind(realOpen,realClose).run();await env.DB.prepare("INSERT OR REPLACE INTO system_config(key,value) VALUES('site_scope','/ppij')").run();}
+ it("menolak membekukan saat Draf dan membiarkan saklar berubah seperti biasa",async()=>{
+  await readySingle();
+  await setLiveVoterRollMode(env.DB,NOW,true);
+  await expect(freezeVoterRoll(env.DB,NOW,cfg,createServiceApiStub().fetchImpl,ACTOR)).rejects.toMatchObject({status:409});
+  expect(await electionRow()).toMatchObject({status_lock:"draft",live_voter_roll:1,frozen_at:null,frozen_hak_pilih:null});
+  expect(await freezeEntries()).toEqual([]);
+  // Di Draf mematikan saklar tetap saklar biasa, bukan pembekuan.
+  await setLiveVoterRollMode(env.DB,NOW,false,ACTOR);
+  expect(await electionRow()).toMatchObject({live_voter_roll:0,frozen_at:null,frozen_hak_pilih:null});
+  expect((await env.DB.prepare("SELECT action FROM audit_log WHERE action LIKE 'Tidak Membekukan%'").all<{action:string}>()).results.map(r=>r.action)).toEqual(["Tidak Membekukan DPT diaktifkan","Tidak Membekukan DPT dinonaktifkan"]);
+  expect(await freezeEntries()).toEqual([]);
+ });
+ it("membekukan saat Dibuka: segarkan final, kolom beku, satu entri audit, hanya sekali",async()=>{
+  await liveOpen();
+  expect(await eligibleCount()).toBe(10);
+  expect(await getLiveVoterRollMode(env.DB,OPEN_NOW)).toMatchObject({enabled:true,editable:false,can_freeze:true,hak_pilih:10,freeze_hint:FREEZE_HINT});
+  const result=await freezeVoterRoll(env.DB,OPEN_NOW,cfg,createServiceApiStub().fetchImpl,ACTOR);
+  expect(result).toEqual({frozen_hak_pilih:10,frozen_at:OPEN_NOW.toISOString(),hak_pilih:10});
+  expect(await electionRow()).toMatchObject({live_voter_roll:0,frozen_at:OPEN_NOW.toISOString(),frozen_hak_pilih:10});
+  // Entri audit memuat angka dan waktu; aktornya Admin Voting; rantai utuh.
+  const entries=await freezeEntries();
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"Admin",detail_json:JSON.stringify({frozen_hak_pilih:10,frozen_at:OPEN_NOW.toISOString(),stage_before:"open"})});
+  expect(await verifyChain((await env.DB.prepare("SELECT * FROM audit_log ORDER BY seq").all<AuditRow>()).results)).toBeNull();
+  // Saklar setelahnya: mati, terkunci, dengan catatan waktu beku; hint hilang.
+  const after=await getLiveVoterRollMode(env.DB,OPEN_NOW);
+  expect(after).toMatchObject({enabled:false,editable:false,can_freeze:false,frozen_at:OPEN_NOW.toISOString(),frozen_hak_pilih:10,hak_pilih:10,freeze_hint:null});
+  expect(after.reason).toContain("sudah dibekukan");
+  // Pemanggilan kedua, lewat dua pintu, ditolak tanpa entri baru atau angka baru.
+  await expect(freezeVoterRoll(env.DB,OPEN_NOW,cfg,createServiceApiStub().fetchImpl,ACTOR)).rejects.toMatchObject({status:409});
+  await expect(setLiveVoterRollMode(env.DB,OPEN_NOW,false,ACTOR,{cfg})).rejects.toMatchObject({status:409});
+  expect((await freezeEntries()).length).toBe(1);
+  expect(await electionRow()).toMatchObject({live_voter_roll:0,frozen_at:OPEN_NOW.toISOString(),frozen_hak_pilih:10});
+ });
+ it("menolak membekukan setelah pemungutan ditutup",async()=>{
+  await liveOpen();
+  await env.DB.prepare("UPDATE elections SET closes_at='2026-10-21T02:00:00Z'").run();
+  await expect(freezeVoterRoll(env.DB,AFTER_CLOSE,cfg,createServiceApiStub().fetchImpl,ACTOR)).rejects.toMatchObject({status:409});
+  expect(await electionRow()).toMatchObject({live_voter_roll:1,frozen_at:null,frozen_hak_pilih:null});
+  expect(await freezeEntries()).toEqual([]);
+  // Saat Ditutup saklar tidak lagi menawarkan pembekuan.
+  const state=await getLiveVoterRollMode(env.DB,AFTER_CLOSE);
+  expect(state).toMatchObject({enabled:true,can_freeze:false,freeze_hint:null});
+ });
+ it("portal gagal: tolak pembekuan dengan galat jelas tanpa membekukan apa pun",async()=>{
+  await liveOpen();
+  await expect(freezeVoterRoll(env.DB,OPEN_NOW,cfg,createServiceApiStub({mode:"fail_page_n"}).fetchImpl,ACTOR)).rejects.toMatchObject({status:503});
+  expect(await electionRow()).toMatchObject({live_voter_roll:1,frozen_at:null,frozen_hak_pilih:null});
+  expect(await freezeEntries()).toEqual([]);
+  // Pemilihan tetap berjalan hidup setelah kegagalan: saklar masih menawarkan pembekuan.
+  expect(await getLiveVoterRollMode(env.DB,OPEN_NOW)).toMatchObject({enabled:true,can_freeze:true});
+ });
+ it("anggota yang terdaftar di portal setelah pembekuan tidak dapat memilih; anggota roll tetap bisa",async()=>{
+  await liveOpen();
+  await freezeVoterRoll(env.DB,OPEN_NOW,cfg,createServiceApiStub().fetchImpl,ACTOR);
+  await shiftToRealClock();
+  // Portal kini memuat member-14, tetapi roll beku tidak pernah disegarkan lagi:
+  // jalur memilih membaca roll beku, bukan portal.
+  const member14={member_id:"member-14",full_name:"Member 14",nickname:"M14",komsat_path:"/ppij/okayama/okayama",status:"ACTIVE",member_number:"14",member_category:"BIASA",can_vote:true,updated_at:new Date().toISOString()};
+  const newcomer:VoteSession={member_id:"member-14",name:"Member 14",affiliation:"/ppij/okayama",auth_time:Math.floor(Date.now()/1000)};
+  await expect(castVote(env.DB,newcomer,{candidate_id:1,confirmation_text:"M1",choice:"setuju"},undefined,{...cfg})).rejects.toMatchObject({status:403,reason:"not_in_roll"});
+  expect(await eligibleCount()).toBe(10);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE member_id='member-14'").first()).toEqual({n:0});
+  // Kontrol: anggota pada roll beku memilih persis seperti roll beku Kunci.
+  const voter3:VoteSession={member_id:"member-3",name:"Member 3",affiliation:"/ppij/okayama",auth_time:Math.floor(Date.now()/1000)};
+  await castVote(env.DB,voter3,{candidate_id:1,confirmation_text:"M1",choice:"setuju"});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM participation WHERE is_test=0").first()).toEqual({n:1});
+ });
+ it("Hak pilih tetap dari angka beku: turnout dan Hitung Abstain memakainya",async()=>{
+  await liveOpen();
+  await freezeVoterRoll(env.DB,OPEN_NOW,cfg,createServiceApiStub().fetchImpl,ACTOR);
+  // Perubahan apa pun pada view setelah pembekuan tidak menggerakkan angka.
+  await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,category,can_vote) VALUES('member-20','Member 20','/ppij/okayama/okayama','ACTIVE','now','BIASA',1)").run();
+  await env.DB.prepare("DELETE FROM voters WHERE member_id='member-5'").run();
+  expect(await getTurnout(env.DB,OPEN_NOW)).toMatchObject({stage:"open",eligible_count:10,votes_count:0});
+  // Dua suara masuk, lalu Ditutup: Hitung Abstain memakai angka beku dan snapshot
+  // Hak pilih akhir tidak pernah ditulis pada roll beku.
+  await shiftToRealClock();
+  for(const id of ["member-3","member-4"]){await castVote(env.DB,{member_id:id,name:`Member ${id.slice(-1)}`,affiliation:"/ppij/okayama",auth_time:Math.floor(Date.now()/1000)},{candidate_id:1,confirmation_text:"M1",choice:"setuju"});}
+  await env.DB.prepare("UPDATE elections SET opens_at='2026-10-21T00:30:00Z',closes_at='2026-10-21T02:00:00Z'").run();
+  const state=await getAbstainCount(env.DB,AFTER_CLOSE);
+  expect(state).toMatchObject({stage:"closed",pending_count:8,can_run:true});
+  expect(await electionRow()).toMatchObject({frozen_hak_pilih:10,closing_hak_pilih:null,closing_hak_pilih_at:null});
+  const counted=await countAbstain(env.DB,AFTER_CLOSE,ACTOR);
+  expect(counted).toMatchObject({counted_count:8});
+ });
+});
 describe("Undangan Langsung dalam siklus pemilihan",()=>{
  beforeEach(()=>setup());
  async function invite(reference:string,extra:{used?:boolean;cancelled?:boolean}={}){

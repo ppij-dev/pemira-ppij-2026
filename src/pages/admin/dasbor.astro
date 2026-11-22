@@ -12,8 +12,11 @@ const db = authorized ? bindings.DB : undefined;
 // Catatan dan peringatan view portal (mode "Tidak Membekukan DPT", keputusan
 // owner 2026-11-19): tahap dihitung dari jam pada saat halaman dirender; tanpa
 // polling. View dianggap usang bila watermark portal lebih tua dari 5 menit.
-const election = await db?.prepare('SELECT status_lock,opens_at,closes_at,closed_early_at,live_voter_roll FROM elections ORDER BY id LIMIT 1').first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number }>();
+const election = await db?.prepare('SELECT status_lock,opens_at,closes_at,closed_early_at,live_voter_roll,frozen_at,frozen_hak_pilih FROM elections ORDER BY id LIMIT 1').first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number; frozen_at: string | null; frozen_hak_pilih: number | null }>();
 const liveRoll = election?.live_voter_roll === 1;
+// Roll beku (Kunci & Jadwalkan atau Bekukan DPT sekarang): Hak pilih dari angka
+// beku itu, jadi catatan menyebut kapan DPT dibekukan.
+const frozenAt = election && election.status_lock !== 'draft' ? election.frozen_at : null;
 const stageOf = (): string => {
   if (!election) return 'draft';
   if (election.status_lock === 'draft') return 'draft';
@@ -40,6 +43,7 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
     Anda tidak memiliki akses ke data dasbor.
   </Callout>
   {liveRoll && <Callout tone="neutral" title="Roll mengikuti portal (tidak dibekukan)" class="mt-5">Hak pilih dihitung dari daftar Pemilih terkini selama pemungutan suara dibuka dan ditetapkan saat pemungutan ditutup. Terakhir diperbarui dari portal: {lastRefreshText}.</Callout>}
+  {frozenAt && <Callout tone="neutral" title="Daftar Pemilih dibekukan" class="mt-5">Hak pilih dihitung dari daftar Pemilih yang dibekukan pada {formatJst(frozenAt)}{election?.frozen_hak_pilih != null ? ` (${new Intl.NumberFormat('id-ID').format(election.frozen_hak_pilih)} Pemilih)` : ''} dan tidak lagi mengikuti portal.</Callout>}
   {viewStale && <Callout tone="warning" icon={IconAlertTriangle} title="Daftar Pemilih sudah lama tidak diperbarui dari portal" class="mt-5">Portal belum berhasil dihubungi kembali sejak {lastRefreshText}. Pemilih tetap dapat memilih berdasarkan daftar terakhir ini; periksa koneksi portal bila keadaan ini berlarut.</Callout>}
   <div id="dashboard" class="mt-5 grid gap-[17px] [&>*]:min-w-0" aria-live="polite">
     <section class="rounded-xl border border-brand-border bg-card p-[22px] max-[700px]:p-[17px]">

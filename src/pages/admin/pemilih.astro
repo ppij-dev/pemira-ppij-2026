@@ -29,7 +29,11 @@ const filter = Astro.url.searchParams.get('status') || '';
 // tunggu pendek supaya halaman tidak pernah menunggu portal lama; tanpa
 // SERVICE_API_URL tidak ada percobaan. Baris di bawah lalu membaca view hasil
 // segarkan itu, bukan baris lama.
-const liveRollPage = (await db?.prepare('SELECT live_voter_roll FROM elections ORDER BY id LIMIT 1').first<{ live_voter_roll: number }>())?.live_voter_roll === 1;
+const rollRow = await db?.prepare('SELECT live_voter_roll,status_lock,frozen_at FROM elections ORDER BY id LIMIT 1').first<{ live_voter_roll: number; status_lock: string; frozen_at: string | null }>();
+const liveRollPage = rollRow?.live_voter_roll === 1;
+// Roll beku (Kunci & Jadwalkan atau Bekukan DPT sekarang): halaman menyebut kapan
+// DPT dibekukan supaya keadaan setelah pembekuan di tengah pemungutan suara jelas.
+const frozenAtPage = rollRow && rollRow.status_lock !== 'draft' ? rollRow.frozen_at : null;
 if (liveRollPage && db) await refreshPortalViewForRead(db, serviceApiConfig(bindings), new Date());
 // Baris roll tanpa nomor kartu tetap tampil dengan tanda hubung; nama unit
 // selalu nama resmi portal dari tabel units, bukan pecahan jalur.
@@ -41,7 +45,7 @@ const unitNames = (await db?.prepare('SELECT path,name FROM units').all<{ path: 
 const undetermined = (await db?.prepare('SELECT COUNT(*) AS n FROM voters WHERE can_vote IS NULL').first<{ n: number }>())?.n ?? 0;
 const sync = await db?.prepare("SELECT value FROM system_config WHERE key='pemilih_last_sync'").first<{ value: string }>();
 const formatJst = (value: string) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value)) + " JST";
-const rollDescription = liveRollPage ? `Roll mengikuti portal (tidak dibekukan). Terakhir diperbarui dari portal: ${sync?.value ? formatJst(sync.value) : "belum pernah"}` : `Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}`;
+const rollDescription = liveRollPage ? `Roll mengikuti portal (tidak dibekukan). Terakhir diperbarui dari portal: ${sync?.value ? formatJst(sync.value) : "belum pernah"}` : `Terakhir sinkron: ${sync?.value ? formatJst(sync.value) : "Belum pernah"}${frozenAtPage ? ` · Daftar Pemilih dibekukan: ${formatJst(frozenAtPage)}` : ""}`;
 const pageQuery = (target: number) => `?q=${encodeURIComponent(q)}&komsat=${encodeURIComponent(komsat)}&status=${filter}&page=${Math.max(1, target)}`;
 const controlClass = "w-full min-w-0 rounded-md border border-input bg-card px-3 text-base shadow-xs transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none min-[600px]:text-[13px]";
 ---

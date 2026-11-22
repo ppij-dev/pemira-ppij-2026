@@ -3,19 +3,22 @@
 ## Purpose
 
 Lets Admin Voting run an election whose Pemilih roll does not freeze at Kunci & Jadwalkan:
-a Draf-only "Tidak Membekukan DPT" switch frozen at lock (owner decision 2026-11-19), a
-locking rule that leaves the roll unfrozen while it is on, and a closing-time Hak pilih
-snapshot written once by the first read that observes the election closed, because the
-stage is computed from the clock and no cron exists.
+a "Tidak Membekukan DPT" switch frozen at Kunci & Jadwalkan (owner decision 2026-11-19)
+but free in Draf, a locking rule that leaves the roll unfrozen while it is on, a
+closing-time Hak pilih snapshot written once by the first read that observes the election
+closed, because the stage is computed from the clock and no cron exists — and, since the
+owner decision of 2026-11-22, a one-way mid-vote freeze driven by the same switch while
+the election is locked and running.
 
 ## ADDED Requirements
 
 ### Requirement: Tidak Membekukan DPT switch in Pengaturan
 
 While Draf, Pengaturan SHALL let Admin Voting turn the "Tidak Membekukan DPT" switch on or
-off, and each toggle SHALL be recorded in the audit log. In later stages the switch SHALL
-be shown read-only and SHALL refuse changes. The switch SHALL be off for a new election
-and SHALL be independent of single candidate mode and preview mode.
+off, and each toggle SHALL be recorded in the audit log. After Kunci & Jadwalkan the only
+possible change is turning it off while the election is locked and running, which freezes
+the roll (next requirement); it SHALL never be turned back on outside Draf. The switch
+SHALL be off for a new election and independent of the other mode switches.
 
 #### Scenario: Turn on in Draf
 
@@ -27,10 +30,56 @@ and SHALL be independent of single candidate mode and preview mode.
 - **WHEN** an Admin Voting switches it off again while Draf
 - **THEN** the value is saved and a further audit entry records the action
 
-#### Scenario: Frozen after Kunci
+#### Scenario: Turning on after Kunci is refused
 
-- **WHEN** an Admin Voting tries to toggle the switch after Kunci & Jadwalkan
-- **THEN** the request is refused, the switch stays read-only and the value is unchanged
+- **WHEN** an Admin Voting tries to switch it on after Kunci & Jadwalkan
+- **THEN** the request is refused, the value is unchanged and no audit entry is written
+
+#### Scenario: Already frozen refuses further changes
+
+- **WHEN** the roll is frozen (at Kunci & Jadwalkan or mid-vote) and an Admin Voting tries to change the switch
+- **THEN** the request is refused, the switch shows off and disabled while locked, and no audit entry is written
+
+### Requirement: Turning the switch off mid-vote freezes the roll one-way
+
+While the election is locked and running (stage Terjadwal or Dibuka) in preview-off
+elections, an Admin Voting SHALL be able to turn the switch off, which freezes the voter
+roll immediately (owner decision 2026-11-22). The freeze SHALL first run one final full
+Service API sync; a failed sync SHALL refuse the freeze and freeze nothing. A confirmed
+freeze SHALL write `frozen_at`, `frozen_hak_pilih` and `live_voter_roll = 0` in one
+guarded batch, exactly once, and SHALL be one-way.
+
+#### Scenario: Confirmation dialog before freezing
+
+- **WHEN** an Admin Voting turns the switch off while the election is locked and running in live mode
+- **THEN** a confirmation dialog states the current Hak pilih and that the action is one-way, and nothing is frozen until the Admin Voting confirms
+
+#### Scenario: Freeze succeeds with a final portal refresh
+
+- **WHEN** an Admin Voting confirms the freeze while Terjadwal or Dibuka and the final full sync succeeds
+- **THEN** `frozen_at`, `frozen_hak_pilih` and `live_voter_roll = 0` are written in one batch, and the Hak pilih afterwards equals the frozen count
+
+#### Scenario: Portal failure refuses the freeze
+
+- **WHEN** the final full sync fails (portal unreachable or returning errors)
+- **THEN** the freeze is refused through the same sync path as Kunci & Jadwalkan with a clear error, `frozen_at` and `frozen_hak_pilih` stay NULL, the switch stays on, and no freeze audit entry is written
+
+#### Scenario: Refused in Draf, after close and when already frozen
+
+- **WHEN** the freeze is attempted while Draf, after the vote has closed, or when the roll is already frozen
+- **THEN** each attempt is refused, the election data is unchanged, and no audit entry is written
+
+### Requirement: Frozen switch shows disabled with the freeze time
+
+After a successful freeze the batch SHALL write one audit entry naming the frozen count
+and the time. While the election stays locked, Pengaturan SHALL show the switch off and
+disabled beside a note naming the freeze time in JST, and turning it back on SHALL only
+be possible in Draf.
+
+#### Scenario: Switch disabled with the freeze time after freezing
+
+- **WHEN** the roll has been frozen mid-vote and an Admin Voting opens Pengaturan while the election is still locked
+- **THEN** the switch shows off and disabled beside a note naming the freeze time in JST
 
 ### Requirement: Switch value frozen and recorded at Kunci & Jadwalkan
 

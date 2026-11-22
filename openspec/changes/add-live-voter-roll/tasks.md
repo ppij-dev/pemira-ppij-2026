@@ -139,3 +139,27 @@ command). Spec source of truth: the deltas in `specs/` of this change.
 - [x] 11.2 `openspec validate add-live-voter-roll --strict` green.
 - [x] 11.3 Full `npx vitest run` suite green and a local `wrangler dev` check on a private
       port: an added fixture member raised `/api/turnout` within one TTL cycle with no vote.
+
+## 12. Bekukan DPT sekarang mid-vote (owner decision 2026-11-22)
+
+- [x] 12.1 Failing tests first in `test/election-lifecycle.test.ts`: freezing refused in
+      Draf (the switch stays a plain toggle there), after close, and when already frozen;
+      a successful freeze at Dibuka runs the final full sync, writes `frozen_at`,
+      `frozen_hak_pilih` and `live_voter_roll = 0` in one batch, writes exactly one "DPT
+      dibekukan" audit entry with the count and time, and a second attempt is refused;
+      the portal-failure path refuses with 503 and freezes nothing; a member added to the
+      portal after the freeze cannot vote while a roll member still can; Hak pilih (turnout,
+      Hitung Abstain) stays on the frozen number and no closing snapshot is written.
+- [x] 12.2 Implement the freeze in `src/server/election/lifecycle.ts` (`freezeVoterRoll`
+      + switch-aware `setLiveVoterRollMode`, `getLiveVoterRollMode` gaining `can_freeze`,
+      `frozen_at`, `hak_pilih` and the freeze hint) + admin route passing the Service API
+      config; run the group's tests green.
+- [x] 12.3 UI in `src/pages/admin/pemilihan.astro`: turning the switch off while running
+      opens the confirmation dialog naming the current Hak pilih and the one-way nature,
+      the frozen switch shows disabled with the JST freeze note; `src/pages/admin/
+      dasbor.astro` and `src/pages/admin/pemilih.astro` swap their live notes for
+      frozen-roll notes naming the freeze time.
+- [x] 12.4 Spec deltas updated (election-lifecycle, voter-roll, voting-and-receipts,
+      admin-dashboard, audit-log) and `openspec validate add-live-voter-roll --strict`
+      green; manual `wrangler dev` check of the dialog and the post-freeze Pengaturan
+      state.

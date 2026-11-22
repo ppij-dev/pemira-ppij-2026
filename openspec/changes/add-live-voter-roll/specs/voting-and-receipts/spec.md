@@ -50,3 +50,16 @@ votes in non-preview elections.
 
 - **WHEN** an election with the switch off is open and a member not on the frozen roll tries to vote
 - **THEN** the refusal is today's frozen-roll refusal and no refresh runs
+
+### Requirement: After a mid-vote freeze eligibility is the frozen roll
+
+Once the roll is frozen mid-vote by turning the switch off (owner decision 2026-11-22),
+vote authorization SHALL behave exactly as in a Kunci-frozen election: the member SHALL
+be checked against the frozen roll with no portal refresh, and a member who joined the
+portal after the freeze SHALL be refused. Votes already cast stay; secrecy, receipts,
+confirmation, one-vote-per-member and rate limits are unchanged.
+
+#### Scenario: Member added after the freeze cannot vote
+
+- **WHEN** the roll is frozen mid-vote, an eligible member registers on the portal afterwards, and then tries to vote
+- **THEN** the vote is refused with the existing not-on-the-roll message, no refresh runs, and a member who was on the roll at the freeze can still vote once as usual
