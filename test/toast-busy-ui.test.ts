@@ -5,6 +5,7 @@ import adminLayout from "../src/layouts/AdminLayout.astro?raw";
 import baseLayout from "../src/layouts/Base.astro?raw";
 import previewLayout from "../src/layouts/DesignPreviewLayout.astro?raw";
 import pengaturan from "../src/pages/admin/pemilihan.astro?raw";
+import rekap from "../src/pages/admin/rekap.astro?raw";
 import kandidat from "../src/pages/admin/kandidat.astro?raw";
 import pemilih from "../src/pages/admin/pemilih.astro?raw";
 import panitia from "../src/pages/admin/index.astro?raw";
@@ -117,9 +118,10 @@ describe("Pengaturan (admin/pemilihan): setiap aksi memakai toast dan tombol sib
     expect(pengaturan).toContain("{variant:'error'})}finally{returnBusy=false");
   });
 
-  it("Hitung Abstain: tombol sibuk di dialog dan toast sukses", () => {
-    expect(pengaturan).toContain("window.withBusy(abstainConfirm,'Menghitung…'");
-    expect(pengaturan).toContain("window.toast('Hitung Abstain dijalankan: '+abstainNum(d.counted_count)");
+  it("Rekapitulasi di halaman rekap: tombol sibuk di dialog dan toast sukses", () => {
+    expect(rekap).toContain("window.withBusy(confirmButton, \"Merekap…\"");
+    expect(rekap).toContain("window.toast(\"Rekapitulasi Suara dijalankan: angka tidak memilih disimpan sebagai Abstain.\"");
+    expect(rekap).toContain("window.withBusy(exportButton, \"Menyiapkan berkas…\"");
   });
 
   it("Periksa ulang kesiapan memakai tombol sibuk", () => {

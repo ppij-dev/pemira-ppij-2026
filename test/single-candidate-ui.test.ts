@@ -50,7 +50,7 @@ describe("UI mode kandidat tunggal: dua jawaban, tanpa baris hasil", () => {
     expect(ballot).not.toContain("Pemungutan suara sudah ditutup");
     expect(ballot).not.toContain("Saat ini pemungutan suara tidak dibuka");
   });
-  it("Dasbor, Hasil dan beranda menyebut '(belum dihitung)' sebelum Hitung Abstain dan memakai abstain_counted", () => {
+  it("Dasbor, Hasil dan beranda menyebut '(belum dihitung)' sebelum rekap dan memakai abstain_counted", () => {
     for (const page of [dasbor, hasil]) {
       expect(page).toContain("tidak memilih (belum dihitung)");
       expect(page).toContain("abstain_counted");
@@ -62,13 +62,12 @@ describe("UI mode kandidat tunggal: dua jawaban, tanpa baris hasil", () => {
     expect(hasil).not.toContain("abstainCast");
   });
 
-  it("Pengaturan menaruh Hitung Abstain di Tindakan tahap dengan dialog yang menyebut angkanya", () => {
-    expect(pengaturan).toContain("'/api/election/abstain-count'");
-    expect(pengaturan).toContain('id="abstain-dialog"');
-    expect(pengaturan).toContain('id="abstain-number"');
-    expect(pengaturan).toContain("hanya dapat dijalankan sekali dan tidak dapat dibatalkan");
-    expect(pengaturan).toContain("abstainCard.hidden=!d.single_candidate_mode");
-    expect(pengaturan).toContain("openAbstain.disabled=!d.can_run");
+  it("Pengaturan tidak punya Hitung Abstain lagi dan mengarahkan rekap ke halaman Rekapitulasi", () => {
+    // Tindakan Hitung Abstain digantikan Rekapitulasi Suara (Q232-Q234, 2026-11-22).
+    expect(pengaturan).not.toContain("abstain-count");
+    expect(pengaturan).not.toContain('id="abstain-dialog"');
+    expect(pengaturan).toContain("jalankan Rekapitulasi Suara di halaman Rekapitulasi terlebih dahulu");
+    expect(pengaturan).toContain('href="/admin/rekap"');
   });
 
   // Keputusan owner 2026-11-21: angka pilihan disegel dari semua orang, panitia

@@ -22,6 +22,7 @@ import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
+import recapSql from "../migrations/0019_election_recap.sql?raw";
 import { voteRoutes } from "../src/server/voting/routes";
 import { sealSession } from "../src/server/auth/session";
 import { normalizeReceiptCode, hashReceipt } from "../src/server/voting/receipt";
@@ -99,7 +100,7 @@ async function rowCounts() {
 
 beforeEach(async () => {
   await reset();
-  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...memberNumberSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";"), ...liveRollSql.split(";"), ...closingHakPilihSql.split(";"), ...directInvitationsSql.split(";")].map((s) => s.trim()).filter(Boolean);
+  const statements = [...initSql.split(";"), ...unitsSql.split(";"), ...lockSql.split(";"), ...snapshotSql.split(";"), ...limitsSql.split(";"), ...previewSql.split(";"), ...memberNumberSql.split(";"), ...categorySql.split(";"), ...canVoteSql.split(";"), ...singleModeSql.split(";"), ...ballotChoiceSql.split(";"), ...ballotAbstainSql.split(";"), ...abstainCountedSql.split(";"), ...liveRollSql.split(";"), ...closingHakPilihSql.split(";"), ...directInvitationsSql.split(";"), ...recapSql.split(";")].map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO system_config (key,value) VALUES ('site_scope',?),('site_base_url',?)").bind(SCOPE, ORIGIN).run();
   await seedOpenElection();

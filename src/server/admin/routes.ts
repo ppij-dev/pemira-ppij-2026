@@ -7,6 +7,8 @@ import { SESSION_COOKIE, openSession, type SessionData } from "../auth/session";
 import { buildAuditInsert } from "../lib/audit";
 import { NEUTRAL_ADMIN_NAME, resolveDisplayName } from "../lib/displayName";
 import { DirectInviteError, cancelDirectInvitation, generateDirectInvitations, listDirectInvitations } from "../direct/create";
+import { getRecapPayload } from "../results/recap";
+import { ResultsError } from "../results/queries";
 
 type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 type AffiliationClaim = string | string[] | null;
@@ -197,6 +199,49 @@ export function createAdminRoutes() {
       if (error instanceof DirectInviteError) return jsonError(c, error.message, error.status as 400 | 403 | 404 | 409 | 503);
       throw error;
     }
+  });
+  // Rekapitulasi Suara (Q232–Q234): payload JSON saja — Excel dibangun di
+  // peramban. Setiap muatan data direkap tercatat sebagai aksi Admin Voting
+  // ("Rekapitulasi dilihat") tanpa data apa pun di detailnya; pembacaan
+  // keadaan saja (sebelum rekap) tidak mengekspos angka dan tidak dicatat.
+  routes.get("/admin/recap", async (c) => {
+    const actor = c.get("adminAuth")!;
+    const now = new Date();
+    try {
+      const data = await getRecapPayload(c.env.DB, now);
+      if (data.recap_done) {
+        await c.env.DB.batch([await buildAuditInsert(c.env.DB, {
+          at: now.toISOString(),
+          actor_type: "admin",
+          actor_member_id: actor.session.member_id,
+          actor_name: actor.displayName,
+          action: "Rekapitulasi dilihat",
+          target: null,
+          komsat_path: null,
+          detail_json: null,
+        })]);
+      }
+      return c.json(data, 200);
+    } catch (error) {
+      if (error instanceof ResultsError) return c.json({ error: error.message }, error.status);
+      throw error;
+    }
+  });
+  // Penanda unduhan: berkasnya dibangun di peramban, tetapi setiap unduhan
+  // tetap dicatat ("Rekapitulasi diunduh") tanpa data di detailnya.
+  routes.post("/admin/recap/download", async (c) => {
+    const actor = c.get("adminAuth")!;
+    await c.env.DB.batch([await buildAuditInsert(c.env.DB, {
+      at: new Date().toISOString(),
+      actor_type: "admin",
+      actor_member_id: actor.session.member_id,
+      actor_name: actor.displayName,
+      action: "Rekapitulasi diunduh",
+      target: null,
+      komsat_path: null,
+      detail_json: null,
+    })]);
+    return c.json({ ok: true }, 200);
   });
   return routes;
 }

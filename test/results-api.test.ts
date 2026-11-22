@@ -15,9 +15,10 @@ import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
+import recapSql from "../migrations/0019_election_recap.sql?raw";
 import { app } from "../src/server/app";
 import { sealSession } from "../src/server/auth/session";
-import { getAbstainCount } from "../src/server/election/lifecycle";
+import { getRecapState, runRecap } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
 import { getDashboard } from "../src/server/results/queries";
 import { allPortalMembers, changedPortalMembers, createServiceApiStub } from "./lib/serviceapi-fixture";
@@ -52,7 +53,7 @@ async function requestPublicResults() {
 }
 
 async function applyMigrations() {
-  for (const file of [initSql, unitsSql, lockSql, snapshotSql, previewModeSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql]) {
+  for (const file of [initSql, unitsSql, lockSql, snapshotSql, previewModeSql, memberNumberSql, categorySql, canVoteSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql, recapSql]) {
     const stmts = file.split(";").map((s) => s.trim()).filter(Boolean);
     await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   }
@@ -420,10 +421,10 @@ async function seedEligible(memberId: string, path: string) {
   ).bind(memberId, memberId, path, new Date().toISOString()).run();
 }
 
-/** Admin Voting menjalankan Hitung Abstain: simpan Hak pilih beku dikurangi partisipasi nyata. */
+/** Admin Voting menjalankan Rekapitulasi Suara: simpan Hak pilih dikurangi partisipasi nyata. */
 async function countNow() {
   await env.DB.prepare(
-    "UPDATE elections SET abstain_counted_at = ?, abstain_counted_count = MAX(0, frozen_hak_pilih - (SELECT COUNT(*) FROM participation WHERE election_id = 1 AND is_test = 0))",
+    "UPDATE elections SET recap_at = ?, recap_abstain_count = MAX(0, frozen_hak_pilih - (SELECT COUNT(*) FROM participation WHERE election_id = 1 AND is_test = 0))",
   ).bind(new Date().toISOString()).run();
 }
 
@@ -546,7 +547,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     const sealedRow = (await dashboardData()).korda.find((row) => row.key === SCOPE);
     expect(sealedRow).toMatchObject({ eligible_count: 20, used_count: 10, ballot_count: 10, suppressed: false, tidak_memilih_count: null });
     for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(sealedRow).not.toHaveProperty(field);
-    // Alur nyata: Hitung Abstain lalu Diumumkan; angka per korda muncul sesudahnya.
+    // Alur nyata: rekap lalu Diumumkan; angka per korda muncul sesudahnya.
     await countNow();
     await env.DB.prepare("UPDATE elections SET status_lock = 'published'").run();
     const data = await dashboardData();
@@ -596,7 +597,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     expect(data).not.toHaveProperty("outcome");
   });
 
-  it("keeps the tally sealed and the non-voter count visible before Hitung Abstain", async () => {
+  it("keeps the tally sealed and the non-voter count visible before the recap", async () => {
     await seedSingleElection({ closed: true });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 30);
@@ -616,7 +617,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     });
   });
 
-  it("after Hitung Abstain the Abstain total is cast plus the stored count, and the stored count stays fixed", async () => {
+  it("after the recap the Abstain total is cast plus the stored count, and the stored count stays fixed", async () => {
     await seedSingleElection({ closed: true });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 50);
     await castChoice("abstain", `${SCOPE}/komsat-a`, 5);
@@ -764,29 +765,33 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     expect(publicMulti.candidates[0]?.votes).toBe(12);
   });
 
-  it("menjalankan Tutup, Hitung Abstain dan Umumkan Hasil tanpa melihat angka pilihan", async () => {
+  it("menjalankan Tutup, Rekapitulasi Suara dan Umumkan Hasil dengan segel yang membuka bagi panitia saja", async () => {
     await seedSingleElection({ frozen: 100 });
     await castChoice("setuju", `${SCOPE}/komsat-a`, 5);
-    await castChoice("abstain", `${SCOPE}/komsat-a`, 2);
-    // Tutup lebih awal tanpa pernah membaca angka pilihan.
+    await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 3);
+    // Tutup lebih awal; angka pilihan tetap disegel bagi semua orang.
     expect((await adminAction("/api/election/close", "POST", { reason: "Batas waktu" })).status).toBe(200);
     const closed = (await (await requestDashboard()).json()) as DashboardPayload;
-    expect(closed).toMatchObject({ stage: "closed", tally_sealed: true, ballot_count: 7, tidak_memilih_count: 93 });
-    // Umumkan ditolak karena Hitung Abstain belum dijalankan, bukan karena segel.
+    expect(closed).toMatchObject({ stage: "closed", tally_sealed: true, ballot_count: 8, tidak_memilih_count: 92, recap_done: false, recap_at: null });
+    // Umumkan ditolak karena rekap belum dijalankan, dengan pesan yang jelas.
     const refused = await adminAction("/api/election/publish");
     expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { error: string }).error).toContain("Hitung Abstain");
-    // Hitung Abstain hanya butuh angka partisipasi.
-    const state = await adminAction("/api/election/abstain-count", "GET");
+    expect(((await refused.json()) as { error: string }).error).toContain("Rekapitulasi Suara");
+    // Rekap hanya butuh angka partisipasi: angka tidak memilih akan disimpan.
+    const state = await adminAction("/api/election/recap", "GET");
     expect(state.status).toBe(200);
-    expect(await state.json()).toMatchObject({ single_candidate_mode: true, stage: "closed", counted: false, pending_count: 93, can_run: true });
-    expect((await adminAction("/api/election/abstain-count")).status).toBe(200);
-    const sealedAfterCount = (await (await requestDashboard()).json()) as DashboardPayload;
-    expect(sealedAfterCount).toMatchObject({ tally_sealed: true, abstain_counted: true, setuju_count: null, tidak_memilih_count: 93 });
-    // Umumkan diterima selama angka pilihan masih disegel.
+    expect(await state.json()).toMatchObject({ single_candidate_mode: true, stage: "closed", done: false, pending_count: 92, can_run: true });
+    expect((await adminAction("/api/election/recap")).status).toBe(200);
+    // Segel membuka bagi Admin Voting setelah rekap, meski belum Diumumkan.
+    const afterRecap = (await (await requestDashboard()).json()) as DashboardPayload;
+    expect(afterRecap).toMatchObject({ tally_sealed: false, recap_done: true, abstain_counted: true, setuju_count: 5, tidak_setuju_count: 3, abstain_count: 92, tidak_memilih_count: 92 });
+    // Jalur publik tetap disegel sampai Diumumkan.
+    const publicBefore = await requestPublicResults();
+    expect(publicBefore.status).toBe(409);
+    // Umumkan diterima setelah rekap.
     expect((await adminAction("/api/election/publish")).status).toBe(200);
     const published = (await (await requestDashboard()).json()) as DashboardPayload;
-    expect(published).toMatchObject({ stage: "published", tally_sealed: false, setuju_count: 5, abstain_cast_count: 2, abstain_count: 95, tidak_memilih_count: 93 });
+    expect(published).toMatchObject({ stage: "published", tally_sealed: false, setuju_count: 5, abstain_count: 92 });
     const publicResults = await requestPublicResults();
     expect(publicResults.status).toBe(200);
     expect(((await publicResults.json()) as ResultsPayload).setuju_count).toBe(5);
@@ -951,12 +956,12 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(data.unused_count).toBe(11);
   });
 
-  it("includes unused links in the Hitung Abstain pending count", async () => {
+  it("includes unused links in the recap pending count", async () => {
     await seedElection({ status: "locked", frozen: 10 });
     await env.DB.prepare("UPDATE elections SET single_candidate_mode = 1 WHERE id = 1").run();
     await inviteRow("INV001");
     await inviteRow("INV002");
-    const count = await getAbstainCount(env.DB, new Date());
+    const count = await getRecapState(env.DB, new Date());
     expect(count.pending_count).toBe(12);
   });
 });
@@ -1022,7 +1027,7 @@ describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
     expect(data.eligible_count).toBe(7);
     expect(await env.DB.prepare("SELECT closing_hak_pilih FROM elections").first()).toEqual({ closing_hak_pilih: null });
   });
-  it("Hitung Abstain dan hasil memakai angka tersimpan pada live single mode", async () => {
+  it("Rekapitulasi dan hasil memakai angka tersimpan pada live single mode", async () => {
     await seedLive({ single: true });
     // Satu kandidat (mode kandidat tunggal) plus roll dari seedBase dan seedLive.
     await env.DB.prepare("INSERT INTO voters (member_id,name,komsat_path,status,synced_at,can_vote) VALUES ('cand-1','Kandidat Satu',?, 'ACTIVE', ?, 1)").bind(`${SCOPE}/komsat-a`, new Date().toISOString()).run();
@@ -1030,9 +1035,9 @@ describe("Results API - Tidak Membekukan DPT (Hak pilih)", () => {
     await recordParticipation("anggota-1", `${SCOPE}/komsat-a`);
     await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES ('b1',1,1,?, 'h-b1',0,'setuju')").bind(`${SCOPE}/komsat-a`).run();
     await env.DB.prepare("UPDATE elections SET closes_at=?").bind(new Date(Date.now() - 3_600e3).toISOString()).run();
-    const { countAbstain } = await import("../src/server/election/lifecycle");
-    const result = await countAbstain(env.DB, new Date(), { member_id: "admin-1", name: "Admin 1" });
-    expect(result.counted_count).toBe(4); // 5 tersimpan (admin+3 anggota+kandidat) - 1 partisipasi
+    const { runRecap } = await import("../src/server/election/lifecycle");
+    const result = await runRecap(env.DB, new Date(), { member_id: "admin-1", name: "Admin 1" });
+    expect(result.abstain_count).toBe(4); // 5 tersimpan (admin+3 anggota+kandidat) - 1 partisipasi
     // Alur nyata: angka pilihan baru dibaca setelah Diumumkan.
     await env.DB.prepare("UPDATE elections SET status_lock = 'published'").run();
     const res = await requestDashboard("admin-1");

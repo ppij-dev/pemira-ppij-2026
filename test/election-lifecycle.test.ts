@@ -10,7 +10,8 @@ import limitsSql from "../migrations/0004_vote_limits.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import campaignUrlSql from "../migrations/0018_candidate_campaign_url.sql?raw";
-import {ABSTAIN_NOT_COUNTED_MESSAGE,canReturnToDraft,castTestVote,closeEarly,countAbstain,freezeVoterRoll,FREEZE_HINT,getAbstainCount,extendClosing,getLiveVoterRollMode,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,setLiveVoterRollMode,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
+import recapSql from "../migrations/0019_election_recap.sql?raw";
+import {RECAP_NOT_DONE_MESSAGE,canReturnToDraft,castTestVote,closeEarly,freezeVoterRoll,FREEZE_HINT,getRecapState,extendClosing,getLiveVoterRollMode,getReadiness,getSingleCandidateMode,lockElection,publishResults,returnToDraft,runRecap,setLiveVoterRollMode,setSchedule,setSingleCandidateMode} from "../src/server/election/lifecycle";
 import {getTurnout} from "../src/server/results/queries";
 import {allPortalMembers} from "./lib/serviceapi-fixture";
 import {castVote,type VoteSession} from "../src/server/voting/vote";
@@ -22,7 +23,7 @@ import {sealSession} from "../src/server/auth/session";
 import {createServiceApiStub} from "./lib/serviceapi-fixture";
 declare module "*.sql?raw" { const sql: string; export default sql; }
 const NOW=new Date("2026-10-20T00:00:00Z");const cfg={issuer:"https://fixture.invalid",clientId:"client",clientSecret:"secret",serviceApiUrl:"https://fixture.invalid"};
-async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql, campaignUrlSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
+async function setup(allow=1){await reset();await env.DB.batch([base,units,lock,snapshot,preview,memberNumber,categorySql,canVoteSql,intro,singleModeSql,ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, directInvitationsSql, campaignUrlSql, recapSql].flatMap(sql=>sql.split(";").map(s=>s.trim()).filter(Boolean).map(s=>env.DB.prepare(s))));await env.DB.prepare("INSERT INTO elections(id,allow_admin_voting) VALUES(1,?)").bind(allow).run();await env.DB.prepare("INSERT INTO admin_voting(member_id,name,created_at) VALUES('member-8','Admin','now')").run();}
 async function candidates(){for(let i=1;i<=2;i++){await env.DB.prepare("INSERT INTO voters(member_id,name,komsat_path,status,synced_at,member_number) VALUES(?,?, '/u','ACTIVE','now',?)").bind(`member-${i}`,`Member ${i}`,`KARTU-00${i}`).run();await createCandidate(env.DB,NOW,{member_id:`KARTU-00${i}`,number:i,name:`Member ${i}`,nickname:`M${i}`,description:""});}}
 async function ready(){await candidates();for(let i=3;i<=8;i++)await env.DB.prepare("INSERT INTO voters(member_id,name,nickname,komsat_path,status,synced_at) VALUES(?,?,?,'/u','ACTIVE','now')").bind(`member-${i}`,`Member ${i}`,`M${i}`).run();await env.DB.prepare("INSERT INTO system_config(key,value) VALUES('pemilih_last_sync','2026-10-19T00:00:00Z')").run();await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:"2026-10-21T00:00:00Z",closes_at:"2026-10-22T00:00:00Z"});}
 // Satu kandidat saja (mode kandidat tunggal) plus jadwal dan roll siap kunci.
@@ -480,34 +481,34 @@ async function castTwoReal(){
   ]);
  }
 }
-describe("Hitung Abstain",()=>{
+describe("Rekapitulasi Suara",()=>{
  beforeEach(()=>setup());
  it("menolak sebelum pemungutan suara ditutup tanpa mengubah baris atau menulis audit",async()=>{
   await lockSingle();
   const tip=await auditTip();
   for(const at of [NOW,OPEN_NOW]){
-   await expect(countAbstain(env.DB,at,ACTOR)).rejects.toMatchObject({status:409,message:"Hitung Abstain baru tersedia setelah pemungutan suara ditutup."});
+   await expect(runRecap(env.DB,at,ACTOR)).rejects.toMatchObject({status:409,message:"Rekapitulasi Suara baru tersedia setelah pemungutan suara ditutup."});
   }
-  expect(await electionRow()).toMatchObject({abstain_counted_at:null,abstain_counted_count:null});
+  expect(await electionRow()).toMatchObject({recap_at:null,recap_abstain_count:null});
   expect(await auditTip()).toBe(tip);
-  expect(await getAbstainCount(env.DB,OPEN_NOW)).toMatchObject({can_run:false,counted:false,stage:"open"});
+  expect(await getRecapState(env.DB,OPEN_NOW)).toMatchObject({can_run:false,done:false,stage:"open"});
  });
  it("menolak di luar mode kandidat tunggal",async()=>{
   await lockReal();
-  await expect(countAbstain(env.DB,CLOSED_NOW,ACTOR)).rejects.toMatchObject({status:409,message:"Hitung Abstain hanya berlaku pada mode kandidat tunggal."});
-  expect(await electionRow()).toMatchObject({abstain_counted_at:null,abstain_counted_count:null});
-  expect(await actions()).not.toContain("Hitung Abstain dijalankan");
+  await expect(runRecap(env.DB,CLOSED_NOW,ACTOR)).rejects.toMatchObject({status:409,message:"Rekapitulasi Suara hanya berlaku pada mode kandidat tunggal."});
+  expect(await electionRow()).toMatchObject({recap_at:null,recap_abstain_count:null});
+  expect(await actions()).not.toContain("Rekapitulasi Suara dijalankan");
  });
  it("menyimpan angka agregat dan waktunya sekali, dengan satu entri audit yang menyebut angkanya",async()=>{
   await lockSingle();
   await castTwoReal();
   const frozen=(await electionRow())!.frozen_hak_pilih as number;
-  const before=await getAbstainCount(env.DB,CLOSED_NOW);
-  expect(before).toMatchObject({can_run:true,counted:false,pending_count:frozen-2,reason:null});
-  const result=await countAbstain(env.DB,CLOSED_NOW,ACTOR);
-  expect(result).toEqual({counted_count:frozen-2,counted_at:CLOSED_NOW.toISOString()});
-  expect(await electionRow()).toMatchObject({abstain_counted_at:CLOSED_NOW.toISOString(),abstain_counted_count:frozen-2});
-  const entry=await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name,action,target,detail_json FROM audit_log WHERE action='Hitung Abstain dijalankan'").all<Record<string,unknown>>();
+  const before=await getRecapState(env.DB,CLOSED_NOW);
+  expect(before).toMatchObject({can_run:true,done:false,pending_count:frozen-2,reason:null});
+  const result=await runRecap(env.DB,CLOSED_NOW,ACTOR);
+  expect(result).toEqual({recap_at:CLOSED_NOW.toISOString(),abstain_count:frozen-2});
+  expect(await electionRow()).toMatchObject({recap_at:CLOSED_NOW.toISOString(),recap_abstain_count:frozen-2});
+  const entry=await env.DB.prepare("SELECT actor_type,actor_member_id,actor_name,action,target,detail_json FROM audit_log WHERE action='Rekapitulasi Suara dijalankan'").all<Record<string,unknown>>();
   expect(entry.results).toHaveLength(1);
   expect(entry.results[0]).toMatchObject({actor_type:"admin",actor_member_id:"member-8",actor_name:"Admin",target:null});
   expect(JSON.parse(String(entry.results[0]!.detail_json))).toEqual({tidak_memilih_ditambahkan:frozen-2});
@@ -518,61 +519,61 @@ describe("Hitung Abstain",()=>{
  it("hanya berjalan sekali: percobaan kedua ditolak tanpa mengubah angka atau audit",async()=>{
   await lockSingle();
   await castTwoReal();
-  await countAbstain(env.DB,CLOSED_NOW,ACTOR);
+  await runRecap(env.DB,CLOSED_NOW,ACTOR);
   const tip=await auditTip(),row=await electionRow();
-  await expect(countAbstain(env.DB,new Date(CLOSED_NOW.getTime()+60e3),ACTOR)).rejects.toMatchObject({status:409,message:"Hitung Abstain sudah dijalankan dan tidak dapat diulang."});
+  await expect(runRecap(env.DB,new Date(CLOSED_NOW.getTime()+60e3),ACTOR)).rejects.toMatchObject({status:409,message:"Rekapitulasi Suara sudah dijalankan dan tidak dapat diulang."});
   expect(await electionRow()).toEqual(row);
   expect(await auditTip()).toBe(tip);
-  expect(await getAbstainCount(env.DB,CLOSED_NOW)).toMatchObject({can_run:false,counted:true});
+  expect(await getRecapState(env.DB,CLOSED_NOW)).toMatchObject({can_run:false,done:true});
   // Permintaan serentak: tepat satu yang berhasil.
-  await env.DB.prepare("UPDATE elections SET abstain_counted_at=NULL,abstain_counted_count=NULL").run();
-  const results=await Promise.allSettled([countAbstain(env.DB,CLOSED_NOW,ACTOR),countAbstain(env.DB,CLOSED_NOW,ACTOR)]);
+  await env.DB.prepare("UPDATE elections SET recap_at=NULL,recap_abstain_count=NULL").run();
+  const results=await Promise.allSettled([runRecap(env.DB,CLOSED_NOW,ACTOR),runRecap(env.DB,CLOSED_NOW,ACTOR)]);
   expect(results.filter(x=>x.status==="fulfilled")).toHaveLength(1);
  });
  it("berlaku juga setelah Tutup Sekarang",async()=>{
   await lockSingle();
   await closeEarly(env.DB,OPEN_NOW,"rapat panitia");
-  await expect(countAbstain(env.DB,OPEN_NOW,ACTOR)).resolves.toMatchObject({counted_count:(await electionRow())!.frozen_hak_pilih});
+  await expect(runRecap(env.DB,OPEN_NOW,ACTOR)).resolves.toMatchObject({abstain_count:(await electionRow())!.frozen_hak_pilih});
  });
- it("menolak Umumkan di mode kandidat tunggal sebelum Hitung Abstain, lalu mengizinkannya sesudahnya",async()=>{
+ it("menolak Umumkan di mode kandidat tunggal sebelum rekap, lalu mengizinkannya sesudahnya",async()=>{
   await lockSingle();
   await castTwoReal();
   const tip=await auditTip();
-  await expect(publishResults(env.DB,CLOSED_NOW)).rejects.toMatchObject({status:409,message:ABSTAIN_NOT_COUNTED_MESSAGE});
+  await expect(publishResults(env.DB,CLOSED_NOW)).rejects.toMatchObject({status:409,message:RECAP_NOT_DONE_MESSAGE});
   expect((await electionRow())!.status_lock).toBe("locked");
   expect(await auditTip()).toBe(tip);
-  await countAbstain(env.DB,CLOSED_NOW,ACTOR);
+  await runRecap(env.DB,CLOSED_NOW,ACTOR);
   await publishResults(env.DB,CLOSED_NOW);
   expect((await electionRow())!.status_lock).toBe("published");
-  // Setelah diumumkan Hitung Abstain tidak dapat dijalankan lagi.
-  await expect(countAbstain(env.DB,CLOSED_NOW,ACTOR)).rejects.toMatchObject({status:409});
+  // Setelah diumumkan rekap tidak dapat dijalankan lagi.
+  await expect(runRecap(env.DB,CLOSED_NOW,ACTOR)).rejects.toMatchObject({status:409});
  });
  it("tidak menggerbangi Umumkan di luar mode kandidat tunggal",async()=>{
   await lockReal();
   await publishResults(env.DB,CLOSED_NOW);
   expect((await electionRow())!.status_lock).toBe("published");
  });
- it("Kembali ke Draf (Pratinjau) mengosongkan angka dan waktu Hitung Abstain",async()=>{
+ it("Kembali ke Draf (Pratinjau) mengosongkan angka dan waktu rekap",async()=>{
   await lockSingle(true);
-  await countAbstain(env.DB,CLOSED_NOW,ACTOR);
-  expect((await electionRow())!.abstain_counted_at).not.toBeNull();
+  await runRecap(env.DB,CLOSED_NOW,ACTOR);
+  expect((await electionRow())!.recap_at).not.toBeNull();
   await returnToDraft(env.DB,CLOSED_NOW,PHRASE,ACTOR);
-  expect(await electionRow()).toMatchObject({status_lock:"draft",abstain_counted_at:null,abstain_counted_count:null});
-  // Kunci berikutnya dapat dihitung lagi dari awal.
+  expect(await electionRow()).toMatchObject({status_lock:"draft",recap_at:null,recap_abstain_count:null,abstain_counted_at:null,abstain_counted_count:null});
+  // Kunci berikutnya dapat direkap lagi dari awal.
   await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
-  await expect(countAbstain(env.DB,CLOSED_NOW,ACTOR)).resolves.toMatchObject({counted_at:CLOSED_NOW.toISOString()});
+  await expect(runRecap(env.DB,CLOSED_NOW,ACTOR)).resolves.toMatchObject({recap_at:CLOSED_NOW.toISOString()});
  });
- describe("rute /api/election/abstain-count",()=>{
+ describe("rute /api/election/recap",()=>{
   async function call(method:"GET"|"POST",memberId:string){
    const cookie=await sealSession({member_id:memberId,name:memberId,affiliation:"/ppij/test",auth_time:Math.floor(Date.now()/1000)},MASTER_KEY);
    await env.DB.prepare("INSERT OR REPLACE INTO system_config(key,value) VALUES('initialized','1'),('site_scope','/ppij/test')").run();
-   return app.request("/api/election/abstain-count",{method,headers:{cookie:`ppij_session=${cookie}`}},BINDINGS);
+   return app.request("/api/election/recap",{method,headers:{cookie:`ppij_session=${cookie}`}},BINDINGS);
   }
   it("menolak sesi non-Admin Voting dan meneruskan pelaku Admin Voting ke audit",async()=>{
    await lockSingle();
    await castTwoReal();
    expect((await call("POST","member-1")).status).toBe(403);
-   expect((await electionRow())!.abstain_counted_at).toBeNull();
+   expect((await electionRow())!.recap_at).toBeNull();
    const state=await call("GET","member-8");
    expect(state.status).toBe(200);
    // Jadwal contoh sudah lewat menurut jam sistem, jadi tahap Ditutup.
@@ -580,8 +581,8 @@ describe("Hitung Abstain",()=>{
    expect(await state.json()).toMatchObject({stage:"closed",can_run:true,pending_count:frozen-2});
    const ok=await call("POST","member-8");
    expect(ok.status).toBe(200);
-   expect(await ok.json()).toMatchObject({ok:true,counted_count:frozen-2});
-   const entry=await env.DB.prepare("SELECT actor_member_id,actor_name FROM audit_log WHERE action='Hitung Abstain dijalankan'").first();
+   expect(await ok.json()).toMatchObject({ok:true,abstain_count:frozen-2});
+   const entry=await env.DB.prepare("SELECT actor_member_id,actor_name FROM audit_log WHERE action='Rekapitulasi Suara dijalankan'").first();
    expect(entry).toMatchObject({actor_member_id:"member-8",actor_name:"Member 8"});
    expect((await call("POST","member-8")).status).toBe(409);
   });
@@ -696,21 +697,21 @@ describe("Tidak Membekukan DPT",()=>{
   const actions=await env.DB.prepare("SELECT action FROM audit_log ORDER BY seq").all<{action:string}>();
   expect(actions.results.map(entry=>entry.action)).not.toContain("Hak pilih akhir disimpan");
  });
- it("Hitung Abstain memakai Hak pilih akhir yang tersimpan, bukan hitungan live",async()=>{
+ it("Rekapitulasi memakai Hak pilih akhir yang tersimpan, bukan hitungan live",async()=>{
   await readySingle();
   await setLiveVoterRollMode(env.DB,NOW,true);
   await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
   await castTwoReal();
   await env.DB.prepare("UPDATE elections SET closes_at=?").bind(NOW.toISOString()).run();
   const saved=(await env.DB.prepare("SELECT COUNT(*) AS n FROM voters WHERE can_vote=1").first<{n:number}>())!.n;
-  const state=await getAbstainCount(env.DB,CLOSED_NOW);
+  const state=await getRecapState(env.DB,CLOSED_NOW);
   expect(state.pending_count).toBe(saved-2);
   expect((await electionRow()).closing_hak_pilih).toBe(saved);
   // Roll live berubah setelah penutupan tidak menggerakkan angka yang tersimpan.
   await env.DB.prepare("DELETE FROM voters WHERE member_id='member-5'").run();
-  expect((await getAbstainCount(env.DB,CLOSED_NOW)).pending_count).toBe(saved-2);
-  const result=await countAbstain(env.DB,CLOSED_NOW,ACTOR);
-  expect(result.counted_count).toBe(saved-2);
+  expect((await getRecapState(env.DB,CLOSED_NOW)).pending_count).toBe(saved-2);
+  const result=await runRecap(env.DB,CLOSED_NOW,ACTOR);
+  expect(result.abstain_count).toBe(saved-2);
  });
  it("Kembali ke Draf mengosongkan Hak pilih akhir tetapi menyimpan nilai saklar",async()=>{
   await readySingle();
@@ -718,7 +719,7 @@ describe("Tidak Membekukan DPT",()=>{
   await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:OPEN_AT,closes_at:CLOSE_AT,preview_mode:true});
   await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
   await env.DB.prepare("UPDATE elections SET closes_at=?").bind(NOW.toISOString()).run();
-  await getAbstainCount(env.DB,CLOSED_NOW);
+  await getRecapState(env.DB,CLOSED_NOW);
   expect((await electionRow()).closing_hak_pilih).not.toBeNull();
   await returnToDraft(env.DB,CLOSED_NOW,PHRASE,ACTOR);
   expect(await electionRow()).toMatchObject({status_lock:"draft",closing_hak_pilih:null,closing_hak_pilih_at:null,live_voter_roll:1});
@@ -820,11 +821,11 @@ describe("Bekukan DPT sekarang",()=>{
   await shiftToRealClock();
   for(const id of ["member-3","member-4"]){await castVote(env.DB,{member_id:id,name:`Member ${id.slice(-1)}`,affiliation:"/ppij/okayama",auth_time:Math.floor(Date.now()/1000)},{candidate_id:1,confirmation_text:"M1",choice:"setuju"});}
   await env.DB.prepare("UPDATE elections SET opens_at='2026-10-21T00:30:00Z',closes_at='2026-10-21T02:00:00Z'").run();
-  const state=await getAbstainCount(env.DB,AFTER_CLOSE);
+  const state=await getRecapState(env.DB,AFTER_CLOSE);
   expect(state).toMatchObject({stage:"closed",pending_count:8,can_run:true});
   expect(await electionRow()).toMatchObject({frozen_hak_pilih:10,closing_hak_pilih:null,closing_hak_pilih_at:null});
-  const counted=await countAbstain(env.DB,AFTER_CLOSE,ACTOR);
-  expect(counted).toMatchObject({counted_count:8});
+  const counted=await runRecap(env.DB,AFTER_CLOSE,ACTOR);
+  expect(counted).toMatchObject({abstain_count:8});
  });
 });
 describe("Undangan Langsung dalam siklus pemilihan",()=>{

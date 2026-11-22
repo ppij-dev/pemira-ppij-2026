@@ -224,7 +224,7 @@ export async function returnToDraft(db:D1Database,now:Date,phrase:unknown,actor?
  const detail=JSON.stringify({stage_before:stageBefore,preview_mode:row.preview_mode===1,kept_ballots:keptBallots,kept_participation:keptParticipation});
  const auditEntry=await buildGuardedAuditInsert(db,{at:now.toISOString(),actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Pemilihan dikembalikan ke Draf",target:null,komsat_path:null,detail_json:detail});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL,closing_hak_pilih=NULL,closing_hak_pilih_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
+  db.prepare("UPDATE elections SET status_lock='draft',frozen_hak_pilih=NULL,frozen_at=NULL,closed_early_at=NULL,closing_snapshot_hash=NULL,closing_snapshot_at=NULL,abstain_counted_at=NULL,abstain_counted_count=NULL,recap_at=NULL,recap_abstain_count=NULL,closing_hak_pilih=NULL,closing_hak_pilih_at=NULL WHERE id=? AND status_lock='locked' AND (preview_mode=1 OR julianday(opens_at) > julianday(?))").bind(row.id,now.toISOString()),
   auditEntry,
  ]);
  if(!results[0]?.meta.changes) {
@@ -313,20 +313,28 @@ export async function closeEarly(db:D1Database,now:Date,reason:string) {
  const results=await db.batch(statements);
  if(!results[0]?.meta?.changes) throw new ElectionError("Pemilihan sudah ditutup");
 }
-/** Pesan penolakan Umumkan selama Hitung Abstain belum dijalankan (mode kandidat tunggal). */
-export const ABSTAIN_NOT_COUNTED_MESSAGE="Hasil belum dapat diumumkan: jalankan Hitung Abstain terlebih dahulu agar Pemilih yang tidak memilih dihitung Abstain.";
-export interface AbstainCountState {
+/** Pesan penolakan Umumkan selama Rekapitulasi Suara belum dijalankan (mode kandidat tunggal). */
+export const RECAP_NOT_DONE_MESSAGE="Hasil belum dapat diumumkan: jalankan Rekapitulasi Suara terlebih dahulu di halaman Rekapitulasi agar Pemilih yang tidak memilih dihitung Abstain.";
+/**
+ * Rekapitulasi Suara (keputusan owner Q232–Q234, 2026-11-22): pengganti Hitung
+ * Abstain. Setelah pemungutan suara ditutup, satu tindakan Admin Voting sekali
+ * jalan menyimpan angka Pemilih yang tidak memilih sebagai Abstain, menandai
+ * rekap selesai (membuka segel angka bagi Admin Voting), dan menjadi gerbang
+ * Umumkan Hasil. Angkanya agregat yang sama: Hak pilih dikurangi partisipasi,
+ * tidak pernah per orang.
+ */
+export interface RecapState {
  single_candidate_mode:boolean; stage:Stage;
- /** Sudah dijalankan; angkanya tetap dan tidak dapat dibatalkan. */
- counted:boolean; counted_at:string|null; counted_count:number|null;
- /** Hak pilih beku dikurangi partisipasi (bukan Uji Coba); hanya agregat. */
+ /** Sudah direkap; angkanya tetap dan tidak dapat dibatalkan. */
+ done:boolean; done_at:string|null; abstain_count:number|null;
+ /** Hak pilih dikurangi partisipasi (bukan Uji Coba); hanya agregat. */
  pending_count:number;
  can_run:boolean; reason:string|null;
 }
-interface AbstainRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;abstain_counted_at:string|null;abstain_counted_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
-/** Keadaan tombol Hitung Abstain: alasan penolakan (atau null) dan angka yang akan ditambahkan. */
-export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCountState> {
- const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,abstain_counted_at,abstain_counted_count,live_voter_roll,closing_hak_pilih FROM elections ORDER BY id LIMIT 1").first<AbstainRow>();
+interface RecapRow {id:number;status_lock:ElectionStatusLock;opens_at:string|null;closes_at:string|null;closed_early_at:string|null;frozen_hak_pilih:number|null;single_candidate_mode:number;recap_at:string|null;recap_abstain_count:number|null;live_voter_roll:number;closing_hak_pilih:number|null}
+/** Keadaan tombol Rekapitulasi Suara: alasan penolakan (atau null) dan angka yang akan disimpan. */
+export async function getRecapState(db:D1Database,now:Date):Promise<RecapState> {
+ const row=await db.prepare("SELECT id,status_lock,opens_at,closes_at,closed_early_at,frozen_hak_pilih,single_candidate_mode,recap_at,recap_abstain_count,live_voter_roll,closing_hak_pilih FROM elections ORDER BY id LIMIT 1").first<RecapRow>();
  if(!row) throw new ElectionError("Pemilihan belum dibuat",404);
  const st=stage({status_lock:row.status_lock,opens_at:row.opens_at??"",closes_at:row.closes_at??"",closed_early_at:row.closed_early_at},now.toISOString());
  const participation=(await db.prepare("SELECT COUNT(*) AS n FROM participation WHERE election_id=? AND is_test=0").bind(row.id).first<{n:number}>())?.n??0;
@@ -336,39 +344,38 @@ export async function getAbstainCount(db:D1Database,now:Date):Promise<AbstainCou
  // Langsung (election/hakPilih.ts) pada jalur roll beku maupun live.
  const eligible=(await resolveHakPilih(db,now)).hakPilih;
  const pending=Math.max(0,eligible-participation);
- const counted=row.abstain_counted_at!==null;
- const reason=row.single_candidate_mode!==1?"Hitung Abstain hanya berlaku pada mode kandidat tunggal."
-  :counted?"Hitung Abstain sudah dijalankan dan tidak dapat diulang."
-  :st!=="closed"?"Hitung Abstain baru tersedia setelah pemungutan suara ditutup.":null;
- return {single_candidate_mode:row.single_candidate_mode===1,stage:st,counted,counted_at:row.abstain_counted_at,counted_count:row.abstain_counted_count,pending_count:pending,can_run:reason===null,reason};
+ const done=row.recap_at!==null;
+ const reason=row.single_candidate_mode!==1?"Rekapitulasi Suara hanya berlaku pada mode kandidat tunggal."
+  :done?"Rekapitulasi Suara sudah dijalankan dan tidak dapat diulang."
+  :st!=="closed"?"Rekapitulasi Suara baru tersedia setelah pemungutan suara ditutup.":null;
+ return {single_candidate_mode:row.single_candidate_mode===1,stage:st,done,done_at:row.recap_at,abstain_count:row.recap_abstain_count,pending_count:pending,can_run:reason===null,reason};
 }
 /**
- * Hitung Abstain (keputusan owner 2026-11-16, Q193): Pemilih yang tidak memilih
- * baru ditambahkan ke Abstain setelah Admin Voting menjalankannya, sekali dan
- * tidak dapat dibatalkan. Hanya menyimpan angka agregat (Hak pilih beku dikurangi
- * partisipasi) dan waktunya; tidak pernah per orang. UPDATE bergerbang dan entri
- * audit dalam satu D1 batch, sehingga permintaan ganda hanya berhasil sekali.
+ * Jalankan Rekapitulasi Suara, sekali dan tidak dapat dibatalkan. Satu D1 batch:
+ * UPDATE bergerbang menyimpan angka agregat dan waktunya, lalu entri audit
+ * bergerbang yang hanya tertulis bila UPDATE itu berhasil, sehingga permintaan
+ * ganda hanya berhasil sekali dan tindakan yang ditolak tidak meninggalkan jejak.
  */
-export async function countAbstain(db:D1Database,now:Date,actor?:AdminActor):Promise<{counted_count:number;counted_at:string}> {
- const state=await getAbstainCount(db,now);
- if(!state.can_run) throw new ElectionError(state.reason??"Hitung Abstain tidak dapat dijalankan",409);
+export async function runRecap(db:D1Database,now:Date,actor?:AdminActor):Promise<{recap_at:string;abstain_count:number}> {
+ const state=await getRecapState(db,now);
+ if(!state.can_run) throw new ElectionError(state.reason??"Rekapitulasi Suara tidak dapat dijalankan",409);
  const row=await db.prepare("SELECT id FROM elections ORDER BY id LIMIT 1").first<{id:number}>();
  const at=now.toISOString(),count=state.pending_count;
- const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Hitung Abstain dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count})});
+ const auditEntry=await buildGuardedAuditInsert(db,{at,actor_type:"admin",actor_member_id:actor?.member_id??null,actor_name:actor?.name??"",action:"Rekapitulasi Suara dijalankan",target:null,komsat_path:null,detail_json:JSON.stringify({tidak_memilih_ditambahkan:count})});
  const results=await db.batch([
-  db.prepare("UPDATE elections SET abstain_counted_at=?,abstain_counted_count=? WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND abstain_counted_at IS NULL").bind(at,count,row!.id),
+  db.prepare("UPDATE elections SET recap_at=?,recap_abstain_count=? WHERE id=? AND status_lock='locked' AND single_candidate_mode=1 AND recap_at IS NULL").bind(at,count,row!.id),
   auditEntry,
  ]);
- if(!results[0]?.meta.changes) throw new ElectionError("Hitung Abstain sudah dijalankan",409);
- return {counted_count:count,counted_at:at};
+ if(!results[0]?.meta.changes) throw new ElectionError("Rekapitulasi Suara sudah dijalankan",409);
+ return {recap_at:at,abstain_count:count};
 }
 export async function publishResults(db:D1Database,now:Date) {
  const row=await requireStage(db,now,"closed");
- // Mode kandidat tunggal: hasil baru boleh diumumkan setelah Hitung Abstain dijalankan.
- const gate=await db.prepare("SELECT single_candidate_mode,abstain_counted_at FROM elections WHERE id=?").bind(row.id).first<{single_candidate_mode:number;abstain_counted_at:string|null}>();
- if(gate?.single_candidate_mode===1&&gate.abstain_counted_at===null) throw new ElectionError(ABSTAIN_NOT_COUNTED_MESSAGE,409);
+ // Mode kandidat tunggal: hasil baru boleh diumumkan setelah Rekapitulasi Suara dijalankan.
+ const gate=await db.prepare("SELECT single_candidate_mode,recap_at FROM elections WHERE id=?").bind(row.id).first<{single_candidate_mode:number;recap_at:string|null}>();
+ if(gate?.single_candidate_mode===1&&gate.recap_at===null) throw new ElectionError(RECAP_NOT_DONE_MESSAGE,409);
  // Gerbang diulang di UPDATE agar tidak ada celah antara pemeriksaan dan penulisan.
- const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked' AND (single_candidate_mode=0 OR abstain_counted_at IS NOT NULL)"),await audit(db,now,"Hasil pemilihan diumumkan",null)]);
+ const result=await db.batch([db.prepare("UPDATE elections SET status_lock='published' WHERE status_lock='locked' AND (single_candidate_mode=0 OR recap_at IS NOT NULL)"),await audit(db,now,"Hasil pemilihan diumumkan",null)]);
  if(!result[0]?.meta.changes) throw new ElectionError("Hasil telah diumumkan");
 }
 export async function castTestVote(db:D1Database,now:Date,candidateId:number,adminMemberId:string,choiceInput?:unknown) {
