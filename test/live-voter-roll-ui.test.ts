@@ -70,4 +70,14 @@ describe("UI Tidak Membekukan DPT", () => {
     expect(landing).toContain("'open'?15000:60000");
     expect(landing).toContain("visibilitychange");
   });
+
+  it("Dasbor menampilkan pesan terbaca saat respons bukan JSON atau gagal server", () => {
+    // Regresi: r.json() tanpa penjaga memunculkan SyntaxError mentah
+    // ("Unexpected token 'I', \"Internal S\"...") ke panitia saat /api/dashboard
+    // sempat menjawab 500 polos; body non-JSON kini diabaikan dengan aman.
+    expect(dasbor).toContain("r.json().catch(()=>null)");
+    expect(dasbor).toContain("'Data dasbor gagal dimuat dari server ('+r.status+').'");
+    // 403 tetap ditangani sebelum pemeriksaan !ok.
+    expect(dasbor.indexOf("r.status===403")).toBeLessThan(dasbor.indexOf("if(!r.ok)"));
+  });
 });

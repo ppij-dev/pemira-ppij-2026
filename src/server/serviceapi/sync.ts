@@ -231,7 +231,8 @@ const READ_REFRESH_OPTIONS: PortalViewRefreshOptions = { maxWaitMs: PORTAL_VIEW_
  * penyegaran (TTL 30 detik, cooldown gagal 15 detik, stale-while-unavailable)
  * sama persis dengan jalur memilih; bedanya pembaca hanya menunggu paling lama
  * PORTAL_VIEW_READ_WAIT_MS lalu dilayani dari view terakhir, sehingga tidak ada
- * halaman yang tertahan menunggu portal. Tidak pernah melempar.
+ * halaman yang tertahan menunggu portal. Tidak pernah melempar, termasuk saat
+ * kueri penjaga D1 gagal sesaat.
  */
 export async function refreshPortalViewForRead(db: D1Database, cfg: ServiceApiConfig | undefined, now: Date): Promise<PortalViewRefresh> {
   if (!cfg) return { refreshed: false, failed: false, stale: false, skipped: true };
@@ -250,7 +251,10 @@ export async function refreshPortalViewForRead(db: D1Database, cfg: ServiceApiCo
  * selesai) dan semua pembacaan Hak pilih lewat `refreshPortalViewForRead`
  * (batas tunggu pendek) supaya angka yang tampil selalu dari view yang sama.
  * Tahap Terjadwal ikut disegarkan supaya angka sudah hidup sebelum dibuka;
- * Draf dan Mode Pratinjau tidak pernah menyegarkan.
+ * Draf dan Mode Pratinjau tidak pernah menyegarkan. Jaminan "tidak pernah
+ * melempar" meliputi kueri penjaga di awal: saat D1 sibuk (lonjakan pembukaan
+ * pemungutan suara) kueri sesaat ini bisa gagal sesaat, dan pemilih tetap
+ * dilayani dari view terakhir, bukan galat 500.
  */
 export async function ensurePortalViewFresh(
   db: D1Database,
@@ -259,41 +263,53 @@ export async function ensurePortalViewFresh(
   fetchImpl?: typeof fetch,
   options?: PortalViewRefreshOptions,
 ): Promise<PortalViewRefresh> {
-  const idle: PortalViewRefresh = { refreshed: false, failed: false, stale: false, skipped: true };
-  const election = await db
-    .prepare("SELECT status_lock, opens_at, closes_at, closed_early_at, live_voter_roll, preview_mode FROM elections ORDER BY id LIMIT 1")
-    .first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number; preview_mode: number }>();
-  if (!election || election.live_voter_roll !== 1) return idle;
-  // Mode Pratinjau selalu menang (design D3): pemilihan pratinjau tetap berlatih
-  // dengan baris yang didaftarkan otomatis, jadi view portal tidak pernah
-  // disegarkan dan tidak pernah tercampur data asli. Saklar yang tertinggal
-  // menyala tidak mengubah perilaku pratinjau sedikit pun.
-  if (election.preview_mode === 1) return idle;
-  const currentStage = stage(election as never, now.toISOString());
-  if (currentStage !== "open" && currentStage !== "scheduled") return idle;
-
   const nowMs = now.getTime();
-  const watermark = (await db.prepare("SELECT value FROM system_config WHERE key = 'pemilih_last_sync'").first<{ value: string }>())?.value;
-  const watermarkAt = watermark ? Date.parse(watermark) : NaN;
-  const fresh = Number.isFinite(watermarkAt) && nowMs - watermarkAt < PORTAL_VIEW_TTL_MS;
-  if (fresh) return { refreshed: false, failed: false, stale: false, skipped: false };
+  try {
+    const idle: PortalViewRefresh = { refreshed: false, failed: false, stale: false, skipped: true };
+    const election = await db
+      .prepare("SELECT status_lock, opens_at, closes_at, closed_early_at, live_voter_roll, preview_mode FROM elections ORDER BY id LIMIT 1")
+      .first<{ status_lock: string; opens_at: string | null; closes_at: string | null; closed_early_at: string | null; live_voter_roll: number; preview_mode: number }>();
+    if (!election || election.live_voter_roll !== 1) return idle;
+    // Mode Pratinjau selalu menang (design D3): pemilihan pratinjau tetap berlatih
+    // dengan baris yang didaftarkan otomatis, jadi view portal tidak pernah
+    // disegarkan dan tidak pernah tercampur data asli. Saklar yang tertinggal
+    // menyala tidak mengubah perilaku pratinjau sedikit pun.
+    if (election.preview_mode === 1) return idle;
+    const currentStage = stage(election as never, now.toISOString());
+    if (currentStage !== "open" && currentStage !== "scheduled") return idle;
 
-  if (nowMs - lastPortalViewFailureAt < PORTAL_VIEW_COOLDOWN_MS) {
-    return { refreshed: false, failed: false, stale: true, skipped: false };
-  }
+    const watermark = (await db.prepare("SELECT value FROM system_config WHERE key = 'pemilih_last_sync'").first<{ value: string }>())?.value;
+    const watermarkAt = watermark ? Date.parse(watermark) : NaN;
+    const fresh = Number.isFinite(watermarkAt) && nowMs - watermarkAt < PORTAL_VIEW_TTL_MS;
+    if (fresh) return { refreshed: false, failed: false, stale: false, skipped: false };
 
-  if (!portalViewRefreshInFlight) {
-    portalViewRefreshInFlight = runPortalViewRefresh(db, cfg, now, Number.isFinite(watermarkAt), nowMs, fetchImpl).finally(() => {
-      portalViewRefreshInFlight = null;
-    });
+    if (nowMs - lastPortalViewFailureAt < PORTAL_VIEW_COOLDOWN_MS) {
+      return { refreshed: false, failed: false, stale: true, skipped: false };
+    }
+
+    if (!portalViewRefreshInFlight) {
+      portalViewRefreshInFlight = runPortalViewRefresh(db, cfg, now, Number.isFinite(watermarkAt), nowMs, fetchImpl).finally(() => {
+        portalViewRefreshInFlight = null;
+      });
+    }
+    const attempt = portalViewRefreshInFlight;
+    if (!options?.maxWaitMs) return attempt;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = await Promise.race([
+      attempt.then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), options.maxWaitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    // Lewat batas tunggu: halaman dilayani dari view terakhir (usang apa adanya);
+    // segarkan di latar berlanjut dan pembaca berikutnya mendapat view barunya.
+    return timedOut ? { refreshed: false, failed: false, stale: true, skipped: false } : attempt;
+  } catch {
+    // Kueri penjaga (baris pemilihan, watermark) bisa gagal sesaat saat D1 sibuk.
+    // Kontraknya tetap: tidak pernah melempar — view terakhir dilayani apa adanya
+    // dan jeda cooldown menahan percobaan berikutnya.
+    lastPortalViewFailureAt = nowMs;
+    return { refreshed: false, failed: true, stale: true, skipped: false };
   }
-  const attempt = portalViewRefreshInFlight;
-  if (!options?.maxWaitMs) return attempt;
-  const timedOut = await Promise.race([
-    attempt.then(() => false),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(true), options.maxWaitMs)),
-  ]);
-  // Lewat batas tunggu: halaman dilayani dari view terakhir (usang apa adanya);
-  // segarkan di latar berlanjut dan pembaca berikutnya mendapat view barunya.
-  return timedOut ? { refreshed: false, failed: false, stale: true, skipped: false } : attempt;
 }

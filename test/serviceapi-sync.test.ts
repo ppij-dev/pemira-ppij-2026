@@ -9,7 +9,7 @@ import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import { ServiceApiError } from "../src/server/serviceapi/client";
-import { assertSyncAllowed, enrichRollNames, ensurePortalViewFresh, storedCanVote, syncPemilih } from "../src/server/serviceapi/sync";
+import { assertSyncAllowed, enrichRollNames, ensurePortalViewFresh, refreshPortalViewForRead, storedCanVote, syncPemilih } from "../src/server/serviceapi/sync";
 import { createServiceApiStub } from "./lib/serviceapi-fixture";
 
 beforeEach(async () => {
@@ -241,4 +241,43 @@ describe("live portal view refresh", () => {
     // Token + units + members halaman: dua pembaca berbagi satu percobaan (dua sync penuh akan dua kali lipat).
     expect(fixture.count()).toBeLessThanOrEqual(12);
   }, 10_000);
+
+  // Proxy D1 yang satu kueri penjaga tertentunya sesaat gagal — kegagalan
+  // transien seperti saat D1 sibuk menerima lonjakan pembukaan pemungutan suara.
+  function transientDb(failingSql: string) {
+    return new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            if (String(sql).includes(failingSql)) return { first: () => Promise.reject(new Error("D1 sesaat tidak tersedia")) };
+            return (target.prepare as unknown as (s: string) => unknown)(sql);
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as unknown as Parameters<typeof refreshPortalViewForRead>[0];
+  }
+
+  it("never throws from the read path when the elections guard query fails transiently", async () => {
+    const fixture = countingStub();
+    await insertLiveOpenElection();
+    await syncPemilih(env.DB, cfg(createServiceApiStub()), T0);
+    const result = await refreshPortalViewForRead(transientDb("FROM elections"), cfg(fixture), AFTER_TTL);
+    expect(result).toEqual({ refreshed: false, failed: true, stale: true, skipped: false });
+    expect(fixture.count()).toBe(0);
+    // Kegagalan penjaga memasuki cooldown yang sama: percobaan berikutnya
+    // melaporkan view usang tanpa percobaan portal baru.
+    const retry = await refreshPortalViewForRead(env.DB, cfg(fixture), new Date("2026-01-01T00:01:05Z"));
+    expect(retry).toEqual({ refreshed: false, failed: false, stale: true, skipped: false });
+    expect(fixture.count()).toBe(0);
+  });
+
+  it("never throws from the read path when the watermark query fails transiently", async () => {
+    const fixture = countingStub();
+    await insertLiveOpenElection();
+    const result = await refreshPortalViewForRead(transientDb("pemilih_last_sync"), cfg(fixture), AFTER_TTL);
+    expect(result).toEqual({ refreshed: false, failed: true, stale: true, skipped: false });
+    expect(fixture.count()).toBe(0);
+  });
 });
