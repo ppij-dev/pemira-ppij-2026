@@ -86,9 +86,11 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
       // Muat otomatis pertama memakai label lama; muat manual dikunci window.withBusy.
       if(!manual){refresh.disabled=true;refreshLabel.textContent='Memuat...'}
       try{
-        const r=await fetch('/api/dashboard',{credentials:'same-origin'}),d=await r.json();
+        // json() dijaga: respons galat polos dari server (mis. 500 "Internal
+        // Server Error") tidak boleh memunculkan SyntaxError mentah ke panitia.
+        const r=await fetch('/api/dashboard',{credentials:'same-origin'}),d=await r.json().catch(()=>null);
         if(r.status===403){root.replaceChildren();access.removeAttribute('hidden');return}
-        if(!r.ok)throw new Error(d.error||'Data dasbor gagal dimuat.');
+        if(!r.ok)throw new Error(d?.error||'Data dasbor gagal dimuat dari server ('+r.status+').');
         stage=d.stage;target=stage==='open'?d.closes_at:d.opens_at;clearInterval(timer);
         const count=['scheduled','open'].includes(stage);timer=count?setInterval(countdown,1000):null;
         const cards=[['Hak pilih',d.eligible_count],['Sudah digunakan',d.used_count],['Belum digunakan',d.unused_count],['Partisipasi',d.turnout_percentage,percent(d.turnout_percentage)]];
