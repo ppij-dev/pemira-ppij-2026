@@ -1,0 +1,121 @@
+---
+/**
+ * Daftar kode bukti (/papan-bukti/daftar, keputusan owner 2026-11-22):
+ * seluruh hash kode bukti dalam satu halaman yang bisa dicari (awalan hash,
+ * disaring lokal di peramban) dan dibuka per halaman 100 baris. Sumber data
+ * sama dengan papan bukti lama (GET /api/votes/board); tidak ada data baru dan
+ * tidak ada kode mentah atau pilihan kandidat yang tampil (aturan keras 3).
+ */
+import { env } from "cloudflare:workers";
+import { IconArrowLeft, IconClipboardList, IconHash } from "@tabler/icons-astro";
+import Base from "../../layouts/Base.astro";
+import Button from "../../components/ui/Button.astro";
+import Callout from "../../components/ui/Callout.astro";
+import PageHeader from "../../components/ui/PageHeader.astro";
+import PanelCard from "../../components/ui/PanelCard.astro";
+import { stage } from "../../server/lib/stage";
+
+const db = (env as unknown as { DB?: D1Database }).DB;
+let available = false;
+try {
+  const row = await db?.prepare("SELECT status_lock,opens_at,closes_at,closed_early_at FROM elections ORDER BY id LIMIT 1").first<{ status_lock: "draft" | "locked" | "published"; opens_at: string; closes_at: string; closed_early_at: string | null }>();
+  available = row ? stage(row, new Date().toISOString()) === "closed" || stage(row, new Date().toISOString()) === "published" : false;
+} catch {}
+---
+<Base title="Daftar Kode Bukti · PPIJ Pemilu">
+  <PageHeader eyebrow="Pemilih" title="Daftar kode bukti" description="Seluruh hash kode bukti surat suara. Pencarian dan paginasi berjalan di perangkat ini; tidak ada yang dikirim ke server.">
+    <Button href="/papan-bukti" variant="secondary"><IconArrowLeft size={17} stroke={1.8} aria-hidden="true" />Kembali ke Papan Bukti</Button>
+  </PageHeader>
+
+  <div class="mt-5 grid gap-4">
+    {!available ? <PanelCard title="Papan bukti belum dibuka" description="Papan bukti diterbitkan setelah pemungutan suara ditutup." icon={IconClipboardList}>
+      <Callout tone="neutral" title="Pemilihan belum selesai">Pemungutan suara masih berlangsung atau belum dimulai. Simpan kode bukti Anda agar siap diperiksa di halaman ini nanti.</Callout>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <Button href="/papan-bukti" variant="secondary">Kembali ke Papan Bukti</Button>
+        <Button href="/" variant="ghost">Kembali ke beranda</Button>
+      </div>
+    </PanelCard>
+    : <PanelCard title="Hash bukti suara" description="Daftar ini memuat hash kode bukti, bukan kode atau pilihan kandidat." icon={IconHash}>
+      <div class="grid gap-2">
+        <label for="hash-search" class="text-xs font-semibold text-brand-muted">Cari hash (awalan)</label>
+        <input id="hash-search" type="search" autocomplete="off" spellcheck="false" placeholder="Ketik awalan hash, misalnya 3f2a" class="min-h-12 w-full rounded-lg border border-input bg-card px-3 font-mono text-sm focus-visible:outline-2 focus-visible:outline-ring" />
+        <p class="text-[13px] leading-5 text-brand-muted">Huruf besar atau kecil sama saja. Daftar ikut menyaring saat Anda mengetik.</p>
+      </div>
+      <p id="board-error" class="mt-4 text-sm text-brand-muted" role="status">Memuat papan bukti…</p>
+      <div id="board-data" hidden class="mt-4 grid gap-3">
+        <p id="list-status" class="text-sm font-medium text-brand-ink" role="status" aria-live="polite"></p>
+        <ul id="hash-list" class="grid gap-1.5"></ul>
+        <p id="empty-search" hidden class="rounded-lg border border-dashed border-brand-border p-6 text-center text-sm text-brand-muted">Tidak ada hash yang cocok. Periksa kembali awalannya, lalu kosongkan pencarian untuk menampilkan seluruh hash.</p>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-border pt-3">
+          <Button id="page-prev" type="button" variant="secondary" size="sm">Sebelumnya</Button>
+          <p id="page-indicator" class="text-sm font-medium text-brand-muted" aria-live="polite"></p>
+          <Button id="page-next" type="button" variant="secondary" size="sm">Berikutnya</Button>
+        </div>
+      </div>
+    </PanelCard>}
+  </div>
+  {available && <script>
+    import { filterHashesByPrefix, normalizeHashQuery, receiptPage } from "../../lib/receiptBoard";
+
+    const container = document.querySelector<HTMLElement>("#board-data")!;
+    const errorLine = document.querySelector<HTMLElement>("#board-error")!;
+    const statusLine = document.querySelector<HTMLElement>("#list-status")!;
+    const list = document.querySelector<HTMLUListElement>("#hash-list")!;
+    const emptySearch = document.querySelector<HTMLElement>("#empty-search")!;
+    const search = document.querySelector<HTMLInputElement>("#hash-search")!;
+    const prev = document.querySelector<HTMLButtonElement>("#page-prev")!;
+    const next = document.querySelector<HTMLButtonElement>("#page-next")!;
+    const indicator = document.querySelector<HTMLElement>("#page-indicator")!;
+    const number = (value: number) => new Intl.NumberFormat("id-ID").format(value);
+
+    let hashes: string[] = [];
+    let page = 1;
+
+    function render() {
+      const filtered = filterHashesByPrefix(hashes, search.value);
+      const view = receiptPage(filtered, page);
+      page = view.page;
+      statusLine.textContent = normalizeHashQuery(search.value)
+        ? `${number(view.total)} hash cocok dengan awalan "${normalizeHashQuery(search.value)}" · ${number(view.start)}–${number(view.end)}`
+        : `Menampilkan ${number(view.start)}–${number(view.end)} dari ${number(view.total)} hash`;
+      indicator.textContent = `Halaman ${number(view.page)} dari ${number(view.pages)}`;
+      prev.disabled = view.page <= 1;
+      next.disabled = view.page >= view.pages;
+      list.replaceChildren(...view.rows.map((hash) => {
+        const li = document.createElement("li");
+        li.className = "rounded-lg bg-muted px-3 py-2.5 font-mono text-[13px] leading-5 break-all text-brand-ink";
+        li.textContent = hash;
+        return li;
+      }));
+      emptySearch.hidden = view.total !== 0;
+      list.hidden = view.total === 0;
+    }
+
+    (async () => {
+      try {
+        const response = await fetch("/api/votes/board");
+        if (!response.ok) throw new Error("papan_belum_tersedia");
+        const data = (await response.json()) as { receipt_hashes?: string[] };
+        hashes = data.receipt_hashes ?? [];
+        errorLine.hidden = true;
+        container.hidden = false;
+        render();
+      } catch {
+        errorLine.textContent = "Papan bukti belum dapat dimuat. Periksa koneksi lalu muat ulang halaman ini.";
+      }
+    })();
+
+    search.addEventListener("input", () => {
+      page = 1;
+      render();
+    });
+    prev.addEventListener("click", () => {
+      page -= 1;
+      render();
+    });
+    next.addEventListener("click", () => {
+      page += 1;
+      render();
+    });
+  </script>}
+</Base>

@@ -93,7 +93,7 @@ const inviteInProgress = Boolean(inviteCode);
 // Navigasi pemilih: satu sumber untuk ponsel (bilah bawah) dan tidak memakai
 // tab tambahan saat hasil belum diumumkan.
 const navItems = [
-  { href: "/", label: "Beranda", icon: IconHome2, current: path === "/" || path === "/papan-bukti" },
+  { href: "/", label: "Beranda", icon: IconHome2, current: path === "/" || path === "/papan-bukti" || path === "/papan-bukti/daftar" },
   { href: "/kandidat", label: "Kandidat", icon: IconUsers, current: path.startsWith("/kandidat") },
   { href: "/pilih-suara", label: "Pilih Suara", icon: IconSpeakerphone, current: path === "/pilih-suara" },
   { href: "/surat-suara", label: "Bukti Suara", icon: IconRosetteDiscountCheck, current: path === "/surat-suara" },

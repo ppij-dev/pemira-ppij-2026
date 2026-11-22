@@ -12,6 +12,10 @@ import ballotAbstainSql from "../migrations/0013_ballot_choice_abstain.sql?raw";
 import abstainCountedSql from "../migrations/0014_abstain_counted.sql?raw";
 import liveRollSql from "../migrations/0015_live_voter_roll.sql?raw";
 import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
+import memberNumberSql from "../migrations/0008_member_number.sql?raw";
+import categorySql from "../migrations/0009_voter_category.sql?raw";
+import canVoteSql from "../migrations/0010_voter_can_vote.sql?raw";
+import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import { boardRoutes, ensureClosingSnapshot } from "../src/server/voting/board";
 import { closeEarly } from "../src/server/election/lifecycle";
 import { verifyChain, type AuditRow } from "../src/server/lib/audit";
@@ -27,7 +31,7 @@ const future = new Date(Date.now() + 60_000).toISOString();
 
 beforeEach(async () => {
   await reset();
-  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
+  const sql = [initSql, unitsSql, lockSql, limitsSql, snapshotSql, singleModeSql, ballotChoiceSql, ballotAbstainSql, abstainCountedSql, liveRollSql, closingHakPilihSql, memberNumberSql, categorySql, canVoteSql, directInvitationsSql].flatMap((part) => part.split(";")).map((s) => s.trim()).filter(Boolean);
   await env.DB.batch(sql.map((s) => env.DB.prepare(s)));
   await env.DB.prepare("INSERT INTO elections (id,title,status_lock,opens_at,closes_at) VALUES (1,'Pemilihan','locked',?,?)").bind(open, future).run();
 });
@@ -142,6 +146,37 @@ describe("receipt board", () => {
     expect(boardText).not.toContain("abstain");
     expect(boardText).not.toContain(receipt.code);
     expect(JSON.parse(boardText)).toMatchObject({ receipt_hashes: [receipt.hash], ballot_count: 1 });
+  });
+
+  it("board payload keeps the old contract and adds hak pilih, turnout and closing time", async () => {
+    const closedAt = new Date(Date.now() - 1000).toISOString();
+    await env.DB.prepare("UPDATE elections SET closes_at=?, frozen_hak_pilih=10 WHERE id=1").bind(closedAt).run();
+    await env.DB.prepare("INSERT INTO candidates (id,member_id,number,name,nickname,komsat_path) VALUES (1,'m',1,'A','A','x')").run();
+    for (const [id, hash] of [["b2", "hash-2"], ["a1", "hash-1"], ["c3", "hash-3"]]) {
+      await env.DB.prepare("INSERT INTO ballots (id,election_id,candidate_id,komsat_path,receipt_hash,is_test) VALUES (?,1,1,'x',?,0)").bind(id, hash).run();
+    }
+    for (const member of ["p1", "p2", "p3"]) {
+      await env.DB.prepare("INSERT INTO participation (election_id,member_id,member_name,voted_at,is_test) VALUES (1,?,'P','x',0)").bind(member).run();
+    }
+    const response = await app.request("/api/votes/board", {}, bindings);
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    // Kontrak lama tetap utuh: hash terurut, dua hitungan, snapshot dan updated_at.
+    expect(body).toMatchObject({ receipt_hashes: ["hash-1", "hash-2", "hash-3"], ballot_count: 3, participation_count: 3 });
+    expect(typeof body.closing_snapshot_hash).toBe("string");
+    expect(typeof body.updated_at).toBe("string");
+    // Medan baru ringkasan penutupan (keputusan owner 2026-11-22): Hak pilih
+    // beku (saklar mati), partisipasi satu desimal, waktu penutupan dari jadwal.
+    expect(body).toMatchObject({ hak_pilih: 10, hak_pilih_source: "frozen", turnout_percentage: 30 });
+    expect(body.closed_at).toBe(closedAt);
+    // Tautan Undangan Langsung aktif menambah Hak pilih lewat penyelesai yang sama.
+    await env.DB.prepare("INSERT INTO direct_invitations (reference,token_hash,token_enc,created_at,created_by,created_by_name) VALUES ('DM0001','th-1','v1:x','x','a','A'),('DM0002','th-2','v1:x','x','a','A')").run();
+    const again = await app.request("/api/votes/board", {}, bindings);
+    expect(((await again.json()) as { hak_pilih: number }).hak_pilih).toBe(12);
+    // Segel hasil: papan tidak pernah memuat satu angka pilihan pun.
+    const text = JSON.stringify(body);
+    expect(text).not.toContain("setuju");
+    expect(text).not.toContain("abstain");
   });
 
   it("limits receipt checks to 30 per IP per minute", async () => {

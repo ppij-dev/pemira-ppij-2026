@@ -241,6 +241,6 @@ describe("Halaman Pemilih yang mengirim data", () => {
   });
 
   it("Salin hash snapshot di papan bukti memakai toast", () => {
-    expect(papanBukti).toContain("window.toast('Hash snapshot disalin.'");
+    expect(papanBukti).toContain('window.toast("Hash snapshot disalin."');
   });
 });
