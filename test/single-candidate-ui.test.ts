@@ -1,19 +1,26 @@
 import { describe, expect, it } from "vitest";
 import ballot from "../src/pages/pilih-suara.astro?raw";
+import inviteBallot from "../src/pages/undangan/[kode]/surat-suara.astro?raw";
 import dasbor from "../src/pages/admin/dasbor.astro?raw";
 import hasil from "../src/pages/hasil.astro?raw";
 import landing from "../src/pages/index.astro?raw";
 import pengaturan from "../src/pages/admin/pemilihan.astro?raw";
 import { VOTE_CHOICES, VOTE_CHOICE_LABELS } from "../src/server/voting/choice";
 
-// Halaman memakai aturan yang sama dengan server: tiga jawaban, Abstain jawaban nyata,
-// dan sistem tidak pernah menyatakan hasil (keputusan owner 2026-11-16). Perilaku
-// tombolnya diuji di peramban (screenshot), di sini hanya isi sumber halaman.
-describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
-  it("surat suara menawarkan tepat Setuju, Tidak Setuju dan Abstain dari daftar server", () => {
-    expect([...VOTE_CHOICES]).toEqual(["setuju", "tidak_setuju", "abstain"]);
+// Halaman memakai aturan yang sama dengan server: dua jawaban, Setuju dan Tidak
+// Setuju (keputusan owner 2026-11-22), dan sistem tidak pernah menyatakan hasil.
+// Perilaku tombolnya diuji di peramban (screenshot), di sini hanya isi sumber halaman.
+describe("UI mode kandidat tunggal: dua jawaban, tanpa baris hasil", () => {
+  it("surat suara dan surat suara undangan menawarkan tepat Setuju dan Tidak Setuju", () => {
+    expect([...VOTE_CHOICES]).toEqual(["setuju", "tidak_setuju"]);
     for (const choice of VOTE_CHOICES) {
       expect(ballot).toContain(`{value:'${choice}',label:'${VOTE_CHOICE_LABELS[choice]}'}`);
+      expect(inviteBallot).toContain(`{ value: "${choice}", label: "${VOTE_CHOICE_LABELS[choice]}" }`);
+    }
+    // Abstain bukan pilihan Pemilih lagi, di kedua jalur surat suara.
+    for (const page of [ballot, inviteBallot]) {
+      expect(page).not.toContain("{value:'abstain',label:'Abstain'}");
+      expect(page).not.toContain('{ value: "abstain", label: "Abstain" }');
     }
     // Pesan konfirmasi memakai label jawaban terpilih: "Pilihan Anda: <jawaban> terhadap <nickname>".
     expect(ballot).toContain("terhadap ${selected.nickname}");
@@ -26,10 +33,13 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
     }
   });
 
-  it("Dasbor, Hasil dan beranda menampilkan Abstain dan tidak memilih (dihitung Abstain)", () => {
+  it("Dasbor, Hasil dan beranda menampilkan Abstain sebagai Pemilih yang tidak memilih", () => {
     for (const page of [dasbor, hasil, landing]) {
       expect(page).toContain("Abstain");
-      expect(page).toContain("Tidak memilih (dihitung Abstain)");
+      expect(page).toContain("tidak memilih");
+      // Rincian jawaban Abstain yang diberikan sudah tidak ada: jawaban itu tidak
+      // dapat dipilih lagi, jadi satu angka Abstain saja yang ditampilkan.
+      expect(page).not.toContain("Abstain diberikan");
     }
   });
 
@@ -47,9 +57,9 @@ describe("UI mode kandidat tunggal: tiga jawaban, tanpa baris hasil", () => {
     }
     expect(landing).toContain("(belum dihitung)");
     expect(landing).toContain("abstain_counted");
-    // Rincian tidak memilih per korda hanya muncul setelah Hitung Abstain.
-    expect(dasbor).toContain("i===2&&d.abstain_counted");
-    expect(hasil).toContain("data.abstain_counted?'<span");
+    // Tanpa rincian jawaban Abstain: satu angka total saja di Dasbor dan Hasil.
+    expect(dasbor).not.toContain("abstainParts");
+    expect(hasil).not.toContain("abstainCast");
   });
 
   it("Pengaturan menaruh Hitung Abstain di Tindakan tahap dengan dialog yang menyebut angkanya", () => {

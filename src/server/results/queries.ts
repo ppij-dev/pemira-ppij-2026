@@ -49,7 +49,8 @@ export interface KordaResult {
   candidates?: CandidateTally[] | null;
   setuju_count?: number | null;
   tidak_setuju_count?: number | null;
-  /** Jawaban Abstain yang diberikan Pemilih korda ini. */
+  /** Jawaban Abstain yang diberikan Pemilih. Hanya baris surat suara lama: sejak
+   * keputusan owner 2026-11-22 Abstain tidak dapat dipilih lagi. */
   abstain_cast_count?: number | null;
   /** Hak pilih korda minus partisipasi korda; null sampai Hitung Abstain dijalankan. */
   tidak_memilih_count: number | null;
@@ -92,7 +93,8 @@ export interface ResultsPayload {
    */
   setuju_count: number | null;
   tidak_setuju_count: number | null;
-  /** Jawaban Abstain yang diberikan Pemilih. */
+  /** Jawaban Abstain yang diberikan Pemilih. Hanya baris surat suara lama: sejak
+   * keputusan owner 2026-11-22 Abstain tidak dapat dipilih lagi. */
   abstain_cast_count: number | null;
   /**
    * Hak pilih dikurangi partisipasi (minimal 0). Sebelum Hitung Abstain dijalankan
@@ -103,8 +105,9 @@ export interface ResultsPayload {
   abstain_counted: boolean | null;
   abstain_counted_at: string | null;
   /**
-   * Total Abstain: jawaban Abstain diberikan; ditambah tidak memilih hanya
-   * setelah Hitung Abstain dijalankan.
+   * Total Abstain: Pemilih yang tidak memilih setelah Hitung Abstain dijalankan,
+   * ditambah baris surat suara Abstain lama bila ada (keputusan owner 2026-11-22:
+   * Abstain bukan lagi jawaban yang dapat dipilih Pemilih).
    */
   abstain_count: number | null;
   setuju_percentage: number | null;
@@ -294,14 +297,19 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     choiceByRegionRows.set(key, perChoice);
   }
   // Tidak memilih = Hak pilih beku dikurangi partisipasi, tidak pernah per orang,
-  // dan dihitung sebagai Abstain (keputusan owner 2026-11-16). Sistem tidak
-  // menyatakan hasil apa pun: hanya angka dan bagiannya dari Hak pilih.
+  // dan satu-satunya isi Abstain (keputusan owner 2026-11-22: Abstain bukan lagi
+  // jawaban yang dapat dipilih Pemilih). Sistem tidak menyatakan hasil apa pun:
+  // hanya angka dan bagiannya dari Hak pilih.
   // Tidak memilih baru masuk Abstain setelah Admin Voting menjalankan Hitung Abstain
   // (keputusan owner 2026-11-16, Q193); angka yang dihitung adalah angka tersimpan.
   const abstainCounted = election.abstain_counted_at !== null;
   const tidakMemilih = abstainCounted
     ? election.abstain_counted_count ?? 0
     : Math.max(0, eligibleCount - participationCount);
+  // Abstain = Pemilih yang tidak memilih (keputusan owner 2026-11-22). Jawaban
+  // Abstain tidak dapat dipilih lagi, jadi `abstainCast` hanya terisi oleh baris
+  // surat suara lama (migrasi 0013 sengaja tidak diubah) dan tidak pernah
+  // dirinci di halaman mana pun.
   const abstainTotal = abstainCast + (abstainCounted ? tidakMemilih : 0);
   const votesByRegionCandidate = new Map<string, Map<number, number>>();
   for (const row of votesByRegionRows) {

@@ -120,13 +120,15 @@ describe("mode kandidat tunggal",()=>{
   await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
   await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   await expect(castTestVote(env.DB,NOW,1,"member-8")).rejects.toMatchObject({status:400});
-  // Nilai di luar tiga jawaban ditolak dan tidak menulis apa pun.
+  // Nilai di luar dua jawaban ditolak dan tidak menulis apa pun; Abstain pun
+  // bukan jawaban surat suara lagi (keputusan owner 2026-11-22).
   await expect(castTestVote(env.DB,NOW,1,"member-8","abstain-banget")).rejects.toMatchObject({status:400});
   await expect(castTestVote(env.DB,NOW,1,"member-8","setuju-banget")).rejects.toMatchObject({status:400});
+  await expect(castTestVote(env.DB,NOW,1,"member-8","abstain")).rejects.toMatchObject({status:400});
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ballots").first()).toEqual({n:0});
-  // Abstain adalah jawaban nyata (keputusan owner 2026-11-16) dan tersimpan pada suara Uji Coba.
-  await castTestVote(env.DB,NOW,1,"member-8","abstain");
-  expect(await env.DB.prepare("SELECT choice,is_test FROM ballots").first()).toEqual({choice:"abstain",is_test:1});
+  // Dua jawaban sah tetap tersimpan pada suara Uji Coba.
+  await castTestVote(env.DB,NOW,1,"member-8","setuju");
+  expect(await env.DB.prepare("SELECT choice,is_test FROM ballots").first()).toEqual({choice:"setuju",is_test:1});
   await env.DB.prepare("DELETE FROM participation WHERE is_test=1").run();
   await env.DB.prepare("DELETE FROM ballots WHERE is_test=1").run();
   // Mode mati: bentuk suara uji tidak berubah (choice NULL) dan pilihan ditolak.
@@ -465,9 +467,9 @@ async function lockSingle(preview=false){
  if(preview) await setSchedule(env.DB,NOW,{title:"Election",description:"",opens_at:OPEN_AT,closes_at:CLOSE_AT,preview_mode:true});
  await lockElection(env.DB,cfg,NOW,createServiceApiStub().fetchImpl);
 }
-/** Dua suara nyata (satu Setuju, satu Abstain) tanpa menyentuh Hak pilih beku. */
+/** Dua suara nyata (satu Setuju, satu Tidak Setuju) tanpa menyentuh Hak pilih beku. */
 async function castTwoReal(){
- for(const [member,choice] of [["member-3","setuju"],["member-4","abstain"]] as const){
+ for(const [member,choice] of [["member-3","setuju"],["member-4","tidak_setuju"]] as const){
   await env.DB.batch([
    env.DB.prepare("INSERT INTO participation(election_id,member_id,member_name,voted_at,is_test) VALUES(1,?,?,?,0)").bind(member,member,OPEN_NOW.toISOString()),
    env.DB.prepare("INSERT INTO ballots(id,election_id,candidate_id,komsat_path,receipt_hash,is_test,choice) VALUES(?,1,1,'/u',?,0,?)").bind(crypto.randomUUID(),`h-${member}`,choice),

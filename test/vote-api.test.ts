@@ -376,8 +376,8 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     // Mode kandidat tunggal: hanya kandidat nomor 1 yang terdaftar.
     await env.DB.prepare("DELETE FROM candidates WHERE id = 2").run();
   }
-  // Tiga jawaban; Abstain jawaban nyata (keputusan owner 2026-11-16).
-  const choices = ["setuju", "tidak_setuju", "abstain"] as const;
+  // Dua jawaban (keputusan owner 2026-11-22): Abstain tidak dapat dipilih lagi.
+  const choices = ["setuju", "tidak_setuju"] as const;
 
   it.each(choices)("menerima pilihan %s dan menyimpannya bersama satu candidate_id", async (choice) => {
     await enableSingleMode();
@@ -395,7 +395,7 @@ describe("POST /api/votes mode kandidat tunggal", () => {
     expect(audit).toEqual({ action: "voted", target: null, detail_json: null });
   });
 
-  it("menolak permintaan tanpa pilihan atau pilihan di luar tiga jawaban tanpa menulis baris", async () => {
+  it("menolak permintaan tanpa pilihan atau pilihan di luar dua jawaban tanpa menulis baris", async () => {
     await enableSingleMode();
     const cookie = await sessionCookie("voter-1");
     // Lima percobaan: batas rate limit 5/60 detik per sesi dihitung terpisah.
@@ -404,6 +404,16 @@ describe("POST /api/votes mode kandidat tunggal", () => {
       expect(res.status).toBe(400);
       expect((await res.json() as { error: string }).error).toBe("invalid_choice");
     }
+    expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
+  });
+
+  it("menolak jawaban abstain dari surat suara dengan 400 invalid_choice", async () => {
+    await enableSingleMode();
+    // Keputusan owner 2026-11-22: Abstain bukan pilihan Pemilih. CHECK kolom
+    // ballots.choice tetap menerima nilai lama, jadi penolakannya di server.
+    const res = await voteRequest(await sessionCookie("voter-1"), { candidate_id: 1, confirmation_text: "Budi", choice: "abstain" });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toBe("invalid_choice");
     expect(await rowCounts()).toEqual({ participation: 0, ballots: 0 });
   });
 

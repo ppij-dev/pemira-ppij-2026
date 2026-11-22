@@ -41,20 +41,19 @@ const showHasil = currentStage === "published";
 const publicResults: any = showHasil && singleCandidateMode && db ? await getPublicResults(db, new Date()).catch(() => null) : null;
 const eligibleCount: number = publicResults?.eligible_count ?? 0;
 const shareText = (count: number) => eligibleCount > 0 ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(Math.round((count / eligibleCount) * 1000) / 10) + "%" : "—";
-// Tidak memilih baru dihitung Abstain setelah Admin Voting menjalankan Hitung Abstain
-// (Q193); angkanya agregat dari API hasil, tidak pernah dibaca per orang.
+// Tidak memilih dihitung sebagai Abstain setelah Admin Voting menjalankan Hitung
+// Abstain (Q193); angkanya agregat dari API hasil, tidak pernah dibaca per orang.
 const abstainCounted: boolean = publicResults?.abstain_counted === true;
 const notVotingCount: number = publicResults?.tidak_memilih_count ?? 0;
-const abstainCastCount: number = publicResults?.abstain_cast_count ?? 0;
+// Abstain = Pemilih yang tidak memilih (keputusan owner 2026-11-22): jawaban itu
+// tidak dapat dicoblos lagi, jadi hanya satu angka yang ditampilkan.
+const abstainTotal: number = publicResults?.abstain_count ?? 0;
 const singleResultFacts = publicResults ? [
   { label: "Setuju", value: `${publicResults.setuju_count ?? 0} suara · ${shareText(publicResults.setuju_count ?? 0)}` },
   { label: "Tidak Setuju", value: `${publicResults.tidak_setuju_count ?? 0} suara · ${shareText(publicResults.tidak_setuju_count ?? 0)}` },
-  { label: "Abstain", value: `${publicResults.abstain_count ?? abstainCastCount} suara · ${shareText(publicResults.abstain_count ?? abstainCastCount)}` },
+  { label: "Abstain", value: `${abstainTotal} suara · ${shareText(abstainTotal)}` },
   ...(abstainCounted
-    ? [
-        { label: "Abstain diberikan", value: `${abstainCastCount} suara · ${shareText(abstainCastCount)}` },
-        { label: "Tidak memilih (dihitung Abstain)", value: `${notVotingCount} suara · ${shareText(notVotingCount)}` },
-      ]
+    ? []
     : [{ label: "Tidak memilih", value: `${notVotingCount} orang (belum dihitung)` }]),
 ] : [];
 const boardReady = currentStage === "closed" || currentStage === "published";
@@ -180,7 +179,7 @@ const scheduleFacts = [
   {showHasil && <section id="hasil" class="mt-8" aria-labelledby="hasil-heading">
     <PanelCard title="Hasil pemilihan" description="Hasil resmi telah diumumkan panitia." icon={IconRosetteDiscountCheck}>
       {publicResults && <Callout tone="neutral" title="Perolehan suara" class="mb-4">
-        <p>{abstainCounted ? "Persentase dihitung dari Hak pilih. Pemilih yang tidak memilih dihitung Abstain." : "Persentase dihitung dari Hak pilih. Pemilih yang tidak memilih belum dihitung Abstain."}</p>
+        <p>{abstainCounted ? "Persentase dihitung dari Hak pilih. Abstain adalah Pemilih yang tidak memilih." : "Persentase dihitung dari Hak pilih. Pemilih yang tidak memilih belum dihitung sebagai Abstain."}</p>
         <FactList items={singleResultFacts} variant="inline" class="mt-2" />
       </Callout>}
       <div class="flex flex-wrap items-center gap-3">
