@@ -192,24 +192,53 @@ const scheduleFacts = [
 
   <p class="mt-8 flex items-center justify-center gap-2 text-xs text-brand-muted"><Badge tone="outline" size="sm">Rahasia</Badge><span>Partisipasi dan surat suara tercatat terpisah agar pilihan Anda tidak dapat ditelusuri.</span></p>
 
-  <script is:inline>document.querySelectorAll('[data-countdown]').forEach((el)=>{const tick=()=>{const seconds=Math.max(0,Math.floor((Date.parse(el.dataset.target)-Date.now())/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;const clock=[h,m,s].map((v)=>String(v).padStart(2,'0')).join(':');el.textContent=d>0?`${d} hari ${clock}`:clock};tick();setInterval(tick,1000)});</script>
-  {turnout && <script is:inline>
-// Statistik pemilihan: short polling endpoint publik /api/turnout (satu-satunya
-// polling di situs, keputusan owner 2026-11-19/204). 15 detik saat Dibuka, 60
-// detik di tahap lain; berhenti saat tab tersembunyi; jeda acak kecil agar
-// pengunjung tidak sinkron. Perubahan angka dianimasikan flip sederhana.
-(function(){
-  const strip=document.querySelector('#turnout-strip');
-  if(!strip) return;
-  const eligible=document.querySelector('#turnout-eligible'),votes=document.querySelector('#turnout-votes');
-  const fmt=new Intl.NumberFormat('id-ID');
-  const set=(node,value)=>{if(!node||node.textContent===value)return;node.classList.remove('flip');void node.offsetWidth;node.classList.add('flip');node.textContent=value};
-  let timer=null;
-  const poll=async()=>{try{const r=await fetch('/api/turnout');if(!r.ok)return;const d=await r.json();strip.dataset.stage=d.stage;set(eligible,fmt.format(d.eligible_count));set(votes,fmt.format(d.votes_count))}catch{}};
-  const schedule=()=>{if(timer)clearTimeout(timer);timer=null;if(document.hidden)return;const base=strip.dataset.stage==='open'?15000:60000;timer=setTimeout(async()=>{await poll();schedule()},base+Math.floor(Math.random()*2000))};
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){if(timer)clearTimeout(timer);timer=null}else schedule()});
-  schedule();
-})();
-  </script>}
-  <style>@keyframes turnout-flip{0%{transform:rotateX(0deg)}45%{transform:rotateX(90deg);opacity:.35}100%{transform:rotateX(0deg)}}#turnout-strip .flip{animation:turnout-flip .4s ease}</style>
+  <script>
+// Hitung mundur + strip statistik: satu skrip halaman yang mengimpor dua
+// modul bersama. Odometer menggelindingkan tiap digit yang berubah (lihat
+// src/lib/odometer.ts); polling /api/turnout selalu lanjut selama halaman
+// terlihat, mundur bila 429/galat, memakai cache "no-store" (lihat
+// src/lib/turnoutPoller.ts — akar perbaikan ticker mandeg 2026-11-23).
+import { attachOdometer } from "../lib/odometer";
+import { startTurnoutPoller } from "../lib/turnoutPoller";
+
+const fmt = new Intl.NumberFormat("id-ID");
+
+// Hitung mundur jadwal (DD hari HH:MM:SS), detik per detik tanpa diumumkan.
+document.querySelectorAll<HTMLElement>("[data-countdown]").forEach((el) => {
+  const odo = attachOdometer(el);
+  const target = el.dataset.target;
+  if (!target) return;
+  const tick = (): void => {
+    const seconds = Math.max(0, Math.floor((Date.parse(target) - Date.now()) / 1000));
+    const d = Math.floor(seconds / 86400);
+    const clock = [Math.floor((seconds % 86400) / 3600), Math.floor((seconds % 3600) / 60), seconds % 60]
+      .map((v) => String(v).padStart(2, "0"))
+      .join(":");
+    odo.set(d > 0 ? `${d} hari ${clock}` : clock);
+  };
+  tick();
+  setInterval(tick, 1000);
+});
+
+// Strip statistik: Jumlah Pemilih dan Suara Masuk dari /api/turnout, 15 detik
+// saat Dibuka dan 60 detik di tahap lain (polling tersedia bila strip ada).
+const strip = document.querySelector<HTMLElement>("#turnout-strip");
+if (strip) {
+  const eligible = document.querySelector<HTMLElement>("#turnout-eligible");
+  const votes = document.querySelector<HTMLElement>("#turnout-votes");
+  if (eligible && votes) {
+    const eligibleOdo = attachOdometer(eligible);
+    const votesOdo = attachOdometer(votes);
+    startTurnoutPoller({
+      apply: (d) => {
+        strip.dataset.stage = d.stage;
+        eligibleOdo.set(fmt.format(d.eligible_count));
+        votesOdo.set(fmt.format(d.votes_count));
+      },
+      baseIntervalMs: (stage) => (stage === "open" ? 15_000 : 60_000),
+      initialStage: strip.dataset.stage,
+    });
+  }
+}
+  </script>
 </Base>

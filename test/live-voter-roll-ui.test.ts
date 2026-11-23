@@ -66,9 +66,11 @@ describe("UI Tidak Membekukan DPT", () => {
     expect(landing).toContain("Suara Masuk");
     expect(landing.indexOf('id="turnout-strip"')).toBeLessThan(landing.indexOf('Jadwal pemungutan'));
     expect(landing).toContain("getTurnout");
-    // Polling 15 detik saat Dibuka, 60 detik di tahap lain; jeda tab tersembunyi.
-    expect(landing).toContain("'open'?15000:60000");
-    expect(landing).toContain("visibilitychange");
+    // Polling lewat modul startTurnoutPoller: 15 detik saat Dibuka, 60 detik di
+    // tahap lain; jeda tab tersembunyi dan mundur saat 429 ada di modulnya
+    // (lihat test/turnout-poller.test.ts).
+    expect(landing).toContain('from "../lib/turnoutPoller"');
+    expect(landing).toContain('(stage === "open" ? 15_000 : 60_000)');
   });
 
   it("Dasbor menampilkan pesan terbaca saat respons bukan JSON atau gagal server", () => {
