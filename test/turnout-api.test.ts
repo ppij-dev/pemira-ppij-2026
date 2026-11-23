@@ -23,6 +23,7 @@ import closingHakPilihSql from "../migrations/0016_closing_hak_pilih.sql?raw";
 import directInvitationsSql from "../migrations/0017_direct_invitations.sql?raw";
 import recapSql from "../migrations/0019_election_recap.sql?raw";
 import { app } from "../src/server/app";
+import { TURNOUT_LIMIT } from "../src/server/results/routes";
 import { getTurnout as getTurnoutDirect } from "../src/server/results/queries";
 import { authorizeVoter } from "../src/server/voting/vote";
 import { allPortalMembers, changedPortalMembers, createServiceApiStub, type FixtureMember } from "./lib/serviceapi-fixture";
@@ -141,11 +142,16 @@ describe("GET /api/turnout", () => {
   it("rate limits per IP", async () => {
     await seedElection({ live: false });
     await env.DB.prepare("UPDATE elections SET frozen_hak_pilih=5, frozen_at=?").bind(new Date().toISOString()).run();
+    // Batas per IP lega untuk satu venue di belakang NAT (600/menit): penuh
+    // hanya setelah 600 permintaan, dan tetap 429 setelahnya.
     let last: Response | null = null;
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i <= TURNOUT_LIMIT; i++) {
       last = await getTurnout({ "cf-connecting-ip": "203.0.113.9" });
     }
     expect(last!.status).toBe(429);
+    // IP lain tidak ikut kena.
+    const other = await getTurnout({ "cf-connecting-ip": "203.0.113.8" });
+    expect(other.status).toBe(200);
   });
 });
 

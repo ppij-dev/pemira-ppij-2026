@@ -54,6 +54,14 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
       </div>
     </section>
   </div>
+  <script>
+    // Odometer bersama (satu komponen di src/lib/odometer.ts) untuk hitung
+    // mundur Dasbor: tiap digit yang berubah menggelinding, tanpa alih-alih
+    // tata letak; dipasang di window supaya skrip is:inline di bawah dapat
+    // memakainya, dengan fallback textContent bila modul belum termuat.
+    import { attachOdometer } from "../../lib/odometer";
+    (window as unknown as { attachOdometer?: typeof attachOdometer }).attachOdometer = attachOdometer;
+  </script>
   <script is:inline>
     const root=document.querySelector('#dashboard'),error=document.querySelector('#error'),access=document.querySelector('#access'),refresh=document.querySelector('#refresh'),refreshLabel=document.querySelector('#refresh-label');
     const num=n=>new Intl.NumberFormat('id-ID').format(n);
@@ -79,8 +87,8 @@ const lastRefreshText = Number.isFinite(watermarkAt) ? formatJst(watermark.value
     const sealedPanel=(title,extra)=>'<section class="'+panel+'"><div class="mb-4"><h2 class="'+panelTitle+'">'+title+'</h2></div>'+sealedNote+(extra||'')+'</section>';
     const stageTone={draft:'bg-muted text-muted-foreground',scheduled:'bg-[#f0f4fa] text-[#4c627b]',open:'bg-[#f1f5f3] text-[#35604a]',closed:'bg-[#fff5e6] text-[#7c5014]',published:'bg-brand-50 text-brand-800'};
     const stageLabel={draft:'Draf',scheduled:'Terjadwal',open:'Dibuka',closed:'Ditutup',published:'Diumumkan'};
-    let timer,target,stage;
-    const countdown=()=>{const el=document.querySelector('#countdown');if(!el||!target)return;const sec=Math.max(0,Math.floor((Date.parse(target)-Date.now())/1000));const d=Math.floor(sec/86400),clock=[Math.floor(sec%86400/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':');el.textContent=d>0?d+' hari '+clock:clock};
+    let timer,target,stage,odoEl=null,odo=null;
+    const countdown=()=>{const el=document.querySelector('#countdown');if(!el||!target)return;const sec=Math.max(0,Math.floor((Date.parse(target)-Date.now())/1000));const d=Math.floor(sec/86400),clock=[Math.floor(sec%86400/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':');const text=d>0?d+' hari '+clock:clock;if(window.attachOdometer){if(!odo||odoEl!==el){odoEl=el;odo=window.attachOdometer(el)}odo.set(text)}else{el.textContent=text}};
     async function load(manual){
       error.setAttribute('hidden','');access.setAttribute('hidden','');
       // Muat otomatis pertama memakai label lama; muat manual dikunci window.withBusy.

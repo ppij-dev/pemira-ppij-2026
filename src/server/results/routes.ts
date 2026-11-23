@@ -53,7 +53,10 @@ resultsRoutes.get("/results", async (c) => {
   }
 });
 
-const TURNOUT_LIMIT = 30;
+// Batas per IP lega untuk satu lokasi di belakang satu IP (NAT gedung/venue):
+// 600/menit ≈ 10 permintaan/detik ≈ 150 tab beranda yang men-polling 4x/menit,
+// masih menahan penyalahgunaan. Ekspor konstanta untuk uji regeresi.
+export const TURNOUT_LIMIT = 600;
 const TURNOUT_WINDOW_SEC = 60;
 
 /** Rate limit atomik via D1 UPSERT (pola papan bukti); kunci per IP. */
@@ -75,6 +78,8 @@ resultsRoutes.get("/turnout", async (c) => {
   const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   if (!await consumeTurnoutAttempt(c.env.DB, ip)) return c.json({ error: "rate_limited" }, 429);
   try {
+    // no-store: angka live tidak boleh dilayani dari cache peramban/CDN.
+    c.header("Cache-Control", "no-store");
     return c.json(await getTurnout(c.env.DB, new Date(), serviceApiConfig(c.env)), 200);
   } catch (error) {
     return fail(c, error);
