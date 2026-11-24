@@ -9,8 +9,10 @@ import { NEUTRAL_ADMIN_NAME, resolveDisplayName } from "../lib/displayName";
 import { DirectInviteError, cancelDirectInvitation, generateDirectInvitations, listDirectInvitations } from "../direct/create";
 import { getRecapPayload } from "../results/recap";
 import { ResultsError } from "../results/queries";
+import { refreshPortalViewForRead, serviceApiConfig } from "../serviceapi/sync";
+import { daftarPemilihStatement, kategoriLabel, kordaKomsatLabels, loadUnitNames, type PemilihRollRow } from "../pemilih/daftar";
 
-type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
+type Env = { Bindings: Bindings & { APP_MASTER_KEY?: string; ONELOGIN_ISSUER?: string; SERVICE_API_CLIENT_ID?: string; SERVICE_API_CLIENT_SECRET?: string; SERVICE_API_URL?: string }; Variables: { authRuntime?: { masterKey: string }; adminAuth?: { session: SessionData; admin: { member_id: string; name: string; is_technical: number }; displayName: string } } };
 type AffiliationClaim = string | string[] | null;
 
 export function affiliationInScope(claim: AffiliationClaim, scope: string): boolean {
@@ -242,6 +244,45 @@ export function createAdminRoutes() {
       detail_json: null,
     })]);
     return c.json({ ok: true }, 200);
+  });
+  // Unduh Daftar Pemilih (keputusan owner Q245, 2026-11-24): JSON saja — Excel
+  // dibangun di peramban seperti Undangan Pemilih dan Rekapitulasi. WHERE/ORDER
+  // datang dari SATU penyusun kueri bersama halaman Daftar Pemilih
+  // (src/pages/admin/pemilih.astro), tanpa LIMIT/OFFSET, jadi semua halaman
+  // ikut terunduh dan halaman dengan ekspor tidak bisa saling melenceng. Mode
+  // Tidak Membekukan DPT menyegarkan view portal lewat jalur pembaca yang sama
+  // dengan halaman (tidak pernah melempar, jadi portal yang sedang gagal tidak
+  // pernah menjadi 500). Audit: satu entri "Daftar Pemilih diunduh" dengan
+  // filter dan jumlah saja — tanpa nama, nomor kartu, atau data anggota lain.
+  routes.get("/admin/pemilih/export", async (c) => {
+    const actor = c.get("adminAuth")!;
+    const filter = { q: c.req.query("q") ?? "", komsat: c.req.query("komsat") ?? "", status: c.req.query("status") ?? "" };
+    const roll = await c.env.DB.prepare("SELECT live_voter_roll FROM elections ORDER BY id LIMIT 1").first<{ live_voter_roll: number }>();
+    if (roll?.live_voter_roll === 1) await refreshPortalViewForRead(c.env.DB, serviceApiConfig(c.env), new Date());
+    const rows = await daftarPemilihStatement(c.env.DB, filter).all<PemilihRollRow>();
+    const now = new Date();
+    await c.env.DB.batch([await buildAuditInsert(c.env.DB, {
+      at: now.toISOString(),
+      actor_type: "admin",
+      actor_member_id: actor.session.member_id,
+      actor_name: actor.displayName,
+      action: "Daftar Pemilih diunduh",
+      target: null,
+      komsat_path: null,
+      detail_json: JSON.stringify({ filter, jumlah: rows.results.length }),
+    })]);
+    const unitNames = await loadUnitNames(c.env.DB);
+    return c.json({
+      jumlah: rows.results.length,
+      rows: rows.results.map((row) => ({
+        name: row.name,
+        member_number: row.member_number,
+        kategori: kategoriLabel(row),
+        ...kordaKomsatLabels(row.komsat_path, unitNames),
+        voted: row.voted,
+        voted_at: row.voted_at,
+      })),
+    }, 200);
   });
   return routes;
 }
