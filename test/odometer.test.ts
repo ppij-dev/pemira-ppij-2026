@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planOdometer } from "../src/lib/odometer";
+import { odometerVisual, planOdometer } from "../src/lib/odometer";
 import odometerSource from "../src/lib/odometer.ts?raw";
 import landing from "../src/pages/index.astro?raw";
 import dasbor from "../src/pages/admin/dasbor.astro?raw";
@@ -43,6 +43,35 @@ describe("planOdometer", () => {
     expect(plan.rebuild).toBe(false);
     expect(plan.cells[1]).toEqual({ char: ".", roll: false });
     expect(plan.cells.at(-1)).toEqual({ char: "5", roll: true });
+  });
+});
+
+describe("spasi di dalam sel odometer", () => {
+  it("spasi digambar non-breaking (1 hari 06:36:17 tidak runtuh jadi 1hari06:36:17)", () => {
+    const chars = [..."1 hari 06:36:17"];
+    expect(chars.map(odometerVisual)).toEqual([..."1\u00A0hari\u00A006:36:17"]);
+    // Dua spasi tetap ada sebagai sel 1ch, bukan hilang.
+    expect(chars.map(odometerVisual).filter((c) => c === "\u00A0")).toHaveLength(2);
+    expect(chars.map(odometerVisual).filter((c) => c === " ")).toHaveLength(0);
+  });
+
+  it("digit dan pemisah tidak berubah, dan rencana tetap menyimpan spasi apa adanya", () => {
+    for (const char of "0123456789:.") expect(odometerVisual(char)).toBe(char);
+    const plan = planOdometer("1 hari 06:36:17", "1 hari 06:36:18");
+    expect(plan.rebuild).toBe(false);
+    expect(plan.cells.map((c) => c.char).join("")).toBe("1 hari 06:36:18");
+    expect(plan.cells.filter((c) => c.char === " ").every((c) => !c.roll)).toBe(true);
+    expect(plan.cells.map((c) => c.roll).filter(Boolean)).toHaveLength(1);
+  });
+
+  it("CSS sel mengunci spasi dan cermin sr-only tetap memakai spasi biasa", () => {
+    // Sel inline-block hanya spasi akan runtuh tanpa white-space:pre.
+    expect(odometerSource).toMatch(/\.odo-cell\{[^}]*white-space:pre/);
+    // Teks yang dikirim ke DOM selalu lewat odometerVisual, cermin tidak.
+    expect(odometerSource).not.toMatch(/createTextNode\(state\.char\)/);
+    expect(odometerSource).not.toMatch(/createTextNode\(next\)/);
+    expect(odometerSource).toMatch(/mirror\.textContent = next/);
+    expect(odometerSource).toMatch(/mirror\.textContent = initial/);
   });
 });
 

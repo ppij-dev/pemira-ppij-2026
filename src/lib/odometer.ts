@@ -6,9 +6,13 @@
  *
  * Lebar tiap sel digit dikunci `1ch` dan halaman memakai font mono
  * `tabular-nums`, jadi tidak ada pergeseran tata letak saat angka bertambah.
- * `prefers-reduced-motion` mengubah angka seketika tanpa animasi. Teks untuk
- * pembaca layar disimpan di satu span `sr-only`; sel visual `aria-hidden`, jadi
- * perubahan per detik tidak diumumkan (tetap `aria-live="off"`).
+ * Sel visual juga `white-space:pre` dan spasi digambar sebagai `\u00A0`
+ * (lihat {@link odometerVisual}): tanpa itu spasi di dalam sel `inline-block`
+ * runtuh, sehingga "1 hari 06:36:17" terlihat sebagai "1hari06:36:17" dan sel
+ * spasi yang kosong kehilangan garis dasar sel digit di sebelahnya. Teks untuk
+ * pembaca layar disimpan di satu span `sr-only` (spasi biasa tetap utuh di sana);
+ * sel visual `aria-hidden`, jadi perubahan per detik tidak diumumkan
+ * (tetap `aria-live="off"`).
  */
 
 /** Peta per posisi: digit yang berubah digelindingkan, sisanya ditulis langsung. */
@@ -55,8 +59,17 @@ export function planOdometer(prev: string, next: string): OdometerPlan {
 
 const ODOMETER_STYLE_ID = "odometer-style";
 
+/**
+ * Karakter yang digambar di sel visual: spasi menjadi non-breaking space agar
+ * tidak runtuh walau ada aturan `white-space` lain di halaman. Nilai state dan
+ * cermin `sr-only` tetap memakai spasi biasa.
+ */
+export function odometerVisual(char: string): string {
+  return char === " " ? "\u00A0" : char;
+}
+
 const ODOMETER_CSS = `
-.odo-cell{position:relative;display:inline-block;min-width:1ch;text-align:center}
+.odo-cell{position:relative;display:inline-block;min-width:1ch;text-align:center;white-space:pre}
 .odo-cell.odo-rolling{overflow:hidden;vertical-align:top}
 .odo-cell .odo-old,.odo-cell .odo-new{display:inline-block}
 .odo-cell .odo-old.odo-anim{animation:odo-out .45s ease forwards}
@@ -111,7 +124,7 @@ export function attachOdometer(el: HTMLElement, doc: Document = document): Odome
   const buildCell = (char: string): CellState => {
     const span = doc.createElement("span");
     span.className = "odo-cell";
-    span.textContent = char;
+    span.textContent = odometerVisual(char);
     return { span, char, settleTimer: undefined };
   };
 
@@ -121,22 +134,22 @@ export function attachOdometer(el: HTMLElement, doc: Document = document): Odome
       state.settleTimer = undefined;
     }
     state.span.classList.remove("odo-rolling");
-    state.span.replaceChildren(doc.createTextNode(state.char));
+    state.span.replaceChildren(doc.createTextNode(odometerVisual(state.char)));
   };
 
   const rollCell = (state: CellState, next: string): void => {
     const reduced = prefersReducedMotion();
     if (reduced) {
       state.char = next;
-      state.span.replaceChildren(doc.createTextNode(next));
+      state.span.replaceChildren(doc.createTextNode(odometerVisual(next)));
       return;
     }
     const oldSpan = doc.createElement("span");
     oldSpan.className = "odo-old odo-anim";
-    oldSpan.textContent = state.char;
+    oldSpan.textContent = odometerVisual(state.char);
     const newSpan = doc.createElement("span");
     newSpan.className = "odo-new odo-anim";
-    newSpan.textContent = next;
+    newSpan.textContent = odometerVisual(next);
     state.char = next;
     state.span.classList.add("odo-rolling");
     state.span.replaceChildren(oldSpan, newSpan);
@@ -175,7 +188,7 @@ export function attachOdometer(el: HTMLElement, doc: Document = document): Odome
         if (!cellPlan.roll && state.char === cellPlan.char) return;
         if (!cellPlan.roll) {
           state.char = cellPlan.char;
-          state.span.replaceChildren(doc.createTextNode(cellPlan.char));
+          state.span.replaceChildren(doc.createTextNode(odometerVisual(cellPlan.char)));
           return;
         }
         rollCell(state, cellPlan.char);

@@ -1,0 +1,4 @@
+- [x] 1.1 Remove korda minimum-ballot suppression in `src/server/results/queries.ts`; update tests.
+- [x] 1.2 `/hasil`: Perolehan suara and Hasil per korda without Abstain, two denominators, token-only bars.
+- [x] 1.3 Beranda: final Setuju / Tidak Setuju card with "Lihat detail" to `/hasil`.
+- [x] 1.4 Focused tests + build.
