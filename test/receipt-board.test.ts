@@ -117,6 +117,16 @@ describe("receipt board", () => {
     expect(await ensureClosingSnapshot(env.DB, new Date())).toBe(first);
   });
 
+  it("drops every count from the public board once Diumumkan but keeps the receipt hashes", async () => {
+    await ensureClosingSnapshot(env.DB, new Date(Date.now() + 1));
+    await env.DB.prepare("UPDATE elections SET status_lock='published' WHERE id=1").run();
+    const response = await app.request("/api/votes/board", {}, bindings);
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["closed_at", "closing_snapshot_hash", "counts_match", "published", "receipt_hashes", "updated_at"]);
+    expect(Array.isArray(body.receipt_hashes)).toBe(true);
+  });
+
   it("uses the early-close audit event hash and does not append a second close event", async () => {
     await env.DB.prepare("UPDATE elections SET closes_at=? WHERE id=1").bind(new Date(Date.now() + 60_000).toISOString()).run();
     await closeEarly(env.DB, new Date(), "incident");

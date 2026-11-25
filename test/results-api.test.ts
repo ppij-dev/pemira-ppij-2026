@@ -521,19 +521,10 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await countNow();
     const res = await requestPublicResults();
     expect(res.status).toBe(200);
-    const data = (await res.json()) as ResultsPayload;
-    expect(data).toMatchObject({
-      single_candidate_mode: true,
-      setuju_count: 0,
-      tidak_setuju_count: 0,
-      abstain_cast_count: 0,
-      tidak_memilih_count: 100,
-      abstain_count: 100,
-      setuju_percentage: 0,
-      tidak_setuju_percentage: 0,
-      abstain_percentage: 100,
-      ballot_count: 0,
-    });
+    // Publik hanya persentase (owner 2026-11-26); angka Abstain tetap di Dasbor.
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data).toEqual({ stage: "published", updated_at: expect.any(String), single_candidate_mode: true, has_votes: false, setuju_percentage: 0, tidak_setuju_percentage: 0, korda: expect.any(Array) });
+    expect(await dashboardData()).toMatchObject({ tidak_memilih_count: 100, abstain_count: 100, ballot_count: 0 });
   });
 
   it("carries the counts for every korda, including one with only 4 ballots", async () => {
@@ -746,7 +737,12 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     const single = (await (await requestDashboard()).json()) as DashboardPayload;
     expect(single).toMatchObject({ stage: "published", tally_sealed: false, setuju_count: 50, tidak_setuju_count: 30, abstain_cast_count: 5, abstain_count: 20, tidak_memilih_count: 15 });
     const publicSingle = (await (await requestPublicResults()).json()) as ResultsPayload;
-    expect(publicSingle).toMatchObject({ tally_sealed: false, setuju_count: 50, abstain_count: 20 });
+    // Publik: hanya persentase dari suara masuk (50 Setuju, 30 Tidak Setuju; baris Abstain lama tidak ikut).
+    expect(publicSingle).toMatchObject({ has_votes: true, setuju_percentage: 62.5, tidak_setuju_percentage: 37.5 });
+    for (const field of ["setuju_count", "tidak_setuju_count", "abstain_count", "eligible_count", "used_count", "turnout_percentage", "ballot_count", "participation_count"]) expect(publicSingle).not.toHaveProperty(field);
+    for (const row of (publicSingle as unknown as { korda: Record<string, unknown>[] }).korda) {
+      expect(Object.keys(row).sort()).toEqual(["has_votes", "key", "name", "setuju_percentage", "tidak_setuju_percentage"]);
+    }
 
     await reset();
     await applyMigrations();
@@ -793,7 +789,9 @@ describe("Results API - Tally sealed until Diumumkan (keputusan owner 2026-11-21
     expect(published).toMatchObject({ stage: "published", tally_sealed: false, setuju_count: 5, abstain_count: 92 });
     const publicResults = await requestPublicResults();
     expect(publicResults.status).toBe(200);
-    expect(((await publicResults.json()) as ResultsPayload).setuju_count).toBe(5);
+    const publicBody = (await publicResults.json()) as Record<string, unknown>;
+    expect(publicBody).not.toHaveProperty("setuju_count");
+    expect(publicBody).toMatchObject({ has_votes: true });
   });
 
   it("mencatat satu entri tally view per muat Dasbor selama angka disegel", async () => {

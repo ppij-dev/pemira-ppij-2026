@@ -48,16 +48,23 @@ const snapshotHash = board?.closing_snapshot_hash ?? null;
       </div>
     </PanelCard>
     : <>
-      <PanelCard title="Angka penutupan" description="Angka ini dihitung sistem saat pemungutan suara ditutup dan menjadi acuan hasil." icon={IconChartBar}>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Hak pilih" value={number(board.hak_pilih)} hint="Daftar Pemilih final saat penutupan." />
-          <StatCard label="Suara masuk" value={number(board.participation_count)} hint="Banyaknya Pemilih yang memberi suara." />
-          <StatCard label="Partisipasi" value={`${number(board.turnout_percentage)}%`} hint="Suara masuk dibanding Hak pilih." />
-          <StatCard label="Surat suara di kotak" value={number(board.ballot_count)} hint={`Partisipasi: ${number(board.participation_count)}.`} />
-        </div>
-        {matches
-          ? <p class="mt-4 text-sm font-semibold text-emerald-700">Surat suara di kotak dan Suara masuk sesuai ({number(board.ballot_count)} = {number(board.participation_count)}).</p>
-          : <div class="mt-4"><Callout tone="danger" title="Angka tidak sesuai">Surat suara di kotak ({number(board.ballot_count)}) berbeda dengan Suara masuk ({number(board.participation_count)}). Hubungi panitia untuk pemeriksaan lebih lanjut.</Callout></div>}
+      <PanelCard title={published ? "Penutupan" : "Angka penutupan"} description={published ? "Keadaan kotak suara saat pemungutan suara ditutup." : "Angka ini dihitung sistem saat pemungutan suara ditutup dan menjadi acuan hasil."} icon={IconChartBar}>
+        {/* Setelah Diumumkan tanpa jumlah apa pun (owner 2026-11-26); di tahap Ditutup tetap tampil. */}
+        {published
+          ? (matches
+            ? <p class="text-sm font-semibold text-emerald-700">Surat suara di kotak dan Suara masuk sesuai.</p>
+            : <Callout tone="danger" title="Angka tidak sesuai">Surat suara di kotak berbeda dengan Suara masuk. Hubungi panitia untuk pemeriksaan lebih lanjut.</Callout>)
+          : <>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Hak pilih" value={number(board.hak_pilih)} hint="Daftar Pemilih final saat penutupan." />
+            <StatCard label="Suara masuk" value={number(board.participation_count)} hint="Banyaknya Pemilih yang memberi suara." />
+            <StatCard label="Partisipasi" value={`${number(board.turnout_percentage)}%`} hint="Suara masuk dibanding Hak pilih." />
+            <StatCard label="Surat suara di kotak" value={number(board.ballot_count)} hint={`Partisipasi: ${number(board.participation_count)}.`} />
+          </div>
+          {matches
+            ? <p class="mt-4 text-sm font-semibold text-emerald-700">Surat suara di kotak dan Suara masuk sesuai ({number(board.ballot_count)} = {number(board.participation_count)}).</p>
+            : <div class="mt-4"><Callout tone="danger" title="Angka tidak sesuai">Surat suara di kotak ({number(board.ballot_count)}) berbeda dengan Suara masuk ({number(board.participation_count)}). Hubungi panitia untuk pemeriksaan lebih lanjut.</Callout></div>}
+          </>}
         <div class="mt-4 grid gap-3 border-t border-brand-border pt-4 sm:grid-cols-2">
           <div class="min-w-0">
             <h3 class="text-xs font-bold tracking-[0.14em] text-brand-muted uppercase">Waktu penutupan</h3>
@@ -75,7 +82,7 @@ const snapshotHash = board?.closing_snapshot_hash ?? null;
         </div>
         <div class="mt-4 flex flex-col items-start gap-2 border-t border-brand-border pt-4 sm:flex-row sm:items-center sm:gap-3">
           <Button href="/papan-bukti/daftar" variant="secondary" class="shrink-0">
-            Lihat semua kode bukti ({number(board.ballot_count)})
+            {published ? "Lihat semua kode bukti" : `Lihat semua kode bukti (${number(board.ballot_count)})`}
             <IconArrowRight size={17} stroke={1.8} aria-hidden="true" />
           </Button>
           <p class="min-w-0 text-[13px] leading-5 text-brand-muted">Daftar lengkap hash kode bukti, bisa dicari dan dibuka per halaman.</p>

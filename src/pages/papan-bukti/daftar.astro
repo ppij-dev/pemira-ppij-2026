@@ -69,6 +69,8 @@ try {
     const number = (value: number) => new Intl.NumberFormat("id-ID").format(value);
 
     let hashes: string[] = [];
+    // Setelah Diumumkan tanpa jumlah total (owner 2026-11-26).
+    let published = false;
     let page = 1;
 
     function render() {
@@ -76,9 +78,9 @@ try {
       const view = receiptPage(filtered, page);
       page = view.page;
       statusLine.textContent = normalizeHashQuery(search.value)
-        ? `${number(view.total)} hash cocok dengan awalan "${normalizeHashQuery(search.value)}" · ${number(view.start)}–${number(view.end)}`
-        : `Menampilkan ${number(view.start)}–${number(view.end)} dari ${number(view.total)} hash`;
-      indicator.textContent = `Halaman ${number(view.page)} dari ${number(view.pages)}`;
+        ? (published ? `Hash cocok dengan awalan "${normalizeHashQuery(search.value)}"` : `${number(view.total)} hash cocok dengan awalan "${normalizeHashQuery(search.value)}" · ${number(view.start)}–${number(view.end)}`)
+        : published ? `Menampilkan ${number(view.start)}–${number(view.end)}` : `Menampilkan ${number(view.start)}–${number(view.end)} dari ${number(view.total)} hash`;
+      indicator.textContent = published ? `Halaman ${number(view.page)}` : `Halaman ${number(view.page)} dari ${number(view.pages)}`;
       prev.disabled = view.page <= 1;
       next.disabled = view.page >= view.pages;
       list.replaceChildren(...view.rows.map((hash) => {
@@ -95,8 +97,9 @@ try {
       try {
         const response = await fetch("/api/votes/board");
         if (!response.ok) throw new Error("papan_belum_tersedia");
-        const data = (await response.json()) as { receipt_hashes?: string[] };
+        const data = (await response.json()) as { receipt_hashes?: string[]; published?: boolean };
         hashes = data.receipt_hashes ?? [];
+        published = data.published === true;
         errorLine.hidden = true;
         container.hidden = false;
         render();

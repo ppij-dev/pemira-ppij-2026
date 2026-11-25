@@ -329,6 +329,8 @@ export interface PublicBoard {
   turnout_percentage: number;
   /** Waktu penutupan: Tutup Sekarang atau jadwal closes_at. */
   closed_at: string | null;
+  /** True saat Diumumkan: halaman dan API publik tidak menampilkan jumlah. */
+  published: boolean;
 }
 
 export async function getPublicBoard(db: D1Database, now: Date, portal?: ServiceApiConfig): Promise<PublicBoard | null> {
@@ -352,6 +354,7 @@ export async function getPublicBoard(db: D1Database, now: Date, portal?: Service
     hak_pilih_source: hakPilih.source,
     turnout_percentage: hakPilih.hakPilih > 0 ? Math.round((participationCount / hakPilih.hakPilih) * 1000) / 10 : 0,
     closed_at: election.closed_early_at ?? election.closes_at,
+    published: election.status_lock === "published",
   };
 }
 
@@ -369,7 +372,14 @@ async function handleReceiptCheck(c: import("hono").Context<Env>) {
 
 async function handleBoard(c: import("hono").Context<Env>) {
   const board = await getPublicBoard(c.env.DB, new Date(), serviceApiConfig(c.env));
-  return board ? c.json(board) : c.json({ error: "pemilihan_belum_ditutup" }, 409);
+  if (!board) return c.json({ error: "pemilihan_belum_ditutup" }, 409);
+  // Setelah Diumumkan papan publik tanpa jumlah (owner 2026-11-26); daftar hash tetap
+  // ada karena itulah alat Pemilih memeriksa kode bukti.
+  if (board.published) {
+    const { receipt_hashes, closing_snapshot_hash, updated_at, closed_at, published } = board;
+    return c.json({ receipt_hashes, closing_snapshot_hash, updated_at, closed_at, published, counts_match: board.participation_count === board.ballot_count });
+  }
+  return c.json(board);
 }
 
 boardRoutes.post("/votes/receipt-check", handleReceiptCheck);

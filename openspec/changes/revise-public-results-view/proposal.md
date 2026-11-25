@@ -22,3 +22,11 @@ sedikit") and mixed Abstain into the percentages, which made the published outco
 ## Stack note
 The owner brief named React + Recharts; this app has neither. The same layout is built in Astro with
 plain HTML/CSS bars and a native tooltip, so no new runtime dependency ships.
+
+## Addendum 2026-11-26: percentages only for the public once Diumumkan
+Owner/stakeholder: the public sees percentages only. Once Diumumkan (single candidate mode):
+`/api/results` returns only Setuju / Tidak Setuju percentages of suara masuk (national and per korda);
+`/api/turnout` returns only `stage` and `updated_at`; `/api/votes/board` keeps the receipt hashes
+(needed to check a kode bukti) but drops every count; beranda hides Statistik pemilihan; `/hasil`,
+`/papan-bukti` and `/papan-bukti/daftar` show no counts. All counts stay visible in earlier stages and
+on the admin Dasbor, Rekapitulasi and Excel.

@@ -128,7 +128,8 @@ describe("GET /api/turnout", () => {
     await env.DB.prepare("UPDATE elections SET status_lock='published'").run();
     const published = await getTurnout();
     expect(published.status).toBe(200);
-    expect(await published.json()).toMatchObject({ stage: "published", eligible_count: 10, votes_count: 6 });
+    // Setelah Diumumkan publik tidak menerima jumlah (owner 2026-11-26).
+    expect(await published.json()).toEqual({ stage: "published", updated_at: expect.any(String) });
   });
 
   it("refuses in Draf", async () => {
