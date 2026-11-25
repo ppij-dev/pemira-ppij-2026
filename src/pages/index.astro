@@ -39,24 +39,18 @@ let singleCandidateMode = false;
 if (db) try { singleCandidateMode = await isSingleCandidateMode(db); } catch { singleCandidateMode = false; }
 const showHasil = currentStage === "published";
 const publicResults: any = showHasil && singleCandidateMode && db ? await getPublicResults(db, new Date()).catch(() => null) : null;
-const eligibleCount: number = publicResults?.eligible_count ?? 0;
-const shareText = (count: number) => eligibleCount > 0 ? new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(Math.round((count / eligibleCount) * 1000) / 10) + "%" : "—";
-// Tidak memilih dihitung sebagai Abstain saat Admin Voting menjalankan
-// Rekapitulasi Suara (Q232-Q234, menggantikan Hitung Abstain Q193); angkanya
-// agregat dari API hasil, tidak pernah dibaca per orang.
-const abstainCounted: boolean = publicResults?.abstain_counted === true;
-const notVotingCount: number = publicResults?.tidak_memilih_count ?? 0;
-// Abstain = Pemilih yang tidak memilih (keputusan owner 2026-11-22): jawaban itu
-// tidak dapat dicoblos lagi, jadi hanya satu angka yang ditampilkan.
-const abstainTotal: number = publicResults?.abstain_count ?? 0;
-const singleResultFacts = publicResults ? [
-  { label: "Setuju", value: `${publicResults.setuju_count ?? 0} suara · ${shareText(publicResults.setuju_count ?? 0)}` },
-  { label: "Tidak Setuju", value: `${publicResults.tidak_setuju_count ?? 0} suara · ${shareText(publicResults.tidak_setuju_count ?? 0)}` },
-  { label: "Abstain", value: `${abstainTotal} suara · ${shareText(abstainTotal)}` },
-  ...(abstainCounted
-    ? []
-    : [{ label: "Tidak memilih", value: `${notVotingCount} orang (belum dihitung)` }]),
-] : [];
+// Hasil akhir beranda (revise-public-results-view, owner 2026-11-26): Setuju dan
+// Tidak Setuju dihitung dari suara masuk (jumlahnya 100%); partisipasi dari Hak pilih.
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const pctText = (n: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(round1(n)) + "%";
+const resultNumber = new Intl.NumberFormat("id-ID");
+const finalSetuju: number = publicResults?.setuju_count ?? 0;
+const finalTidak: number = publicResults?.tidak_setuju_count ?? 0;
+const finalUsed = finalSetuju + finalTidak;
+const finalEligible: number = publicResults?.eligible_count ?? 0;
+const finalSetujuPct = finalUsed > 0 ? round1((finalSetuju / finalUsed) * 100) : 0;
+const finalTidakPct = finalUsed > 0 ? round1(100 - finalSetujuPct) : 0;
+const finalTurnoutPct = finalEligible > 0 ? (finalUsed / finalEligible) * 100 : 0;
 const boardReady = currentStage === "closed" || currentStage === "published";
 // Konfigurasi Service API untuk segarkan view portal pada pembacaan Hak pilih
 // (mode "Tidak Membekukan DPT"); tanpa SERVICE_API_URL tidak ada percobaan.
@@ -179,12 +173,29 @@ const scheduleFacts = [
 
   {showHasil && <section id="hasil" class="mt-8" aria-labelledby="hasil-heading">
     <PanelCard title="Hasil pemilihan" description="Hasil resmi telah diumumkan panitia." icon={IconRosetteDiscountCheck}>
-      {publicResults && <Callout tone="neutral" title="Perolehan suara" class="mb-4">
-        <p>{abstainCounted ? "Persentase dihitung dari Hak pilih. Abstain adalah Pemilih yang tidak memilih." : "Persentase dihitung dari Hak pilih. Pemilih yang tidak memilih belum dihitung sebagai Abstain."}</p>
-        <FactList items={singleResultFacts} variant="inline" class="mt-2" />
-      </Callout>}
+      {publicResults && (finalUsed > 0
+        ? <div class="mb-4 grid gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
+              <p class="m-0 text-sm text-[var(--muted-foreground)]">Setuju</p>
+              <p class="m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums text-[var(--status-green)]">{pctText(finalSetujuPct)}</p>
+              <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalSetuju)} suara</p>
+            </div>
+            <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
+              <p class="m-0 text-sm text-[var(--muted-foreground)]">Tidak Setuju</p>
+              <p class={`m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums ${finalTidak > 0 ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}>{pctText(finalTidakPct)}</p>
+              <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalTidak)} suara</p>
+            </div>
+          </div>
+          <div class="flex h-3 w-full overflow-hidden rounded-full bg-[var(--muted)]" aria-hidden="true">
+            {finalSetujuPct > 0 && <span class="block h-full bg-[var(--status-green)]" style={`width:${finalSetujuPct}%`}></span>}
+            {finalTidak > 0 && <span class="block h-full shrink-0 bg-[var(--primary)]" style={`width:${finalTidakPct}%;min-width:4px`}></span>}
+          </div>
+          <p class="m-0 text-xs leading-5 tabular-nums text-[var(--muted-foreground)]">Dari {resultNumber.format(finalUsed)} suara masuk. Partisipasi {pctText(finalTurnoutPct)} dari {resultNumber.format(finalEligible)} Hak pilih.</p>
+        </div>
+        : <p class="mb-4 text-sm text-[var(--muted-foreground)]">Belum ada suara masuk.</p>)}
       <div class="flex flex-wrap items-center gap-3">
-        <Button href="/hasil" size="sm">Lihat hasil dan statistik<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
+        <Button href="/hasil" size="sm">Lihat detail<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
         {boardReady && <a href="/papan-bukti" class="inline-flex min-h-11 items-center text-sm font-semibold text-brand-red underline underline-offset-4 hover:text-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Papan bukti</a>}
       </div>
     </PanelCard>

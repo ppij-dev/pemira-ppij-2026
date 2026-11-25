@@ -314,14 +314,14 @@ describe("Results API - Dashboard Metrics and Freezing", () => {
   });
 });
 
-describe("Results API - Korda Suppression and Fallback", () => {
-  it("suppresses candidate counts when region ballots < 10 but displays turnout", async () => {
+describe("Results API - Korda counts and Fallback", () => {
+  it("shows candidate counts for every korda, including one with fewer than 10 ballots", async () => {
     await seedElection({ status: "published", frozen: 100 });
     await seedCandidates();
 
-    // Okayama region: 9 ballots (suppressed).
+    // Okayama region: 9 ballots (no threshold since revise-public-results-view).
     for (let i = 1; i <= 9; i++) {
-      await castBallot(1, `${SCOPE}/komsat-${i}`);
+      await castBallot(i <= 7 ? 1 : 2, `${SCOPE}/komsat-${i}`);
       await recordParticipation(`ok-${i}`, `${SCOPE}/komsat-${i}`);
     }
     // Tokyo region: 10 ballots (visible).
@@ -339,8 +339,11 @@ describe("Results API - Korda Suppression and Fallback", () => {
     expect(okayama?.name).toBe("Korda Okayama");
     expect(okayama?.ballot_count).toBe(9);
     expect(okayama?.used_count).toBe(9);
-    expect(okayama?.suppressed).toBe(true);
-    expect(okayama?.candidates).toBeNull();
+    expect(okayama?.suppressed).toBe(false);
+    expect(okayama?.candidates).toEqual([
+      expect.objectContaining({ number: 1, votes: 7 }),
+      expect.objectContaining({ number: 2, votes: 2 }),
+    ]);
     expect(typeof okayama?.turnout_percentage).toBe("number");
 
     const tokyo = data.korda.find((k) => k.key === "/ppij/tokyo");
@@ -367,7 +370,7 @@ describe("Results API - Korda Suppression and Fallback", () => {
     const fallback = data.korda.find((k) => k.key === "/custom-path-without-slashes");
     expect(fallback).toBeDefined();
     expect(fallback?.ballot_count).toBe(1);
-    expect(fallback?.suppressed).toBe(true);
+    expect(fallback?.suppressed).toBe(false);
   });
 });
 
@@ -533,7 +536,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     });
   });
 
-  it("carries the three counts per korda above the suppression threshold and hides them below", async () => {
+  it("carries the counts for every korda, including one with only 4 ballots", async () => {
     // Korda Okayama: 10 pemilih (termasuk admin-1 dari seedBase) + 9 yang tidak
     // memilih = 20 Hak pilih, dengan 10 surat suara (5 Setuju, 3 Tidak Setuju, 2 Abstain).
     await seedSingleElection({ frozen: 24 });
@@ -541,7 +544,7 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     await castChoice("setuju", `${SCOPE}/komsat-a`, 5);
     await castChoice("tidak_setuju", `${SCOPE}/komsat-a`, 3);
     await castChoice("abstain", `${SCOPE}/komsat-a`, 2);
-    // Korda Tokyo: 4 surat suara, di bawah ambang penyembunyian.
+    // Korda Tokyo: 4 surat suara; tanpa ambang, angkanya tetap tampil.
     await castChoice("setuju", "/ppij/tokyo/komsat-a", 4);
     // Sebelum Diumumkan setiap angka pilihan per korda disegel; partisipasinya tetap.
     const sealedRow = (await dashboardData()).korda.find((row) => row.key === SCOPE);
@@ -568,12 +571,8 @@ describe("Results API - Single candidate mode tallies (Setuju / Tidak Setuju / A
     });
     for (const field of SEALED_KORDA_CHOICE_FIELDS) expect(okayama).toHaveProperty(field);
     const tokyo = data.korda.find((row) => row.key === "/ppij/tokyo");
-    expect(tokyo).toMatchObject({ ballot_count: 4, suppressed: true });
-    expect(tokyo?.setuju_count).toBeNull();
-    expect(tokyo?.tidak_memilih_count).toBeNull();
-    expect(tokyo?.abstain_count).toBeNull();
-    expect(tokyo?.abstain_percentage).toBeNull();
-    expect(tokyo?.candidates).toBeNull();
+    expect(tokyo).toMatchObject({ ballot_count: 4, suppressed: false, setuju_count: 4, tidak_setuju_count: 0 });
+    expect(tokyo?.candidates).not.toBeNull();
   });
 
   it("keeps Draf test ballots sealed while their participation counts stay visible", async () => {
@@ -933,7 +932,7 @@ describe("Results API - Audit Trail and Privacy", () => {
     expect(okayama.eligible_count).toBe(4);
     expect(okayama.used_count).toBe(1);
     expect(okayama.ballot_count).toBe(1);
-    expect(okayama.suppressed).toBe(true);
+    expect(okayama.suppressed).toBe(false);
     const total = data.korda.reduce((sum, row) => sum + row.eligible_count, 0);
     // Tautan belum dipakai dihitung nasional saja, jadi jumlah korda lebih kecil.
     expect(total).toBe(4);

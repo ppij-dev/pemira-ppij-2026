@@ -5,8 +5,6 @@ import type { ServiceApiConfig } from "../serviceapi/client";
 import { directInviteTerm } from "../election/hakPilih";
 import { formatUnitPath } from "../../lib/formatKomsat";
 
-/** Candidate counts of a korda are hidden below this many ballots (admin-dashboard spec). */
-export const KORDA_MIN_BALLOTS = 10;
 /** Bucket for komsat paths from which no canonical /ppij/<korda> prefix can be derived. */
 export const UNKNOWN_REGION_KEY = "/tidak-diketahui";
 
@@ -336,7 +334,9 @@ async function computeResults(db: D1Database, election: ElectionRow, currentStag
     const eligible = eligibleByRegion.get(key) ?? 0;
     const used = usedByRegion.get(key) ?? 0;
     const ballots = ballotsByRegion.get(key) ?? 0;
-    const suppressed = ballots < KORDA_MIN_BALLOTS;
+    // Tanpa ambang minimum (keputusan owner 2026-11-26, revise-public-results-view):
+    // setiap korda menampilkan angkanya. Medan `suppressed` tetap ada demi kontrak API.
+    const suppressed = false;
     const perCandidate = votesByRegionCandidate.get(key);
     const perChoice = choiceByRegionRows.get(key);
     // Rincian pilihan mengikuti aturan penyembunyian korda yang sama, dan tetap null

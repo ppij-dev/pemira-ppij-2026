@@ -33,13 +33,14 @@ describe("UI mode kandidat tunggal: dua jawaban, tanpa baris hasil", () => {
     }
   });
 
-  it("Dasbor, Hasil dan beranda menampilkan Abstain sebagai Pemilih yang tidak memilih", () => {
-    for (const page of [dasbor, hasil, landing]) {
-      expect(page).toContain("Abstain");
-      expect(page).toContain("tidak memilih");
-      // Rincian jawaban Abstain yang diberikan sudah tidak ada: jawaban itu tidak
-      // dapat dipilih lagi, jadi satu angka Abstain saja yang ditampilkan.
-      expect(page).not.toContain("Abstain diberikan");
+  it("Dasbor menampilkan Abstain sebagai Pemilih yang tidak memilih; Hasil dan beranda tanpa Abstain", () => {
+    expect(dasbor).toContain("Abstain");
+    expect(dasbor).toContain("tidak memilih");
+    expect(dasbor).not.toContain("Abstain diberikan");
+    // revise-public-results-view (owner 2026-11-26): halaman publik hanya Setuju vs Tidak Setuju.
+    for (const page of [hasil, landing]) {
+      expect(page).not.toMatch(/abstain/i);
+      expect(page).not.toContain("terlalu sedikit");
     }
   });
 
@@ -50,17 +51,13 @@ describe("UI mode kandidat tunggal: dua jawaban, tanpa baris hasil", () => {
     expect(ballot).not.toContain("Pemungutan suara sudah ditutup");
     expect(ballot).not.toContain("Saat ini pemungutan suara tidak dibuka");
   });
-  it("Dasbor, Hasil dan beranda menyebut '(belum dihitung)' sebelum rekap dan memakai abstain_counted", () => {
-    for (const page of [dasbor, hasil]) {
-      expect(page).toContain("tidak memilih (belum dihitung)");
-      expect(page).toContain("abstain_counted");
-    }
-    expect(landing).toContain("(belum dihitung)");
-    expect(landing).toContain("abstain_counted");
-    // Tanpa rincian jawaban Abstain: satu angka total saja di Dasbor dan Hasil.
+  it("Dasbor menyebut '(belum dihitung)' sebelum rekap dan memakai abstain_counted", () => {
+    expect(dasbor).toContain("tidak memilih (belum dihitung)");
+    expect(dasbor).toContain("abstain_counted");
+    // Tanpa rincian jawaban Abstain: satu angka total saja di Dasbor.
     expect(dasbor).not.toContain("abstainParts");
-    expect(hasil).not.toContain("abstainCast");
   });
+
 
   it("Pengaturan tidak punya Hitung Abstain lagi dan mengarahkan rekap ke halaman Rekapitulasi", () => {
     // Tindakan Hitung Abstain digantikan Rekapitulasi Suara (Q232-Q234, 2026-11-22).
