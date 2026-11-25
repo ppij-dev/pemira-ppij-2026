@@ -120,9 +120,35 @@ const scheduleFacts = [
 
       {currentStage === "closed" && <Callout tone="neutral" title="Pemungutan suara ditutup">Hasil akan diumumkan panitia. Anda sudah dapat memeriksa papan bukti suara.</Callout>}
 
+      {/* Hasil akhir langsung di kartu utama (owner 2026-11-26): status, angka
+          Setuju / Tidak Setuju, lalu Lihat detail ke /hasil. */}
       {currentStage === "published" && <>
         <Callout tone="success" title="Hasil sudah diumumkan">Hasil resmi pemilihan dapat Anda lihat beserta ringkasan partisipasi.</Callout>
-        <Button href="/hasil" class="w-full sm:w-auto sm:justify-self-start">Lihat Hasil<IconArrowRight size={19} stroke={1.8} aria-hidden="true" /></Button>
+        {publicResults && (finalUsed > 0
+          ? <div id="hasil" class="grid gap-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
+                <p class="m-0 text-sm text-[var(--muted-foreground)]">Setuju</p>
+                <p class="m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums text-[var(--status-green)]">{pctText(finalSetujuPct)}</p>
+                <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalSetuju)} suara</p>
+              </div>
+              <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
+                <p class="m-0 text-sm text-[var(--muted-foreground)]">Tidak Setuju</p>
+                <p class={`m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums ${finalTidak > 0 ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}>{pctText(finalTidakPct)}</p>
+                <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalTidak)} suara</p>
+              </div>
+            </div>
+            <div class="flex h-3 w-full overflow-hidden rounded-full bg-[var(--muted)]" aria-hidden="true">
+              {finalSetujuPct > 0 && <span class="block h-full bg-[var(--status-green)]" style={`width:${finalSetujuPct}%`}></span>}
+              {finalTidak > 0 && <span class="block h-full shrink-0 bg-[var(--primary)]" style={`width:${finalTidakPct}%;min-width:4px`}></span>}
+            </div>
+            <p class="m-0 text-xs leading-5 tabular-nums text-[var(--muted-foreground)]">Dari {resultNumber.format(finalUsed)} suara masuk. Partisipasi {pctText(finalTurnoutPct)} dari {resultNumber.format(finalEligible)} Hak pilih.</p>
+          </div>
+          : <p id="hasil" class="text-sm text-[var(--muted-foreground)]">Belum ada suara masuk.</p>)}
+        <div class="flex flex-wrap items-center gap-3">
+          <Button href="/hasil" size="sm">Lihat detail<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
+          {boardReady && <a href="/papan-bukti" class="inline-flex min-h-11 items-center text-sm font-semibold text-brand-red underline underline-offset-4 hover:text-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Papan bukti</a>}
+        </div>
       </>}
     </div>
   </section>
@@ -171,35 +197,6 @@ const scheduleFacts = [
       : <div class="mt-4"><PanelCard density="compact" class="border-dashed"><div class="flex items-center gap-2.5 text-brand-muted"><IconUsers size={20} stroke={1.8} aria-hidden="true" /><p class="text-sm">Informasi kandidat belum tersedia.</p></div></PanelCard></div>}
   </section>
 
-  {showHasil && <section id="hasil" class="mt-8" aria-labelledby="hasil-heading">
-    <PanelCard title="Hasil pemilihan" description="Hasil resmi telah diumumkan panitia." icon={IconRosetteDiscountCheck}>
-      {publicResults && (finalUsed > 0
-        ? <div class="mb-4 grid gap-3">
-          <div class="grid grid-cols-2 gap-3">
-            <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
-              <p class="m-0 text-sm text-[var(--muted-foreground)]">Setuju</p>
-              <p class="m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums text-[var(--status-green)]">{pctText(finalSetujuPct)}</p>
-              <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalSetuju)} suara</p>
-            </div>
-            <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
-              <p class="m-0 text-sm text-[var(--muted-foreground)]">Tidak Setuju</p>
-              <p class={`m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums ${finalTidak > 0 ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}>{pctText(finalTidakPct)}</p>
-              <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalTidak)} suara</p>
-            </div>
-          </div>
-          <div class="flex h-3 w-full overflow-hidden rounded-full bg-[var(--muted)]" aria-hidden="true">
-            {finalSetujuPct > 0 && <span class="block h-full bg-[var(--status-green)]" style={`width:${finalSetujuPct}%`}></span>}
-            {finalTidak > 0 && <span class="block h-full shrink-0 bg-[var(--primary)]" style={`width:${finalTidakPct}%;min-width:4px`}></span>}
-          </div>
-          <p class="m-0 text-xs leading-5 tabular-nums text-[var(--muted-foreground)]">Dari {resultNumber.format(finalUsed)} suara masuk. Partisipasi {pctText(finalTurnoutPct)} dari {resultNumber.format(finalEligible)} Hak pilih.</p>
-        </div>
-        : <p class="mb-4 text-sm text-[var(--muted-foreground)]">Belum ada suara masuk.</p>)}
-      <div class="flex flex-wrap items-center gap-3">
-        <Button href="/hasil" size="sm">Lihat detail<IconArrowRight size={17} stroke={1.8} aria-hidden="true" /></Button>
-        {boardReady && <a href="/papan-bukti" class="inline-flex min-h-11 items-center text-sm font-semibold text-brand-red underline underline-offset-4 hover:text-primary-hover focus-visible:outline-2 focus-visible:outline-ring">Papan bukti</a>}
-      </div>
-    </PanelCard>
-  </section>}
 
   <p class="mt-8 flex items-center justify-center gap-2 text-xs text-brand-muted"><Badge tone="outline" size="sm">Rahasia</Badge><span>Partisipasi dan surat suara tercatat terpisah agar pilihan Anda tidak dapat ditelusuri.</span></p>
 
