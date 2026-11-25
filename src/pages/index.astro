@@ -130,12 +130,10 @@ const scheduleFacts = [
               <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
                 <p class="m-0 text-sm text-[var(--muted-foreground)]">Setuju</p>
                 <p class="m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums text-[var(--status-green)]">{pctText(finalSetujuPct)}</p>
-                <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalSetuju)} suara</p>
               </div>
               <div class="min-w-0 rounded-lg border border-[var(--border)] p-3">
                 <p class="m-0 text-sm text-[var(--muted-foreground)]">Tidak Setuju</p>
                 <p class={`m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums ${finalTidak > 0 ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}>{pctText(finalTidakPct)}</p>
-                <p class="m-0 mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{resultNumber.format(finalTidak)} suara</p>
               </div>
             </div>
             <div class="flex h-3 w-full overflow-hidden rounded-full bg-[var(--muted)]" aria-hidden="true">
