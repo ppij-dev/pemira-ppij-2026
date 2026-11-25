@@ -47,10 +47,8 @@ const resultNumber = new Intl.NumberFormat("id-ID");
 const finalSetuju: number = publicResults?.setuju_count ?? 0;
 const finalTidak: number = publicResults?.tidak_setuju_count ?? 0;
 const finalUsed = finalSetuju + finalTidak;
-const finalEligible: number = publicResults?.eligible_count ?? 0;
 const finalSetujuPct = finalUsed > 0 ? round1((finalSetuju / finalUsed) * 100) : 0;
 const finalTidakPct = finalUsed > 0 ? round1(100 - finalSetujuPct) : 0;
-const finalTurnoutPct = finalEligible > 0 ? (finalUsed / finalEligible) * 100 : 0;
 const boardReady = currentStage === "closed" || currentStage === "published";
 // Konfigurasi Service API untuk segarkan view portal pada pembacaan Hak pilih
 // (mode "Tidak Membekukan DPT"); tanpa SERVICE_API_URL tidak ada percobaan.
@@ -140,7 +138,6 @@ const scheduleFacts = [
               {finalSetujuPct > 0 && <span class="block h-full bg-[var(--status-green)]" style={`width:${finalSetujuPct}%`}></span>}
               {finalTidak > 0 && <span class="block h-full shrink-0 bg-[var(--primary)]" style={`width:${finalTidakPct}%;min-width:4px`}></span>}
             </div>
-            <p class="m-0 text-xs leading-5 tabular-nums text-[var(--muted-foreground)]">Dari {resultNumber.format(finalUsed)} suara masuk. Partisipasi {pctText(finalTurnoutPct)} dari {resultNumber.format(finalEligible)} Hak pilih.</p>
           </div>
           : <p id="hasil" class="text-sm text-[var(--muted-foreground)]">Belum ada suara masuk.</p>)}
         <div class="flex flex-wrap items-center gap-3">
