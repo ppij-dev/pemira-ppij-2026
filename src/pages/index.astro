@@ -149,7 +149,8 @@ const scheduleFacts = [
 
   {election?.preview_mode === 1 && <div class="mt-4"><Callout tone="warning" title="Mode uji coba aktif">Semua pilihan hanya untuk tes dan akan dihapus saat pemilihan dikunci.</Callout></div>}
 
-  {turnout && <section aria-labelledby="turnout-heading" class="mt-6">
+  {/* Setelah Diumumkan statistik disembunyikan (permintaan pemangku kepentingan 2026-11-26). */}
+  {turnout && currentStage !== "published" && <section aria-labelledby="turnout-heading" class="mt-6">
     <PanelCard title="Statistik pemilihan" description={currentStage === "open" ? "Diperbarui otomatis setiap 15 detik." : "Diperbarui otomatis."} icon={IconUsers} density="compact">
       <h2 id="turnout-heading" class="sr-only">Statistik pemilihan</h2>
       <div id="turnout-strip" data-stage={turnout.stage} class="grid grid-cols-2 gap-4">
