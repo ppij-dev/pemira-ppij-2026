@@ -47,7 +47,8 @@ resultsRoutes.get("/results", async (c) => {
   try {
     const data = await getPublicResults(c.env.DB, new Date(), serviceApiConfig(c.env));
     if (!data) return c.json({ error: "hasil_belum_diumumkan" }, 409);
-    return c.json(data, 200);
+    // Mode kandidat tunggal: publik hanya menerima persentase (owner 2026-11-26).
+    return c.json(data.single_candidate_mode ? toPublicPercentages(data) : data, 200);
   } catch (error) {
     return fail(c, error);
   }
@@ -80,8 +81,34 @@ resultsRoutes.get("/turnout", async (c) => {
   try {
     // no-store: angka live tidak boleh dilayani dari cache peramban/CDN.
     c.header("Cache-Control", "no-store");
-    return c.json(await getTurnout(c.env.DB, new Date(), serviceApiConfig(c.env)), 200);
+    const turnout = await getTurnout(c.env.DB, new Date(), serviceApiConfig(c.env));
+    // Setelah Diumumkan publik tidak menerima jumlah apa pun (owner 2026-11-26).
+    if (turnout.stage === "published") return c.json({ stage: turnout.stage, updated_at: turnout.updated_at }, 200);
+    return c.json(turnout, 200);
   } catch (error) {
     return fail(c, error);
   }
 });
+
+/** Bagian Setuju dari suara masuk, satu desimal; Tidak Setuju = 100 - Setuju agar jumlahnya tepat 100. */
+function shareOfVotes(setuju: number, tidakSetuju: number) {
+  const used = setuju + tidakSetuju;
+  if (used === 0) return { has_votes: false, setuju_percentage: 0, tidak_setuju_percentage: 0 };
+  const sp = Math.round((setuju / used) * 1000) / 10;
+  return { has_votes: true, setuju_percentage: sp, tidak_setuju_percentage: Math.round((100 - sp) * 10) / 10 };
+}
+
+/**
+ * Hasil publik mode kandidat tunggal (revise-public-results-view, owner 2026-11-26):
+ * hanya persentase Setuju dan Tidak Setuju dari suara masuk, nasional dan per korda.
+ * Tidak ada Hak pilih, suara masuk, jumlah pilihan, Abstain atau partisipasi.
+ */
+export function toPublicPercentages(data: NonNullable<Awaited<ReturnType<typeof getPublicResults>>>) {
+  return {
+    stage: data.stage,
+    updated_at: data.updated_at,
+    single_candidate_mode: true,
+    ...shareOfVotes(data.setuju_count ?? 0, data.tidak_setuju_count ?? 0),
+    korda: data.korda.map((row) => ({ key: row.key, name: row.name, ...shareOfVotes(row.setuju_count ?? 0, row.tidak_setuju_count ?? 0) })),
+  };
+}
