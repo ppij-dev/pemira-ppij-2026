@@ -43,7 +43,6 @@ const publicResults: any = showHasil && singleCandidateMode && db ? await getPub
 // Tidak Setuju dihitung dari suara masuk (jumlahnya 100%); partisipasi dari Hak pilih.
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const pctText = (n: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(round1(n)) + "%";
-const resultNumber = new Intl.NumberFormat("id-ID");
 const finalSetuju: number = publicResults?.setuju_count ?? 0;
 const finalTidak: number = publicResults?.tidak_setuju_count ?? 0;
 const finalUsed = finalSetuju + finalTidak;
